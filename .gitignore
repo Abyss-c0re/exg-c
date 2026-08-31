@@ -4,5 +4,6 @@
 *.csv
 *~
 exg-c.conf
+exg-c.ini
 *.learn
 exg-c.cal

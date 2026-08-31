@@ -106,6 +106,7 @@ const char *SDL_GetError(void);
 int SDL_SetHint(const char *name, const char *value);
 int SDL_SetRenderDrawBlendMode(SDL_Renderer *r, int mode);
 void SDL_GetWindowSize(SDL_Window *w, int *wi, int *he);
+void SDL_SetWindowSize(SDL_Window *w, int wi, int he);
 void SDL_StartTextInput(void);
 void SDL_StopTextInput(void);
 

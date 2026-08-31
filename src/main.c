@@ -101,15 +101,49 @@ struct np_app {
     uint64_t stall_tot;
     int stall_n;
     int recover_n;
+    int ui_scale;
+    int tab;
+    int pref_w, pref_h;
+    int chrgb[NP_NCHAN][3];
 };
 
 static struct np_app g;
+static SDL_Window *Win;
+static int U(int v)
+{
+    int s = g.ui_scale;
+    if (s < 1) {
+        s = 1;
+    }
+    if (s > 3) {
+        s = 3;
+    }
+    return v * s;
+}
+static int sidew(void)
+{
+    return U(300);
+}
+static int statush(void)
+{
+    return U(22) + 6;
+}
+static int learnh(void)
+{
+    return U(70) + 24;
+}
+static int ffth(void)
+{
+    return U(70);
+}
 static void set_status(int ok, const char *fmt, ...);
 static void typing_set(int on);
 static const int SCALE_UV[] = {50, 100, 200, 500, 1000, 5000};
 #define NSCALE 6
 static const int WIN_S[] = {1, 2, 4, 8};
 #define NWINS 4
+static const int WINPREF[][2] = {{1280, 800}, {1440, 900}, {1600, 1000}, {1920, 1080}};
+#define NWINPREF 4
 
 static void filt_reset(void)
 {
@@ -125,9 +159,9 @@ static void cfg_path(char *out, size_t n)
 {
     const char *h = getenv("HOME");
     if (h && h[0]) {
-        snprintf(out, n, "%s/.config/exg-c.conf", h);
+        snprintf(out, n, "%s/.config/exg-c.ini", h);
     } else {
-        snprintf(out, n, "exg-c.conf");
+        snprintf(out, n, "exg-c.ini");
     }
 }
 
@@ -278,10 +312,23 @@ static void cfg_save(void)
     char path[NP_MAX_PATH];
     FILE *f;
     cfg_path(path, sizeof(path));
+    {
+        const char *h = getenv("HOME");
+        if (h && h[0]) {
+            char dir[NP_MAX_PATH];
+            snprintf(dir, sizeof(dir), "%s/.config", h);
+            mkdir(dir, 0755);
+        }
+    }
     f = fopen(path, "w");
     if (!f) {
         return;
     }
+    fprintf(f, "[ui]\n");
+    fprintf(f, "scale=%d\n", g.ui_scale);
+    fprintf(f, "width=%d\n", g.pref_w);
+    fprintf(f, "height=%d\n", g.pref_h);
+    fprintf(f, "\n[view]\n");
     fprintf(f, "window_s=%d\n", g.window_s);
     fprintf(f, "autoscale=%d\n", g.autoscale);
     fprintf(f, "og=%d\n", g.og);
@@ -295,8 +342,10 @@ static void cfg_save(void)
     fprintf(f, "board=%d\n", (int)g.board);
     {
         int i;
+        fprintf(f, "\n[channels]\n");
         for (i = 0; i < NP_NCHAN; i++) {
             fprintf(f, "gain%d=%d\n", i + 1, g.gain[i]);
+            fprintf(f, "color%d=%d,%d,%d\n", i + 1, g.chrgb[i][0], g.chrgb[i][1], g.chrgb[i][2]);
         }
     }
     fclose(f);
@@ -309,7 +358,14 @@ static void cfg_load(void)
     cfg_path(path, sizeof(path));
     f = fopen(path, "r");
     if (!f) {
-        return;
+        const char *h = getenv("HOME");
+        if (h && h[0]) {
+            snprintf(path, sizeof(path), "%s/.config/exg-c.conf", h);
+            f = fopen(path, "r");
+        }
+        if (!f) {
+            return;
+        }
     }
     while (fgets(line, sizeof(line), f)) {
         int v;
@@ -335,11 +391,22 @@ static void cfg_load(void)
             g.cal_cut = v;
         } else if (sscanf(line, "board=%d", &v) == 1) {
             g.board = v ? NP_BOARD_KNIGHT_IMU : NP_BOARD_KNIGHT;
+        } else if (sscanf(line, "scale=%d", &v) == 1 && v >= 1 && v <= 3) {
+            g.ui_scale = v;
+        } else if (sscanf(line, "width=%d", &v) == 1 && v >= 800) {
+            g.pref_w = v;
+        } else if (sscanf(line, "height=%d", &v) == 1 && v >= 560) {
+            g.pref_h = v;
         } else {
-            int ch, gn;
+            int ch, gn, r, gc, b;
             if (sscanf(line, "gain%d=%d", &ch, &gn) == 2 && ch >= 1 && ch <= NP_NCHAN &&
                 gn >= 1) {
                 g.gain[ch - 1] = gn;
+            } else if (sscanf(line, "color%d=%d,%d,%d", &ch, &r, &gc, &b) == 4 && ch >= 1 &&
+                       ch <= NP_NCHAN) {
+                g.chrgb[ch - 1][0] = r;
+                g.chrgb[ch - 1][1] = gc;
+                g.chrgb[ch - 1][2] = b;
             }
         }
     }
@@ -349,6 +416,15 @@ static void cfg_load(void)
     }
     if (g.scale_uv < 20) {
         g.scale_uv = 200;
+    }
+    if (g.ui_scale < 1) {
+        g.ui_scale = 1;
+    }
+    if (g.pref_w < 800) {
+        g.pref_w = WIN_W;
+    }
+    if (g.pref_h < 560) {
+        g.pref_h = WIN_H;
     }
 }
 
@@ -742,6 +818,12 @@ static void glyph(int x, int y, char ch, int r, int gcol, int b, int s)
 
 static void text(int x, int y, const char *s, int r, int gcol, int b, int sc)
 {
+    int ui = g.ui_scale < 1 ? 1 : (g.ui_scale > 3 ? 3 : g.ui_scale);
+    if (sc <= 1) {
+        sc = ui;
+    } else {
+        sc = ui + 1;
+    }
     while (*s) {
         glyph(x, y, *s, r, gcol, b, sc);
         x += 6 * sc;
@@ -790,6 +872,31 @@ static const int CHCOL[NP_NCHAN][3] = {
     {80, 200, 255}, {255, 180, 70}, {120, 220, 140}, {240, 110, 140},
     {180, 150, 255}, {255, 230, 90}, {90, 230, 210}, {230, 140, 255},
 };
+static const int PALETTE[][3] = {
+    {80, 200, 255}, {255, 180, 70}, {120, 220, 140}, {240, 110, 140},
+    {180, 150, 255}, {255, 230, 90}, {90, 230, 210}, {230, 140, 255},
+    {255, 90, 90}, {90, 255, 140}, {255, 255, 255}, {255, 140, 40},
+};
+#define NPAL 12
+
+static void chcol_cycle(int c)
+{
+    int i, k;
+    if (c < 0 || c >= NP_NCHAN) {
+        return;
+    }
+    k = 0;
+    for (i = 0; i < NPAL; i++) {
+        if (g.chrgb[c][0] == PALETTE[i][0] && g.chrgb[c][1] == PALETTE[i][1] &&
+            g.chrgb[c][2] == PALETTE[i][2]) {
+            k = (i + 1) % NPAL;
+            break;
+        }
+    }
+    g.chrgb[c][0] = PALETTE[k][0];
+    g.chrgb[c][1] = PALETTE[k][1];
+    g.chrgb[c][2] = PALETTE[k][2];
+}
 
 /* Open-input / rail is not EEG. Autoscale of ±0.13 V looks like a brainwave. */
 #define Q_OFF 0
@@ -1142,7 +1249,7 @@ static void draw_waves(int x, int y, int w, int h)
             q = ch_quality(c, buf, n, lp, ln);
             fill(x, y1b - 1, w, 1, 32, 36, 44);
             snprintf(lab, sizeof(lab), "ch%d", c + 1);
-            text(x + 4, y0 + 4, lab, CHCOL[c][0], CHCOL[c][1], CHCOL[c][2], 1);
+            text(x + 4, y0 + 4, lab, g.chrgb[c][0], g.chrgb[c][1], g.chrgb[c][2], 1);
             if (g.show_uv) {
                 if (rms >= 1000.f) {
                     snprintf(lab, sizeof(lab), "%+.0f  rms %.1f mV", last, rms / 1000.f);
@@ -1222,9 +1329,9 @@ static void draw_waves(int x, int y, int w, int h)
                 }
             }
             dim = (!g.og && (q == Q_OPEN || q == Q_LEADOFF));
-            cr = dim ? CHCOL[c][0] / 3 : CHCOL[c][0];
-            cg = dim ? CHCOL[c][1] / 3 : CHCOL[c][1];
-            cb = dim ? CHCOL[c][2] / 3 : CHCOL[c][2];
+            cr = dim ? g.chrgb[c][0] / 3 : g.chrgb[c][0];
+            cg = dim ? g.chrgb[c][1] / 3 : g.chrgb[c][1];
+            cb = dim ? g.chrgb[c][2] / 3 : g.chrgb[c][2];
             SDL_SetRenderDrawColor(R, (Uint8)cr, (Uint8)cg, (Uint8)cb, 255);
             for (i = 1; i < n; i++) {
                 int x1 = x + (int)((i - 1) * (w - 1) / (n - 1));
@@ -1378,21 +1485,21 @@ static void draw_side(int x)
 
     text(x + 12, y, "Port", 140, 148, 160, 1);
     y += 11;
-    btn(x + 12, y, SIDE_W - 24, 24, port, 1, 4, 0, 32, 36, 44);
+    btn(x + 12, y, sidew() - 24, 24, port, 1, 4, 0, 32, 36, 44);
     y += 30;
 
     text(x + 12, y, "Board", 140, 148, 160, 1);
     y += 11;
-    btn(x + 12, y, SIDE_W - 24, 24, bname, 1, 5, 0, 32, 36, 44);
+    btn(x + 12, y, sidew() - 24, 24, bname, 1, 5, 0, 32, 36, 44);
     y += 30;
 
     if (!g.connected) {
-        btn(x + 12, y, SIDE_W - 24, 28, "Connect", 1, 1, 0, 30, 110, 80);
+        btn(x + 12, y, sidew() - 24, 28, "Connect", 1, 1, 0, 30, 110, 80);
     } else {
-        btn(x + 12, y, SIDE_W - 24, 28, "Disconnect", 1, 2, 0, 120, 40, 48);
+        btn(x + 12, y, sidew() - 24, 28, "Disconnect", 1, 2, 0, 120, 40, 48);
     }
     y += 34;
-    btn(x + 12, y, SIDE_W - 24, 24, g.recording ? "Stop record" : "Record CSV",
+    btn(x + 12, y, sidew() - 24, 24, g.recording ? "Stop record" : "Record CSV",
         g.recording, 3, 0, g.recording ? 110 : 36, g.recording ? 50 : 40,
         g.recording ? 40 : 52);
     y += 32;
@@ -1406,7 +1513,7 @@ static void draw_side(int x)
         int by = y + row * 28;
         char gn[8];
         snprintf(line, sizeof(line), "%d", c + 1);
-        text(bx, by + 6, line, CHCOL[c][0], CHCOL[c][1], CHCOL[c][2], 1);
+        text(bx, by + 6, line, g.chrgb[c][0], g.chrgb[c][1], g.chrgb[c][2], 1);
         btn(bx + 14, by, 36, 22, g.active[c] ? "ON" : "off", g.active[c], 6, c,
             g.active[c] ? 28 : 40, g.active[c] ? 90 : 42, g.active[c] ? 60 : 50);
         btn(bx + 52, by, 36, 22, g.rld[c] ? "RLD" : "rld", g.rld[c], 7, c,
@@ -1415,6 +1522,34 @@ static void draw_side(int x)
         btn(bx + 90, by, 40, 22, gn, 1, 8, c, 40, 42, 52);
     }
     y += 4 * 28 + 12;
+    btn(x + 12, y, 130, 22, "Main", g.tab == 0, 30, 0, g.tab == 0 ? 36 : 28, g.tab == 0 ? 50 : 32,
+        44);
+    btn(x + 148, y, 140, 22, "Settings", g.tab == 1, 31, 0, g.tab == 1 ? 36 : 28,
+        g.tab == 1 ? 50 : 32, 44);
+    y += 28;
+    if (g.tab == 1) {
+        char b[48];
+        text(x + 12, y, "UI", 140, 148, 160, 1);
+        y += 14;
+        snprintf(b, sizeof(b), "text %dx", g.ui_scale);
+        btn(x + 12, y, 136, 22, b, 1, 32, 0, 36, 40, 48);
+        snprintf(b, sizeof(b), "%dx%d", g.pref_w, g.pref_h);
+        btn(x + 152, y, 136, 22, b, 1, 33, 0, 36, 40, 48);
+        y += 28;
+        text(x + 12, y, "Channel colors (click)", 140, 148, 160, 1);
+        y += 14;
+        for (c = 0; c < NP_NCHAN; c++) {
+            int col = c / 4, row = c % 4;
+            int bx = x + 12 + col * 140;
+            int by = y + row * 26;
+            snprintf(b, sizeof(b), "ch%d", c + 1);
+            btn(bx, by, 128, 22, b, 1, 34, c, g.chrgb[c][0] / 3, g.chrgb[c][1] / 3,
+                g.chrgb[c][2] / 3);
+        }
+        y += 4 * 26 + 8;
+        text(x + 12, y, "saved to ~/.config/exg-c.ini", 100, 108, 116, 1);
+        return;
+    }
     {
         char b[40];
         text(x + 12, y, "View", 140, 148, 160, 1);
@@ -1610,8 +1745,9 @@ static void draw_status(void)
              g.parser.frame_len, g.parser.locked ? " lock" : "", lp, ln,
              g.paused ? " PAUSE" : "");
     pthread_mutex_unlock(&g.mu);
-    fill(0, win_h - STATUS_H, win_w, STATUS_H, 16, 18, 22);
-    text(12, win_h - STATUS_H + 8, st, g.status_ok ? 80 : 240, g.status_ok ? 210 : 90,
+    fill(0, win_h - statush(), win_w, statush(), 16, 18, 22);
+    text(12, win_h - statush() + (statush() - 8) / 2, st, g.status_ok ? 80 : 240,
+         g.status_ok ? 210 : 90,
          g.status_ok ? 120 : 90, 1);
 }
 
@@ -1809,6 +1945,41 @@ static void click(int x, int y)
         case 28:
             wear_check();
             break;
+        case 30:
+            g.tab = 0;
+            break;
+        case 31:
+            g.tab = 1;
+            break;
+        case 32:
+            g.ui_scale = g.ui_scale >= 3 ? 1 : g.ui_scale + 1;
+            cfg_save();
+            break;
+        case 33:
+            {
+                int k, found = 0;
+                for (k = 0; k < NWINPREF; k++) {
+                    if (WINPREF[k][0] == g.pref_w && WINPREF[k][1] == g.pref_h) {
+                        k = (k + 1) % NWINPREF;
+                        found = 1;
+                        break;
+                    }
+                }
+                if (!found) {
+                    k = 0;
+                }
+                g.pref_w = WINPREF[k][0];
+                g.pref_h = WINPREF[k][1];
+                if (Win) {
+                    SDL_SetWindowSize(Win, g.pref_w, g.pref_h);
+                }
+                cfg_save();
+            }
+            break;
+        case 34:
+            chcol_cycle(hits[i].ch);
+            cfg_save();
+            break;
         default:
             break;
         }
@@ -1819,18 +1990,18 @@ static void click(int x, int y)
 
 static void frame(void)
 {
-    int plot_w = win_w - SIDE_W - 24;
-    int wave_h = win_h - WAVE_TOP - LEARN_H - FFT_H - 10 - STATUS_H;
+    int plot_w = win_w - sidew() - 24;
+    int wave_h = win_h - WAVE_TOP - learnh() - ffth() - 10 - statush();
     if (wave_h < NP_NCHAN * 36) {
         wave_h = NP_NCHAN * 36;
     }
     nhits = 0;
     fill(0, 0, win_w, win_h, 22, 24, 30);
-    fill(win_w - SIDE_W, 0, SIDE_W, win_h, 26, 28, 34);
+    fill(win_w - sidew(), 0, sidew(), win_h, 26, 28, 34);
     draw_waves(12, WAVE_TOP, plot_w, wave_h);
-    draw_learn(12, WAVE_TOP + wave_h + 4, plot_w, LEARN_H);
-    draw_fft(12, WAVE_TOP + wave_h + LEARN_H + 8, plot_w, FFT_H);
-    draw_side(win_w - SIDE_W);
+    draw_learn(12, WAVE_TOP + wave_h + 4, plot_w, learnh());
+    draw_fft(12, WAVE_TOP + wave_h + learnh() + 8, plot_w, ffth());
+    draw_side(win_w - sidew());
     draw_status();
 }
 
@@ -1847,7 +2018,10 @@ static int run_gui(void)
         return 1;
     }
     win = SDL_CreateWindow("exg-c", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-                           WIN_W, WIN_H, SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE);
+                           g.pref_w, g.pref_h, SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE);
+    Win = win;
+    win_w = g.pref_w;
+    win_h = g.pref_h;
     if (!win) {
         fprintf(stderr, "SDL_CreateWindow: %s\n", SDL_GetError());
         SDL_Quit();
@@ -2042,8 +2216,14 @@ int main(int argc, char **argv)
     g.cal_cut = 1;
     g.grid = 1;
     g.show_uv = 1;
+    g.ui_scale = 2;
+    g.pref_w = 1440;
+    g.pref_h = 900;
     for (i = 0; i < NP_NCHAN; i++) {
         g.gain[i] = 12;
+        g.chrgb[i][0] = CHCOL[i][0];
+        g.chrgb[i][1] = CHCOL[i][1];
+        g.chrgb[i][2] = CHCOL[i][2];
     }
     cfg_load();
     filt_reset();
