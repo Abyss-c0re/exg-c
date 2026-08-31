@@ -237,8 +237,20 @@ static void test_ml_harness(void)
     np_sub_dc(ev, 256, 80.f);
     resid_e = rms_of(ev, 256);
 
-    expect(np_detect(noise_rms, noise_rms, noise_rms, calm_rms, NULL) == NP_DET_NOISE,
-           "harness: desk = noise");
+    {
+        float desk[256], resid_n, dc = 0.f;
+        int j;
+        struct np_notch n2;
+        synth(desk, 256, 125.f, 50.f, 20.f, 10.f, 0.2f);
+        np_notch_init(&n2, hz, 125.f, 30.f);
+        for (j = 0; j < 256; j++) {
+            desk[j] = np_notch_step(&n2, desk[j]);
+        }
+        resid_n = rms_of(desk, 256);
+        (void)dc;
+        expect(np_detect(noise_rms, resid_n, noise_rms, calm_rms, NULL) == NP_DET_NOISE,
+               "harness: desk = noise");
+    }
     expect(np_detect(raw_c, resid_c, noise_rms, calm_rms, NULL) == NP_DET_CALM,
            "harness: worn still = calm");
     expect(np_detect(raw_e, resid_e, noise_rms, calm_rms, NULL) == NP_DET_SIGNAL,

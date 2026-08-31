@@ -260,18 +260,24 @@ int np_detect(float raw_rms, float resid_rms, float noise_rms, float calm_rms, f
     if (ratio) {
         *ratio = 0.f;
     }
-    if (noise_rms > floor_uv && raw_rms > 0.70f * noise_rms && raw_rms < 1.40f * noise_rms) {
-        return NP_DET_NOISE;
-    }
+    /* Residual vs calm first — a new tone on a loud mains plate must
+     * still register. Raw-vs-noise is only the desk label. */
     if (calm_rms > floor_uv) {
-        float r = resid_rms / (calm_rms > 1.f ? calm_rms : 1.f);
+        float r = resid_rms / calm_rms;
         if (ratio) {
             *ratio = r;
         }
-        if (r < 1.50f) {
-            return NP_DET_CALM;
+        if (r >= 1.50f) {
+            return NP_DET_SIGNAL;
         }
-        return NP_DET_SIGNAL;
+        if (noise_rms > floor_uv && raw_rms > 0.70f * noise_rms &&
+            raw_rms < 1.40f * noise_rms) {
+            return NP_DET_NOISE;
+        }
+        return NP_DET_CALM;
+    }
+    if (noise_rms > floor_uv && raw_rms > 0.70f * noise_rms && raw_rms < 1.40f * noise_rms) {
+        return NP_DET_NOISE;
     }
     if (resid_rms > 3.f * floor_uv) {
         return NP_DET_SIGNAL;

@@ -194,6 +194,67 @@ int main(int argc, char **argv)
         fprintf(stderr, "FAIL unexpected frame_len %d\n", p.frame_len);
         pass = 0;
     }
+
+    /* Deliverable: this capture is the NOISE plate. Inject a tone that
+     * is not in the plate. After CLEAN, detect must say SIGNAL. */
+    {
+        float x[256], cleaned[256], ev[256], hz = 0.f, noise_rms, calm_rms, resid_n, raw_e,
+            resid_e;
+        struct np_notch nt;
+        int take = n > 256 ? 256 : n;
+        int det_n, det_e;
+        if (take < 128) {
+            fprintf(stderr, "FAIL harness: short capture\n");
+            return 1;
+        }
+        for (i = 0; i < take; i++) {
+            x[i] = uv[i][0];
+        }
+        noise_rms = 0.f;
+        stats(x, take, &ax, &noise_rms, &ax);
+        if (np_tone_hz(x, take, 125.f, &hz) != 0) {
+            fprintf(stderr, "FAIL harness: no noise tone on ch1\n");
+            return 1;
+        }
+        np_notch_init(&nt, hz, 125.f, 30.f);
+        for (i = 0; i < take; i++) {
+            cleaned[i] = np_notch_step(&nt, x[i]);
+        }
+        {
+            float dc = 0;
+            stats(cleaned, take, &dc, &resid_n, &ax);
+            np_sub_dc(cleaned, take, dc);
+            stats(cleaned, take, &dc, &calm_rms, &ax);
+            resid_n = calm_rms;
+        }
+        {
+            float amp = 2.5f * (calm_rms > 20.f ? calm_rms : 20.f);
+            for (i = 0; i < take; i++) {
+                ev[i] = x[i] + amp * sinf(2.f * (float)M_PI * 8.f * (float)i / 125.f);
+            }
+        }
+        stats(ev, take, &ax, &raw_e, &ax);
+        np_notch_init(&nt, hz, 125.f, 30.f);
+        for (i = 0; i < take; i++) {
+            ev[i] = np_notch_step(&nt, ev[i]);
+        }
+        {
+            float dc = 0;
+            stats(ev, take, &dc, &resid_e, &ax);
+            np_sub_dc(ev, take, dc);
+            stats(ev, take, &dc, &resid_e, &ax);
+        }
+        det_n = np_detect(noise_rms, resid_n, noise_rms, calm_rms, NULL);
+        det_e = np_detect(raw_e, resid_e, noise_rms, calm_rms, NULL);
+        printf("harness noise→%d  event→%d  (1=noise 2=calm 3=SIGNAL)\n", det_n, det_e);
+        if (det_n != NP_DET_NOISE || det_e != NP_DET_SIGNAL) {
+            fprintf(stderr, "FAIL harness on live plate\n");
+            pass = 0;
+        } else {
+            printf("LIVE HARNESS DELIVERED  tone %.2f Hz\n", hz);
+        }
+    }
+
     printf(pass ? "LIVE PASS\n" : "LIVE FAIL\n");
     return pass ? 0 : 1;
 }

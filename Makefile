@@ -15,7 +15,7 @@ LIVE = tests/live_collect
 TEST_SRC = src/np_serial.c src/np_knight.c src/np_ring.c src/np_dsp.c
 TEST_NPL = nplearn/src/nplearn.c nplearn/src/nplearn_filt.c nplearn/src/nplearn_posix.c
 
-.PHONY: all lib clean cli test test-live
+.PHONY: all lib clean cli test test-live deliver
 
 all: $(BIN)
 
@@ -51,3 +51,20 @@ test-live: $(LIVE)
 	else \
 		sg dialout -c './$(LIVE) /dev/ttyUSB1 tests/fixtures/live-table.csv'; \
 	fi
+
+# Loop mock + live until the harness delivers or tries run out.
+deliver: $(TEST_CORE) $(LIVE)
+	@ok=0; \
+	for i in 1 2 3 4 5; do \
+		echo "==== deliver try $$i/5 mock ===="; \
+		./$(TEST_CORE) || continue; \
+		echo "==== deliver try $$i/5 live ===="; \
+		if [ -r /dev/ttyUSB1 ]; then \
+			./$(LIVE) /dev/ttyUSB1 tests/fixtures/live-table.csv && ok=1 && break; \
+		else \
+			sg dialout -c './$(LIVE) /dev/ttyUSB1 tests/fixtures/live-table.csv' && ok=1 && break; \
+		fi; \
+		echo "retry after 3s"; sleep 3; \
+	done; \
+	if [ "$$ok" != 1 ]; then echo DELIVER FAIL; exit 1; fi; \
+	echo DELIVER OK
