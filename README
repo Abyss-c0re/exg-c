@@ -11,8 +11,9 @@ only. See nplearn/README.
 
 Requires libSDL2 and dialout (the host re-execs via sg if needed).
 Once:  sudo ./install-usb-permissions.sh
-Settings persist in ~/.config/exg-c.ini (window size, colors, view).
-Sidebar Settings tab: window size, per-channel colors.
+Settings persist in ~/.config/exg-c.ini (UI scale, window, colors, view).
+Sidebar Settings tab: UI 1.0x / 1.5x / 2.0x (whole layout), window size,
+per-channel colors. Scale multiplies every control the same amount.
 
 Keys: c connect  d disconnect  r record  space pause  1-8 toggle  q quit
 Click View buttons for window, scale, 50/60 Hz notch, high-pass, grid.

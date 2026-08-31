@@ -102,6 +102,7 @@ struct np_app {
     int stall_n;
     int recover_n;
     int tab;
+    int ui_scale; /* tenths: 10, 15, 20 → 1.0x 1.5x 2.0x */
     int pref_w, pref_h;
     int chrgb[NP_NCHAN][3];
 };
@@ -124,6 +125,14 @@ static int learnh(void)
 static int ffth(void)
 {
     return FFT_H;
+}
+static float ui_f(void)
+{
+    int t = g.ui_scale;
+    if (t != 10 && t != 15 && t != 20) {
+        t = 15;
+    }
+    return (float)t / 10.f;
 }
 static void set_status(int ok, const char *fmt, ...);
 static void typing_set(int on);
@@ -314,6 +323,7 @@ static void cfg_save(void)
         return;
     }
     fprintf(f, "[ui]\n");
+    fprintf(f, "scale=%d\n", g.ui_scale);
     fprintf(f, "width=%d\n", g.pref_w);
     fprintf(f, "height=%d\n", g.pref_h);
     fprintf(f, "\n[view]\n");
@@ -379,6 +389,16 @@ static void cfg_load(void)
             g.cal_cut = v;
         } else if (sscanf(line, "board=%d", &v) == 1) {
             g.board = v ? NP_BOARD_KNIGHT_IMU : NP_BOARD_KNIGHT;
+        } else if (sscanf(line, "scale=%d", &v) == 1 && v >= 1) {
+            if (v == 1) {
+                g.ui_scale = 10;
+            } else if (v == 2) {
+                g.ui_scale = 15;
+            } else if (v == 3) {
+                g.ui_scale = 20;
+            } else if (v == 10 || v == 15 || v == 20) {
+                g.ui_scale = v;
+            }
         } else if (sscanf(line, "width=%d", &v) == 1 && v >= 800) {
             g.pref_w = v;
         } else if (sscanf(line, "height=%d", &v) == 1 && v >= 560) {
@@ -402,6 +422,9 @@ static void cfg_load(void)
     }
     if (g.scale_uv < 20) {
         g.scale_uv = 200;
+    }
+    if (g.ui_scale != 10 && g.ui_scale != 15 && g.ui_scale != 20) {
+        g.ui_scale = 15;
     }
     if (g.pref_w < 800) {
         g.pref_w = WIN_W;
@@ -1507,10 +1530,12 @@ static void draw_side(int x)
     y += 28;
     if (g.tab == 1) {
         char b[48];
-        text(x + 12, y, "Window", 140, 148, 160, 1);
+        text(x + 12, y, "UI", 140, 148, 160, 1);
         y += 14;
+        snprintf(b, sizeof(b), "UI %.1fx", (double)ui_f());
+        btn(x + 12, y, 136, 22, b, 1, 32, 0, 36, 40, 48);
         snprintf(b, sizeof(b), "%dx%d", g.pref_w, g.pref_h);
-        btn(x + 12, y, sidew() - 24, 22, b, 1, 33, 0, 36, 40, 48);
+        btn(x + 152, y, 136, 22, b, 1, 33, 0, 36, 40, 48);
         y += 28;
         text(x + 12, y, "Channel colors (click)", 140, 148, 160, 1);
         y += 14;
@@ -1927,6 +1952,16 @@ static void click(int x, int y)
         case 31:
             g.tab = 1;
             break;
+        case 32:
+            if (g.ui_scale == 10) {
+                g.ui_scale = 15;
+            } else if (g.ui_scale == 15) {
+                g.ui_scale = 20;
+            } else {
+                g.ui_scale = 10;
+            }
+            cfg_save();
+            break;
         case 33:
             {
                 int k, found = 0;
@@ -2071,7 +2106,8 @@ static int run_gui(void)
                     }
                 }
             } else if (ev.type == SDL_MOUSEBUTTONDOWN && ev.button.button == SDL_BUTTON_LEFT) {
-                click(ev.button.x, ev.button.y);
+                float s = ui_f();
+                click((int)(ev.button.x / s), (int)(ev.button.y / s));
             }
         }
         learn_tick();
@@ -2095,12 +2131,24 @@ static int run_gui(void)
                 }
             }
         }
-        SDL_GetWindowSize(win, &win_w, &win_h);
-        if (win_w < 800) {
-            win_w = 800;
-        }
-        if (win_h < 560) {
-            win_h = 560;
+        {
+            int pw, ph;
+            float s = ui_f();
+            SDL_GetWindowSize(win, &pw, &ph);
+            /* Clear the real backbuffer first so a previous scale cannot
+             * leave a second copy in the margin. */
+            SDL_RenderSetScale(R, 1.f, 1.f);
+            SDL_SetRenderDrawColor(R, 22, 24, 30, 255);
+            SDL_RenderClear(R);
+            SDL_RenderSetScale(R, s, s);
+            win_w = (int)(pw / s);
+            win_h = (int)(ph / s);
+            if (win_w < 640) {
+                win_w = 640;
+            }
+            if (win_h < 400) {
+                win_h = 400;
+            }
         }
         frame();
         SDL_RenderPresent(R);
@@ -2190,8 +2238,9 @@ int main(int argc, char **argv)
     g.cal_cut = 1;
     g.grid = 1;
     g.show_uv = 1;
-    g.pref_w = 1440;
-    g.pref_h = 900;
+    g.ui_scale = 15;
+    g.pref_w = 1920;
+    g.pref_h = 1080;
     for (i = 0; i < NP_NCHAN; i++) {
         g.gain[i] = 12;
         g.chrgb[i][0] = CHCOL[i][0];
