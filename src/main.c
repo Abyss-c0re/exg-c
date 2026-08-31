@@ -1015,6 +1015,60 @@ static void cal_capture(void)
     set_status(1, "calibrated (headset OFF)  ch1 rms %.0f uV  saved exg-c.cal", g.cal.rms[0]);
 }
 
+static int live_vs_cal(float *ratio_out)
+{
+    int c, nbase = 0, nchg = 0;
+    float rmax = 0.f;
+    uint32_t want = (uint32_t)(g.window_s * (g.sps > 1.f ? g.sps : NP_DEFAULT_SPS));
+    if (want < 32) {
+        want = 32;
+    }
+    if (want > NP_RING) {
+        want = NP_RING;
+    }
+    for (c = 0; c < NP_NCHAN; c++) {
+        float buf[NP_RING], dc, rms, pk, r;
+        uint32_t n;
+        if (!g.active[c] || !g.cal.have || g.cal.rms[c] < 1.f) {
+            continue;
+        }
+        n = np_ring_copy(&g.ring, c, buf, want);
+        ch_stats(buf, n, &dc, &rms, &pk);
+        r = rms / g.cal.rms[c];
+        if (r > rmax) {
+            rmax = r;
+        }
+        if (r < 0.70f || r > 1.40f) {
+            nchg++;
+        } else {
+            nbase++;
+        }
+    }
+    if (ratio_out) {
+        *ratio_out = rmax;
+    }
+    return nchg > 0 ? nchg : (nbase ? 0 : -1);
+}
+
+static void wear_check(void)
+{
+    float r = 0.f;
+    int nchg;
+    if (!g.cal.have) {
+        set_status(0, "CAL first (headset off, then OK)");
+        return;
+    }
+    nchg = live_vs_cal(&r);
+    if (nchg > 0) {
+        set_status(1, "analog CHANGED vs cal (max %.2fx) - %d ch left baseline", r, nchg);
+    } else {
+        set_status(0,
+                   "still at baseline (%.2fx). Need: wires on CH+, earclip on RLD/COMM, "
+                   "board switches toward electrodes, paste on ear. Then clench jaw.",
+                   r > 0.f ? r : 1.f);
+    }
+}
+
 static void draw_waves(int x, int y, int w, int h)
 {
     int c;
@@ -1459,9 +1513,22 @@ static void draw_learn(int x, int y, int w, int h)
     }
 
     nshow = g.learn.n > 8 ? 8 : g.learn.n;
-    if (nshow <= 0) {
+    if (g.cal.have && g.cal_cut && nshow <= 0) {
+        float rr = 0.f;
+        int nchg = live_vs_cal(&rr);
+        if (nchg == 0) {
+            text(x + 8, y + 32,
+                 "flat = still open-input. wires on CH+  earclip RLD/COMM  flip analog switches  paste  clench jaw",
+                 210, 150, 80, 1);
+        } else if (nchg > 0) {
+            snprintf(lab, sizeof(lab), "%d ch left baseline (%.2fx) - that is the analog change", nchg,
+                     rr);
+            text(x + 8, y + 32, lab, 80, 210, 140, 1);
+        }
+    } else if (nshow <= 0) {
         text(x + 8, y + 32, "no samples yet", 90, 96, 104, 1);
-    } else {
+    }
+    if (nshow > 0) {
         bw = (w - 12) / nshow;
         if (bw > 140) {
             bw = 140;
@@ -1498,6 +1565,7 @@ static void draw_learn(int x, int y, int w, int h)
     btn(x + 134, y + h - 22, 36, 18, "OFF", g.off.have, 22, 0, g.off.have ? 90 : 32, 38, 42);
     btn(x + 174, y + h - 22, 32, 18, "ON", g.on.have, 23, 0, 32, g.on.have ? 90 : 38, 48);
     btn(x + 210, y + h - 22, 48, 18, "write", 0, 24, 0, 32, 36, 44);
+    btn(x + 262, y + h - 22, 48, 18, "WEAR", 0, 28, 0, 36, 50, 70);
     if (g.cal_arm) {
         text(x + 264, y + h - 18, "headset OFF, then OK  (overwrites exg-c.cal)", 230, 190, 90, 1);
     } else if (g.off.have && g.on.have) {
@@ -1506,9 +1574,9 @@ static void draw_learn(int x, int y, int w, int h)
                  g.on.rms[0], r, (r > 3.f || (r > 0.f && r < 0.33f)) ? "DIFFERENT" : "SAME");
         text(x + 264, y + h - 18, lab, 160, 170, 150, 1);
     } else if (g.cal.have) {
-        text(x + 264, y + h - 18,
-             g.cal_cut ? "CUT on: baseline static is zeroed" : "CUT off: raw plot", 100, 120, 110,
-             1);
+        text(x + 316, y + h - 18,
+             g.cal_cut ? "CUT on  WEAR checks if headset changed the ADC" : "CUT off: raw plot",
+             100, 120, 110, 1);
     } else {
         text(x + 264, y + h - 18, "CAL = save open-input baseline (headset off)", 90, 96, 104, 1);
     }
@@ -1723,6 +1791,9 @@ static void click(int x, int y)
             g.cal_cut = !g.cal_cut;
             cfg_save();
             set_status(1, g.cal_cut ? "CUT on - baseline static zeroed" : "CUT off - raw plot");
+            break;
+        case 28:
+            wear_check();
             break;
         default:
             break;

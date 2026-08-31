@@ -16,8 +16,11 @@ Keys: c connect  d disconnect  r record  space pause  1-8 toggle  q quit
 Click View buttons for window, scale, 50/60 Hz notch, high-pass, grid.
 Default scale is OG: each row fits min..max like the official plotter,
 but only when the channel has left the calibration baseline. With CUT
-on, a no-headset window matching cal is drawn flat (static cut). RMS
-in the label stays in real µV/mV.
+on, a no-headset window matching cal is drawn flat (static cut). If it
+stays flat with the headset on, the ADC has not changed: electrodes
+must be on the channel + rails, ear clip on RLD/COMM with paste, and
+the board analog switches flipped toward those electrodes. WEAR checks
+live vs cal. Official check: clench jaw — RMS should jump.
 Learn: click 1. type a name, hold the pose, click Record 2s and stay still.
 It captures at the end of the countdown. MATCH scores live vs saved samples.
 Same name overwrites. del removes the selected chip.
