@@ -1,0 +1,12 @@
+exg-c — unaffiliated 8-channel EXG host (C)
+
+Build:  make
+Run:    ./np-exg
+        ./np-exg --cli --port /dev/ttyUSB1 --seconds 8
+
+Requires libSDL2, dialout (or the launcher re-execs via sg).
+Settings persist in ~/.config/exg-c.conf
+
+Keys: c connect  d disconnect  r record  space pause  1-8 toggle  q quit
+Click View buttons for window, scale, 50/60 Hz notch, high-pass, grid.
+Firmware on the board is 125 SPS; the status line shows measured rate.

@@ -65,9 +65,123 @@ struct np_app {
     struct {
         int op, ch, gain;
     } q[QMAX];
+    /* visualization / sampling */
+    int window_s;
+    int autoscale;
+    int scale_uv;
+    int notch_hz;
+    int hp_hz;
+    int grid;
+    int paused;
+    int show_uv;
+    float sps;
+    uint32_t sps_n;
+    struct timespec sps_t;
+    struct np_hp hp[NP_NCHAN];
+    struct np_notch notch[NP_NCHAN];
 };
 
 static struct np_app g;
+static const int SCALE_UV[] = {50, 100, 200, 500, 1000, 5000};
+#define NSCALE 6
+static const int WIN_S[] = {1, 2, 4, 8};
+#define NWINS 4
+
+static void filt_reset(void)
+{
+    int i;
+    float sps = g.sps > 1.f ? g.sps : (float)NP_DEFAULT_SPS;
+    for (i = 0; i < NP_NCHAN; i++) {
+        np_hp_init(&g.hp[i], (float)g.hp_hz, sps);
+        np_notch_init(&g.notch[i], (float)g.notch_hz, sps, 30.f);
+    }
+}
+
+static void cfg_path(char *out, size_t n)
+{
+    const char *h = getenv("HOME");
+    if (h && h[0]) {
+        snprintf(out, n, "%s/.config/exg-c.conf", h);
+    } else {
+        snprintf(out, n, "exg-c.conf");
+    }
+}
+
+static void cfg_save(void)
+{
+    char path[NP_MAX_PATH];
+    FILE *f;
+    cfg_path(path, sizeof(path));
+    f = fopen(path, "w");
+    if (!f) {
+        return;
+    }
+    fprintf(f, "window_s=%d\n", g.window_s);
+    fprintf(f, "autoscale=%d\n", g.autoscale);
+    fprintf(f, "scale_uv=%d\n", g.scale_uv);
+    fprintf(f, "notch_hz=%d\n", g.notch_hz);
+    fprintf(f, "hp_hz=%d\n", g.hp_hz);
+    fprintf(f, "grid=%d\n", g.grid);
+    fprintf(f, "show_uv=%d\n", g.show_uv);
+    fprintf(f, "board=%d\n", (int)g.board);
+    fclose(f);
+}
+
+static void cfg_load(void)
+{
+    char path[NP_MAX_PATH], line[80];
+    FILE *f;
+    cfg_path(path, sizeof(path));
+    f = fopen(path, "r");
+    if (!f) {
+        return;
+    }
+    while (fgets(line, sizeof(line), f)) {
+        int v;
+        if (sscanf(line, "window_s=%d", &v) == 1) {
+            g.window_s = v;
+        } else if (sscanf(line, "autoscale=%d", &v) == 1) {
+            g.autoscale = v;
+        } else if (sscanf(line, "scale_uv=%d", &v) == 1) {
+            g.scale_uv = v;
+        } else if (sscanf(line, "notch_hz=%d", &v) == 1) {
+            g.notch_hz = v;
+        } else if (sscanf(line, "hp_hz=%d", &v) == 1) {
+            g.hp_hz = v;
+        } else if (sscanf(line, "grid=%d", &v) == 1) {
+            g.grid = v;
+        } else if (sscanf(line, "show_uv=%d", &v) == 1) {
+            g.show_uv = v;
+        } else if (sscanf(line, "board=%d", &v) == 1) {
+            g.board = v ? NP_BOARD_KNIGHT_IMU : NP_BOARD_KNIGHT;
+        }
+    }
+    fclose(f);
+    if (g.window_s < 1) {
+        g.window_s = 2;
+    }
+    if (g.scale_uv < 20) {
+        g.scale_uv = 200;
+    }
+}
+
+static void apply_filt(int ch, float *buf, uint32_t n)
+{
+    uint32_t i;
+    if (g.hp_hz <= 0 && g.notch_hz <= 0) {
+        return;
+    }
+    for (i = 0; i < n; i++) {
+        float v = buf[i];
+        if (g.hp_hz > 0) {
+            v = np_hp_step(&g.hp[ch], v);
+        }
+        if (g.notch_hz > 0) {
+            v = np_notch_step(&g.notch[ch], v);
+        }
+        buf[i] = v;
+    }
+}
 
 static int in_group(gid_t gid)
 {
@@ -204,7 +318,21 @@ static void *reader_thread(void *arg)
                     pthread_mutex_unlock(&g.ring.mu);
                 }
             } else if (r > 0) {
+                struct timespec now;
                 np_ring_push(&g.ring, &s);
+                g.sps_n++;
+                clock_gettime(CLOCK_MONOTONIC, &now);
+                if (g.sps_t.tv_sec == 0) {
+                    g.sps_t = now;
+                } else {
+                    double dt = (double)(now.tv_sec - g.sps_t.tv_sec) +
+                        (now.tv_nsec - g.sps_t.tv_nsec) / 1e9;
+                    if (dt >= 1.0) {
+                        g.sps = (float)g.sps_n / (float)dt;
+                        g.sps_n = 0;
+                        g.sps_t = now;
+                    }
+                }
                 if (g.csv) {
                     int c;
                     struct timespec ts;
@@ -271,6 +399,7 @@ static void do_connect(void)
         return;
     }
     np_parser_init(&g.parser, g.board);
+    filt_reset();
     np_serial_flush(g.fd);
     g.connected = 1;
     if (pthread_create(&g.thr, NULL, reader_thread, NULL) != 0) {
@@ -422,7 +551,24 @@ static void draw_waves(int x, int y, int w, int h)
     fill(x, y, w, h, 10, 12, 16);
     for (c = 0; c < NP_NCHAN; c++) {
         float buf[NP_RING];
-        uint32_t n = np_ring_copy(&g.ring, c, buf, 500);
+        static float snap[NP_NCHAN][NP_RING];
+        static uint32_t snapn[NP_NCHAN];
+        uint32_t want = (uint32_t)(g.window_s * (g.sps > 1.f ? g.sps : NP_DEFAULT_SPS));
+        uint32_t n;
+        if (want < 32) {
+            want = 32;
+        }
+        if (want > NP_RING) {
+            want = NP_RING;
+        }
+        if (!g.paused) {
+            n = np_ring_copy(&g.ring, c, buf, want);
+            snapn[c] = n;
+            memcpy(snap[c], buf, n * sizeof(float));
+        } else {
+            n = snapn[c];
+            memcpy(buf, snap[c], n * sizeof(float));
+        }
         int y0 = y + (c * h) / NP_NCHAN;
         int y1b = y + ((c + 1) * h) / NP_NCHAN;
         int row_h = y1b - y0;
@@ -434,23 +580,35 @@ static void draw_waves(int x, int y, int w, int h)
         fill(x, y1b - 1, w, 1, 32, 36, 44);
         snprintf(lab, sizeof(lab), "ch%d", c + 1);
         text(x + 4, y0 + 4, lab, CHCOL[c][0], CHCOL[c][1], CHCOL[c][2], 1);
-        snprintf(lab, sizeof(lab), "%+.0f uV", last);
-        text(x + 40, y0 + 4, lab, 170, 176, 186, 1);
+        if (g.show_uv) {
+            snprintf(lab, sizeof(lab), "%+.0f uV", last);
+            text(x + 40, y0 + 4, lab, 170, 176, 186, 1);
+        }
         if (nocontact) {
             text(x + 120, y0 + 4, "no contact", 200, 90, 80, 1);
         }
         if (!g.active[c] || n < 4) {
             continue;
         }
+        apply_filt(c, buf, n);
         np_detrend(buf, (int)n);
+        if (g.grid) {
+            int gx;
+            SDL_SetRenderDrawColor(R, 28, 32, 40, 255);
+            SDL_RenderDrawLine(R, x, mid, x + w, mid);
+            for (gx = 1; gx < 4; gx++) {
+                int xx = x + gx * w / 4;
+                SDL_RenderDrawLine(R, xx, y0 + 1, xx, y1b - 2);
+            }
+        }
         {
-            /* Same as the original pyqtgraph view: autoscale the row so you
-             * see shape. The uV label is the ground truth. */
-            float peak = 8.f;
-            for (i = 0; i < n; i++) {
-                float a = fabsf(buf[i]);
-                if (a > peak) {
-                    peak = a;
+            float peak = g.autoscale ? 8.f : (float)g.scale_uv;
+            if (g.autoscale) {
+                for (i = 0; i < n; i++) {
+                    float a = fabsf(buf[i]);
+                    if (a > peak) {
+                        peak = a;
+                    }
                 }
             }
             SDL_SetRenderDrawColor(R, (Uint8)CHCOL[c][0], (Uint8)CHCOL[c][1],
@@ -505,6 +663,7 @@ static void draw_fft(int x, int y, int w, int h)
             rail_n++;
             continue;
         }
+        apply_filt(c, buf, n);
         np_detrend(buf, (int)n);
         for (i = 0; i < (int)n; i++) {
             float win = 0.5f - 0.5f * cosf(2.f * (float)M_PI * (float)i / (float)(n - 1));
@@ -576,7 +735,8 @@ static void draw_fft(int x, int y, int w, int h)
         {
             char hz[24];
             /* 125 SPS, N-point FFT → bin * sps / N */
-            snprintf(hz, sizeof(hz), "peak %dHz", (peak_i * NP_DEFAULT_SPS) / N);
+            int sps = g.sps > 1.f ? (int)(g.sps + 0.5f) : NP_DEFAULT_SPS;
+            snprintf(hz, sizeof(hz), "peak %dHz", (peak_i * sps) / N);
             text(x + w - 70, y + 4, hz, 180, 200, 210, 1);
         }
     }
@@ -648,6 +808,41 @@ static void draw_side(int x)
         snprintf(gn, sizeof(gn), "g%d", g.gain[c]);
         btn(bx + 90, by, 40, 22, gn, 1, 8, c, 40, 42, 52);
     }
+    y += 4 * 28 + 12;
+    {
+        char b[40];
+        text(x + 12, y, "View", 140, 148, 160, 1);
+        y += 14;
+        snprintf(b, sizeof(b), "win %ds", g.window_s);
+        btn(x + 12, y, 136, 22, b, 1, 9, 0, 36, 40, 48);
+        if (g.autoscale) {
+            snprintf(b, sizeof(b), "scale AUTO");
+        } else {
+            snprintf(b, sizeof(b), "scale +-%duV", g.scale_uv);
+        }
+        btn(x + 152, y, 136, 22, b, 1, 10, 0, 36, 40, 48);
+        y += 26;
+        if (g.notch_hz) {
+            snprintf(b, sizeof(b), "notch %dHz", g.notch_hz);
+        } else {
+            snprintf(b, sizeof(b), "notch off");
+        }
+        btn(x + 12, y, 136, 22, b, g.notch_hz != 0, 11, 0, 36, 40, 48);
+        if (g.hp_hz) {
+            snprintf(b, sizeof(b), "hp %dHz", g.hp_hz);
+        } else {
+            snprintf(b, sizeof(b), "hp off");
+        }
+        btn(x + 152, y, 136, 22, b, g.hp_hz != 0, 12, 0, 36, 40, 48);
+        y += 26;
+        btn(x + 12, y, 136, 22, g.grid ? "grid on" : "grid off", g.grid, 13, 0, 36, 40, 48);
+        btn(x + 152, y, 136, 22, g.paused ? "PAUSED" : "live", !g.paused, 14, 0,
+            g.paused ? 110 : 36, g.paused ? 50 : 40, g.paused ? 40 : 48);
+        y += 26;
+        btn(x + 12, y, 136, 22, g.show_uv ? "uV on" : "uV off", g.show_uv, 15, 0, 36, 40, 48);
+        snprintf(b, sizeof(b), "sps %.0f", g.sps > 1.f ? g.sps : (float)NP_DEFAULT_SPS);
+        btn(x + 152, y, 136, 22, b, 0, 0, 0, 28, 30, 36);
+    }
 }
 
 static void draw_status(void)
@@ -657,8 +852,9 @@ static void draw_status(void)
     uint32_t good = 0, bad = 0;
     np_ring_stats(&g.ring, &tot, &good, &bad);
     pthread_mutex_lock(&g.mu);
-    snprintf(st, sizeof(st), "%s   frames %llu  bad %u  flen %d%s", g.status,
-             (unsigned long long)tot, bad, g.parser.frame_len, g.parser.locked ? " lock" : "");
+    snprintf(st, sizeof(st), "%s   %.0f sps  frames %llu  bad %u  flen %d%s%s",
+             g.status, g.sps > 1.f ? g.sps : (float)NP_DEFAULT_SPS, (unsigned long long)tot, bad,
+             g.parser.frame_len, g.parser.locked ? " lock" : "", g.paused ? " PAUSE" : "");
     pthread_mutex_unlock(&g.mu);
     fill(0, win_h - STATUS_H, win_w, STATUS_H, 16, 18, 22);
     text(12, win_h - STATUS_H + 8, st, g.status_ok ? 80 : 240, g.status_ok ? 210 : 90,
@@ -673,10 +869,6 @@ static void next_gain(int ch)
             g.gain[ch] = NP_GAINS[(i + 1) % NP_NGAINS];
             break;
         }
-    }
-    if (g.connected && g.active[ch]) {
-        np_parser_set_gain(&g.parser, ch + 1, g.gain[ch]);
-        np_cmd_chon(g.fd, ch + 1, g.gain[ch]);
     }
 }
 
@@ -729,6 +921,62 @@ static void click(int x, int y)
             if (g.connected && g.active[hits[i].ch]) {
                 cmd_push(CMD_CHON, hits[i].ch + 1, g.gain[hits[i].ch]);
             }
+            break;
+        case 9:
+            {
+                int k;
+                for (k = 0; k < NWINS; k++) {
+                    if (WIN_S[k] == g.window_s) {
+                        g.window_s = WIN_S[(k + 1) % NWINS];
+                        break;
+                    }
+                }
+                cfg_save();
+            }
+            break;
+        case 10:
+            if (g.autoscale) {
+                g.autoscale = 0;
+                g.scale_uv = 200;
+            } else {
+                int k, found = 0;
+                for (k = 0; k < NSCALE; k++) {
+                    if (SCALE_UV[k] == g.scale_uv) {
+                        if (k + 1 == NSCALE) {
+                            g.autoscale = 1;
+                        } else {
+                            g.scale_uv = SCALE_UV[k + 1];
+                        }
+                        found = 1;
+                        break;
+                    }
+                }
+                if (!found) {
+                    g.autoscale = 1;
+                }
+            }
+            cfg_save();
+            break;
+        case 11:
+            g.notch_hz = g.notch_hz == 0 ? 50 : (g.notch_hz == 50 ? 60 : 0);
+            filt_reset();
+            cfg_save();
+            break;
+        case 12:
+            g.hp_hz = g.hp_hz == 0 ? 1 : (g.hp_hz == 1 ? 2 : 0);
+            filt_reset();
+            cfg_save();
+            break;
+        case 13:
+            g.grid = !g.grid;
+            cfg_save();
+            break;
+        case 14:
+            g.paused = !g.paused;
+            break;
+        case 15:
+            g.show_uv = !g.show_uv;
+            cfg_save();
             break;
         default:
             break;
@@ -804,6 +1052,8 @@ static int run_gui(void)
                     do_disconnect();
                 } else if (k == SDLK_r) {
                     toggle_record();
+                } else if (k == SDLK_SPACE) {
+                    g.paused = !g.paused;
                 } else if (k == SDLK_TAB) {
                     g.nports = np_list_ports(g.ports, NP_MAX_PORTS);
                     if (g.nports) {
@@ -885,7 +1135,7 @@ static void usage(const char *a0)
     fprintf(stderr,
             "usage: %s [--cli] [--port PATH] [--imu] [--seconds N]\n"
             "  GUI: click Connect, toggle channels / RLD / gain, Record CSV\n"
-            "  keys: c connect  d disconnect  r record  1-8 channel  Tab port  q quit\n",
+            "  keys: c connect  d disconnect  r record  space pause  1-8 channel  Tab port  q quit\n",
             a0);
 }
 
@@ -899,7 +1149,16 @@ int main(int argc, char **argv)
     memset(&g, 0, sizeof(g));
     g.fd = -1;
     g.running = 1;
-    g.board = NP_BOARD_KNIGHT_IMU; /* live Knight boards stream the 57-byte IMU frame */
+    g.board = NP_BOARD_KNIGHT_IMU;
+    g.window_s = 2;
+    g.autoscale = 1;
+    g.scale_uv = 200;
+    g.notch_hz = 50;
+    g.hp_hz = 1;
+    g.grid = 1;
+    g.show_uv = 1;
+    cfg_load();
+    filt_reset();
     pthread_mutex_init(&g.mu, NULL);
     pthread_mutex_init(&g.qmu, NULL);
     pthread_cond_init(&g.qcv, NULL);
