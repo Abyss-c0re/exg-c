@@ -21,9 +21,10 @@ view notch is off). Save records the live window as-is after that filter;
 it does not refuse rail or large EMG. Samples persist in ~/.config/exg-c.learn
 Firmware on the board is 125 SPS; the status line shows measured rate.
 
-Each row shows last sample and RMS (µV or mV). A/B debug: click OFF
-with the headset off, ON with it on skin, write to dump ~/exg-c-ab.txt.
-If the two RMS values are the same, the analog path is not changing.
+Calibrate: click CAL, take the headset off, click OK. That window is the
+open-input baseline, written next to the binary as exg-c.cal (overwritten
+on the next calibrate). Live rows then show "at baseline" or "vs cal 0.2x".
+A/B OFF/ON/write still dumps ~/exg-c-ab.txt for a one-shot compare.
 
 USB frames keep coming when the analog switches are off — those switches
 only route the front-end, they do not stop acquire_data(). Open inputs

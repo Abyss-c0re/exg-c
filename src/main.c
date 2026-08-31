@@ -91,7 +91,8 @@ struct np_app {
         int have;
         uint32_t n;
         float dc[NP_NCHAN], rms[NP_NCHAN], pk[NP_NCHAN];
-    } off, on;
+    } off, on, cal;
+    int cal_arm;
 };
 
 static struct np_app g;
@@ -835,6 +836,105 @@ static void ab_write(void)
     set_status(1, "wrote %s", path);
 }
 
+static void cal_path(char *out, size_t n)
+{
+    char exe[NP_MAX_PATH];
+    ssize_t k = readlink("/proc/self/exe", exe, sizeof(exe) - 1);
+    if (k > 0) {
+        char *slash;
+        exe[k] = 0;
+        slash = strrchr(exe, '/');
+        if (slash) {
+            *slash = 0;
+            snprintf(out, n, "%s/exg-c.cal", exe);
+            return;
+        }
+    }
+    snprintf(out, n, "exg-c.cal");
+}
+
+static int cal_save(void)
+{
+    char path[NP_MAX_PATH];
+    FILE *f;
+    int c;
+    time_t t = time(NULL);
+    cal_path(path, sizeof(path));
+    f = fopen(path, "w");
+    if (!f) {
+        return -1;
+    }
+    fprintf(f, "# exg-c open-input baseline (headset OFF)\n");
+    fprintf(f, "# overwritten by Calibrate -> OK\n");
+    fprintf(f, "# time %ld  samples %u\n", (long)t, g.cal.n);
+    fprintf(f, "ch,dc_uV,rms_uV,pk_uV\n");
+    for (c = 0; c < NP_NCHAN; c++) {
+        fprintf(f, "%d,%.3f,%.3f,%.3f\n", c + 1, g.cal.dc[c], g.cal.rms[c], g.cal.pk[c]);
+    }
+    fclose(f);
+    return 0;
+}
+
+static int cal_load(void)
+{
+    char path[NP_MAX_PATH], line[128];
+    FILE *f;
+    int got = 0;
+    cal_path(path, sizeof(path));
+    f = fopen(path, "r");
+    if (!f) {
+        return -1;
+    }
+    memset(&g.cal, 0, sizeof(g.cal));
+    while (fgets(line, sizeof(line), f)) {
+        int ch;
+        float dc, rms, pk;
+        if (line[0] == '#' || line[0] == 'c') {
+            continue;
+        }
+        if (sscanf(line, "%d,%f,%f,%f", &ch, &dc, &rms, &pk) == 4 && ch >= 1 && ch <= NP_NCHAN) {
+            g.cal.dc[ch - 1] = dc;
+            g.cal.rms[ch - 1] = rms;
+            g.cal.pk[ch - 1] = pk;
+            got++;
+        }
+    }
+    fclose(f);
+    if (got > 0) {
+        g.cal.have = 1;
+        g.cal.n = 1;
+    }
+    return got > 0 ? 0 : -1;
+}
+
+static void cal_capture(void)
+{
+    int c;
+    uint32_t want = (uint32_t)(g.window_s * (g.sps > 1.f ? g.sps : NP_DEFAULT_SPS));
+    if (want < 32) {
+        want = 32;
+    }
+    if (want > NP_RING) {
+        want = NP_RING;
+    }
+    memset(&g.cal, 0, sizeof(g.cal));
+    for (c = 0; c < NP_NCHAN; c++) {
+        float buf[NP_RING];
+        uint32_t n = np_ring_copy(&g.ring, c, buf, want);
+        ch_stats(buf, n, &g.cal.dc[c], &g.cal.rms[c], &g.cal.pk[c]);
+        if (n > g.cal.n) {
+            g.cal.n = n;
+        }
+    }
+    g.cal.have = 1;
+    g.cal_arm = 0;
+    if (cal_save() != 0) {
+        set_status(0, "calibrate captured but could not write exg-c.cal");
+        return;
+    }
+    set_status(1, "calibrated (headset OFF)  ch1 rms %.0f uV  saved exg-c.cal", g.cal.rms[0]);
+}
+
 static void draw_waves(int x, int y, int w, int h)
 {
     int c;
@@ -893,6 +993,14 @@ static void draw_waves(int x, int y, int w, int h)
                 snprintf(lab, sizeof(lab), "lead-off %s%s", (lp & (1u << c)) ? "P" : "",
                          (ln & (1u << c)) ? "N" : "");
                 text(x + 220, y0 + 4, lab, 200, 90, 80, 1);
+            } else if (g.cal.have && g.cal.rms[c] > 1.f) {
+                float r = rms / g.cal.rms[c];
+                if (r > 0.70f && r < 1.40f) {
+                    text(x + 220, y0 + 4, "at baseline", 200, 140, 80, 1);
+                } else {
+                    snprintf(lab, sizeof(lab), "vs cal %.2fx", r);
+                    text(x + 220, y0 + 4, lab, r < 0.33f ? 80 : 200, r < 0.33f ? 210 : 180, 120, 1);
+                }
             }
         }
         if (q == Q_OFF || n < 4) {
@@ -1163,11 +1271,20 @@ static void draw_learn(int x, int y, int w, int h)
     btn(x + 368, y + 1, 58, 18, g.learn.match ? "MATCH" : "match", g.learn.match, 18, 0,
         g.learn.match ? 30 : 40, g.learn.match ? 80 : 42, g.learn.match ? 70 : 50);
     btn(x + 430, y + 1, 36, 18, "del", 0, 19, 0, 90, 40, 44);
+    btn(x + 474, y + 1, 44, 18, "CAL", g.cal_arm || g.cal.have, 25, 0,
+        g.cal_arm ? 110 : 36, g.cal_arm ? 70 : 40, 40);
+    btn(x + 522, y + 1, 36, 18, "OK", g.cal_arm, 26, 0, g.cal_arm ? 30 : 40, g.cal_arm ? 100 : 42,
+        g.cal_arm ? 70 : 50);
+    if (g.cal.have && !g.cal_arm) {
+        text(x + 564, y + 5, "cal ok", 80, 180, 120, 1);
+    } else if (g.cal_arm) {
+        text(x + 564, y + 5, "headset OFF, then OK", 230, 180, 80, 1);
+    }
 
-    if (g.learn.best >= 0 && g.learn.match && g.learn.n) {
+    if (g.learn.best >= 0 && g.learn.match && g.learn.n && !g.cal_arm) {
         snprintf(lab, sizeof(lab), "now %s %.0f%%", g.learn.s[g.learn.best].name,
                  g.learn.score[g.learn.best] * 100.f);
-        text(x + 474, y + 5, lab,
+        text(x + 620, y + 5, lab,
              g.learn.score[g.learn.best] > 0.55f ? 80 : 200,
              g.learn.score[g.learn.best] > 0.55f ? 220 : 160,
              g.learn.score[g.learn.best] > 0.55f ? 120 : 80, 1);
@@ -1418,6 +1535,17 @@ static void click(int x, int y)
                 ab_write();
             }
             break;
+        case 25:
+            g.cal_arm = 1;
+            set_status(1, "Remove the headset, wait one window, then click OK");
+            break;
+        case 26:
+            if (!g.cal_arm) {
+                set_status(0, "click CAL first, then remove headset, then OK");
+            } else {
+                cal_capture();
+            }
+            break;
         default:
             break;
         }
@@ -1641,6 +1769,7 @@ int main(int argc, char **argv)
         learn_path(lp, sizeof(lp));
         npl_load(&g.learn, lp);
     }
+    cal_load();
     if (pthread_create(&g.cmd_thr, NULL, cmd_thread, NULL) != 0) {
         fprintf(stderr, "cmd thread failed\n");
         return 1;
