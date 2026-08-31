@@ -26,6 +26,7 @@ struct np_parser {
 
 void np_parser_init(struct np_parser *p, enum np_board board);
 void np_parser_set_gain(struct np_parser *p, int ch, int gain);
+void np_parser_set_gains(struct np_parser *p, const int gain[NP_NCHAN]);
 int np_parser_feed(struct np_parser *p, unsigned char b, struct np_sample *out);
 
 int np_cmd_chon(int fd, int ch, int gain);

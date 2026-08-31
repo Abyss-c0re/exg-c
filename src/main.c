@@ -596,6 +596,7 @@ static void stream_recover(void)
     g.recover_n++;
     set_status(0, "stream stalled - board reset %d/3", g.recover_n);
     np_parser_init(&g.parser, g.board);
+    np_parser_set_gains(&g.parser, g.gain);
     np_serial_pulse_dtr(g.fd);
     np_serial_flush(g.fd);
     g.en_running = 1;
@@ -627,6 +628,7 @@ static void do_connect(void)
         return;
     }
     np_parser_init(&g.parser, g.board);
+    np_parser_set_gains(&g.parser, g.gain);
     filt_reset();
     np_serial_pulse_dtr(g.fd);
     np_serial_flush(g.fd);
@@ -1658,6 +1660,7 @@ static void click(int x, int y)
             break;
         case 8:
             next_gain(hits[i].ch);
+            np_parser_set_gain(&g.parser, hits[i].ch + 1, g.gain[hits[i].ch]);
             if (g.connected && g.active[hits[i].ch]) {
                 cmd_push(CMD_CHON, hits[i].ch + 1, g.gain[hits[i].ch]);
             }

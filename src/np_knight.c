@@ -48,8 +48,21 @@ void np_parser_init(struct np_parser *p, enum np_board board)
 
 void np_parser_set_gain(struct np_parser *p, int ch, int gain)
 {
-    if (ch >= 1 && ch <= NP_NCHAN) {
+    if (ch >= 1 && ch <= NP_NCHAN && gain >= 1) {
         p->gain[ch - 1] = gain;
+    }
+}
+
+void np_parser_set_gains(struct np_parser *p, const int gain[NP_NCHAN])
+{
+    int i;
+    if (!p || !gain) {
+        return;
+    }
+    for (i = 0; i < NP_NCHAN; i++) {
+        if (gain[i] >= 1) {
+            p->gain[i] = gain[i];
+        }
     }
 }
 
