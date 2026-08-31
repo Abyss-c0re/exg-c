@@ -19,7 +19,7 @@ static float scale_uv(int raw, int gain)
     if (gain < 1) {
         gain = 12;
     }
-    return (4.0f / 32767.0f / (float)gain) * 1000000.0f * (float)raw;
+    return (4.0f / 32767.0f / (float)gain) * 1000000.0f * (float)raw / 79.57f;
 }
 
 static float f32le(const unsigned char *b)
