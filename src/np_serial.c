@@ -4,6 +4,7 @@
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <poll.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/ioctl.h>
@@ -65,7 +66,14 @@ int np_serial_write(int fd, const void *buf, int n)
     while (off < n) {
         ssize_t w = write(fd, p + off, (size_t)(n - off));
         if (w < 0) {
-            if (errno == EINTR || errno == EAGAIN) {
+            if (errno == EINTR) {
+                continue;
+            }
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                struct pollfd pfd = {fd, POLLOUT, 0};
+                if (poll(&pfd, 1, 200) <= 0) {
+                    return -1;
+                }
                 continue;
             }
             return -1;

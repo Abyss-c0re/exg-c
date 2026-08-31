@@ -21,6 +21,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <poll.h>
 #include <unistd.h>
 
 #define WIN_W 1280
@@ -105,6 +106,7 @@ struct np_app {
     int ui_scale; /* tenths: 10, 15, 20 → 1.0x 1.5x 2.0x */
     int pref_w, pref_h;
     int chrgb[NP_NCHAN][3];
+    pthread_mutex_t csv_mu;
 };
 
 static struct np_app g;
@@ -120,10 +122,19 @@ static int statush(void)
 }
 static int learnh(void)
 {
+    if (win_h < 520) {
+        return 88;
+    }
     return LEARN_H;
 }
 static int ffth(void)
 {
+    if (win_h < 520) {
+        return 56;
+    }
+    if (win_h < 640) {
+        return 72;
+    }
     return FFT_H;
 }
 static float ui_f(void)
@@ -582,14 +593,17 @@ static void *reader_thread(void *arg)
     unsigned char buf[256];
     (void)arg;
     while (g.running && g.connected && g.fd >= 0) {
-        int n = np_serial_read(g.fd, buf, (int)sizeof(buf));
-        int i;
+        struct pollfd pfd = {g.fd, POLLIN, 0};
+        int n, i;
+        if (poll(&pfd, 1, 8) <= 0) {
+            continue;
+        }
+        n = np_serial_read(g.fd, buf, (int)sizeof(buf));
         if (n < 0) {
             set_status(0, "serial read failed");
             break;
         }
         if (n == 0) {
-            usleep(2000);
             continue;
         }
         for (i = 0; i < n; i++) {
@@ -617,15 +631,19 @@ static void *reader_thread(void *arg)
                         g.sps_t = now;
                     }
                 }
-                if (g.csv) {
-                    int c;
-                    struct timespec ts;
-                    clock_gettime(CLOCK_REALTIME, &ts);
-                    fprintf(g.csv, "%ld.%09ld,%u", (long)ts.tv_sec, ts.tv_nsec, s.seq);
-                    for (c = 0; c < NP_NCHAN; c++) {
-                        fprintf(g.csv, ",%.3f", s.uv[c]);
+                if (g.recording) {
+                    pthread_mutex_lock(&g.csv_mu);
+                    if (g.csv) {
+                        int c;
+                        struct timespec ts;
+                        clock_gettime(CLOCK_REALTIME, &ts);
+                        fprintf(g.csv, "%ld.%09ld,%u", (long)ts.tv_sec, ts.tv_nsec, s.seq);
+                        for (c = 0; c < NP_NCHAN; c++) {
+                            fprintf(g.csv, ",%.3f", s.uv[c]);
+                        }
+                        fprintf(g.csv, ",%u,%u\n", s.loff_p, s.loff_n);
                     }
-                    fprintf(g.csv, ",%u,%u\n", s.loff_p, s.loff_n);
+                    pthread_mutex_unlock(&g.csv_mu);
                 }
             }
         }
@@ -642,7 +660,7 @@ static void *enable_thread(void *arg)
     int c, waits;
     uint64_t tot = 0, before;
     (void)arg;
-    set_status(1, "waiting for a live stream...");
+    set_status(1, "waiting for stream...");
     for (waits = 0; waits < 150 && g.connected; waits++) {
         np_ring_stats(&g.ring, &tot, NULL, NULL);
         if (g.parser.locked && tot >= 50) {
@@ -660,11 +678,11 @@ static void *enable_thread(void *arg)
         return NULL;
     }
     before = tot;
+    set_status(1, "enabling channels...");
     for (c = 0; c < NP_NCHAN && g.connected; c++) {
         if (!g.active[c]) {
             continue;
         }
-        set_status(1, "enable ch%d gain %d", c + 1, g.gain[c]);
         cmd_push(CMD_CHON, c + 1, g.gain[c]);
     }
     for (waits = 0; waits < 200 && g.connected; waits++) {
@@ -681,7 +699,6 @@ static void *enable_thread(void *arg)
     }
     for (c = 0; c < NP_NCHAN && g.connected; c++) {
         if (g.active[c] && g.rld[c]) {
-            set_status(1, "rld ch%d", c + 1);
             cmd_push(CMD_RLDADD, c + 1, 0);
         }
     }
@@ -771,11 +788,13 @@ static void do_disconnect(void)
     pthread_join(g.thr, NULL);
     np_serial_close(g.fd);
     g.fd = -1;
+    g.recording = 0;
+    pthread_mutex_lock(&g.csv_mu);
     if (g.csv) {
         fclose(g.csv);
         g.csv = NULL;
-        g.recording = 0;
     }
+    pthread_mutex_unlock(&g.csv_mu);
     set_status(1, "disconnected");
 }
 
@@ -786,23 +805,32 @@ static void toggle_record(void)
         return;
     }
     if (g.recording) {
-        fclose(g.csv);
-        g.csv = NULL;
         g.recording = 0;
+        pthread_mutex_lock(&g.csv_mu);
+        if (g.csv) {
+            fclose(g.csv);
+            g.csv = NULL;
+        }
+        pthread_mutex_unlock(&g.csv_mu);
         set_status(1, "stopped %s", g.csv_path);
         return;
     }
     {
         time_t t = time(NULL);
         struct tm tm;
+        FILE *f;
         localtime_r(&t, &tm);
         strftime(g.csv_path, sizeof(g.csv_path), "knight-%Y%m%d-%H%M%S.csv", &tm);
-        g.csv = fopen(g.csv_path, "w");
-        if (!g.csv) {
+        f = fopen(g.csv_path, "w");
+        if (!f) {
             set_status(0, "cannot write %s", g.csv_path);
             return;
         }
-        fprintf(g.csv, "time,seq,ch1,ch2,ch3,ch4,ch5,ch6,ch7,ch8,loff_p,loff_n\n");
+        setvbuf(f, NULL, _IOFBF, 8192);
+        fprintf(f, "time,seq,ch1,ch2,ch3,ch4,ch5,ch6,ch7,ch8,loff_p,loff_n\n");
+        pthread_mutex_lock(&g.csv_mu);
+        g.csv = f;
+        pthread_mutex_unlock(&g.csv_mu);
         g.recording = 1;
         set_status(1, "recording %s", g.csv_path);
     }
@@ -852,12 +880,12 @@ struct hit {
     int ch;
 };
 
-static struct hit hits[80];
+static struct hit hits[96];
 int nhits;
 
 static void add_hit(int x, int y, int w, int h, int kind, int ch)
 {
-    if (nhits >= 80) {
+    if (nhits >= 96) {
         return;
     }
     hits[nhits].r.x = x;
@@ -1062,8 +1090,10 @@ static void cal_path(char *out, size_t n)
         slash = strrchr(exe, '/');
         if (slash) {
             *slash = 0;
-            snprintf(out, n, "%s/exg-c.cal", exe);
-            return;
+            if (strlen(exe) + 11 < n) {
+                snprintf(out, n, "%s/exg-c.cal", exe);
+                return;
+            }
         }
     }
     snprintf(out, n, "exg-c.cal");
@@ -2068,8 +2098,8 @@ static void frame(void)
 {
     int plot_w = win_w - sidew() - 24;
     int wave_h = win_h - WAVE_TOP - learnh() - ffth() - 10 - statush();
-    if (wave_h < NP_NCHAN * 36) {
-        wave_h = NP_NCHAN * 36;
+    if (wave_h < NP_NCHAN * 28) {
+        wave_h = NP_NCHAN * 28;
     }
     nhits = 0;
     SDL_SetRenderDrawColor(R, 22, 24, 30, 255);
@@ -2321,6 +2351,7 @@ int main(int argc, char **argv)
     filt_reset();
     pthread_mutex_init(&g.mu, NULL);
     pthread_mutex_init(&g.qmu, NULL);
+    pthread_mutex_init(&g.csv_mu, NULL);
     pthread_cond_init(&g.qcv, NULL);
     np_ring_init(&g.ring);
     npl_init(&g.learn);
