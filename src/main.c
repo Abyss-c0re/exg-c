@@ -847,7 +847,7 @@ static void draw_side(int x)
 
 static void draw_status(void)
 {
-    char st[200];
+    char st[256];
     uint64_t tot = 0;
     uint32_t good = 0, bad = 0;
     np_ring_stats(&g.ring, &tot, &good, &bad);
