@@ -61,3 +61,15 @@ void np_ring_stats(struct np_ring *r, uint64_t *total, uint32_t *good, uint32_t 
     }
     pthread_mutex_unlock(&r->mu);
 }
+
+void np_ring_loff(struct np_ring *r, uint8_t *p, uint8_t *n)
+{
+    pthread_mutex_lock(&r->mu);
+    if (p) {
+        *p = r->loff_p;
+    }
+    if (n) {
+        *n = r->loff_n;
+    }
+    pthread_mutex_unlock(&r->mu);
+}

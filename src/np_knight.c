@@ -156,29 +156,30 @@ static int send_cmd(int fd, const char *s)
 int np_cmd_chon(int fd, int ch, int gain)
 {
     char s[32];
-    /* Wire dump: chon_1..8 only fills slots 1–4. chon_0..7 fills all 8.
-     * Firmware String parser is 0-based even though the README says 1–8. */
-    snprintf(s, sizeof(s), "chon_%d_%d", ch - 1, gain);
+    /* Official GUI / BrainFlow: chon_1..8 (1-based).
+     * Live dump on this firmware: chon_0_<gain> fills all 8 ADS slots;
+     * chon_1..8 alone left slots 5–8 at 0. ch==0 is that wake-all. */
+    snprintf(s, sizeof(s), "chon_%d_%d", ch, gain);
     return send_cmd(fd, s);
 }
 
 int np_cmd_choff(int fd, int ch)
 {
     char s[32];
-    snprintf(s, sizeof(s), "choff_%d", ch - 1);
+    snprintf(s, sizeof(s), "choff_%d", ch);
     return send_cmd(fd, s);
 }
 
 int np_cmd_rldadd(int fd, int ch)
 {
     char s[32];
-    snprintf(s, sizeof(s), "rldadd_%d", ch - 1);
+    snprintf(s, sizeof(s), "rldadd_%d", ch);
     return send_cmd(fd, s);
 }
 
 int np_cmd_rldremove(int fd, int ch)
 {
     char s[32];
-    snprintf(s, sizeof(s), "rldremove_%d", ch - 1);
+    snprintf(s, sizeof(s), "rldremove_%d", ch);
     return send_cmd(fd, s);
 }

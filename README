@@ -10,3 +10,8 @@ Settings persist in ~/.config/exg-c.conf
 Keys: c connect  d disconnect  r record  space pause  1-8 toggle  q quit
 Click View buttons for window, scale, 50/60 Hz notch, high-pass, grid.
 Firmware on the board is 125 SPS; the status line shows measured rate.
+
+USB frames keep coming when the analog switches are off — those switches
+only route the front-end, they do not stop acquire_data(). Open inputs
+sit at the ADS1299 rail (~±0.13 V) and are labeled open/rail, not EEG.
+Lead-off bits (frame bytes 18–19) are shown when the firmware sets them.

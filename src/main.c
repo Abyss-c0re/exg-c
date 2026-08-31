@@ -341,7 +341,7 @@ static void *reader_thread(void *arg)
                     for (c = 0; c < NP_NCHAN; c++) {
                         fprintf(g.csv, ",%.3f", s.uv[c]);
                     }
-                    fputc('\n', g.csv);
+                    fprintf(g.csv, ",%u,%u\n", s.loff_p, s.loff_n);
                 }
             }
         }
@@ -349,18 +349,28 @@ static void *reader_thread(void *arg)
     return NULL;
 }
 
-/* Official NeuroPawn BrainFlow host: sleep 2s after start_stream, then
- * chon_N_G with ~1s gaps. Commands are processed inside firmware
- * acquire_data(); sending during the Arduino DTR reboot is ignored. */
+/* Official host: sleep 2s after start_stream, then chon_1..8 with ~1s gaps.
+ * Commands are processed inside firmware acquire_data(); sending during the
+ * Arduino DTR reboot is ignored. This firmware also treats chon_0_G as
+ * "power every ADS channel" — without it, slots 5–8 stay at 0 even after
+ * the official 1-based sequence. */
 static void *enable_thread(void *arg)
 {
-    int c;
+    int c, wake_gain = 12;
     (void)arg;
     set_status(1, "waiting for board (2s)...");
     usleep(2000000);
     if (!g.connected || g.fd < 0) {
         return NULL;
     }
+    for (c = 0; c < NP_NCHAN; c++) {
+        if (g.active[c]) {
+            wake_gain = g.gain[c];
+            break;
+        }
+    }
+    set_status(1, "enable all ADS slots (chon_0)...");
+    cmd_push(CMD_CHON, 0, wake_gain);
     for (c = 0; c < NP_NCHAN && g.connected; c++) {
         if (!g.active[c]) {
             continue;
@@ -372,7 +382,8 @@ static void *enable_thread(void *arg)
         }
     }
     if (g.connected) {
-        set_status(1, "connected %s", g.nports ? g.ports[g.port_i] : "");
+        set_status(1, "connected %s - USB stream != analog switches",
+                   g.nports ? g.ports[g.port_i] : "");
     }
     g.en_running = 0;
     return NULL;
@@ -416,7 +427,7 @@ static void do_connect(void)
         return;
     }
     pthread_detach(g.en_thr);
-    set_status(1, "connected %s — enabling channels", path);
+    set_status(1, "connected %s - enabling channels", path);
 }
 
 static void do_disconnect(void)
@@ -460,7 +471,7 @@ static void toggle_record(void)
             set_status(0, "cannot write %s", g.csv_path);
             return;
         }
-        fprintf(g.csv, "time,seq,ch1,ch2,ch3,ch4,ch5,ch6,ch7,ch8\n");
+        fprintf(g.csv, "time,seq,ch1,ch2,ch3,ch4,ch5,ch6,ch7,ch8,loff_p,loff_n\n");
         g.recording = 1;
         set_status(1, "recording %s", g.csv_path);
     }
@@ -545,16 +556,65 @@ static const int CHCOL[NP_NCHAN][3] = {
     {180, 150, 255}, {255, 230, 90}, {90, 230, 210}, {230, 140, 255},
 };
 
+/* Open-input / rail is not EEG. Autoscale of ±0.13 V looks like a brainwave. */
+#define Q_OFF 0
+#define Q_ZERO 1
+#define Q_LEADOFF 2
+#define Q_OPEN 3
+#define Q_LIVE 4
+#define OPEN_UV 3000.f
+
+static int ch_quality(int c, const float *buf, uint32_t n, uint8_t lp, uint8_t ln)
+{
+    uint32_t i;
+    float mx = 0.f;
+    uint8_t bit = (uint8_t)(1u << c);
+
+    if (!g.active[c]) {
+        return Q_OFF;
+    }
+    if (n < 4) {
+        return Q_ZERO;
+    }
+    /* ADS1299 LOFF_STATP/N: 1 = lead-off when the comparator is on.
+     * If both bytes stay 0 the firmware never enabled lead-off current
+     * and we fall through to amplitude. */
+    if ((lp | ln) != 0 && ((lp & bit) || (ln & bit))) {
+        return Q_LEADOFF;
+    }
+    for (i = 0; i < n; i++) {
+        float a = fabsf(buf[i]);
+        if (a > mx) {
+            mx = a;
+        }
+    }
+    if (mx < 0.5f) {
+        return Q_ZERO;
+    }
+    if (mx > OPEN_UV) {
+        return Q_OPEN;
+    }
+    return Q_LIVE;
+}
+
 static void draw_waves(int x, int y, int w, int h)
 {
     int c;
+    uint8_t lp = 0, ln = 0;
     fill(x, y, w, h, 10, 12, 16);
+    np_ring_loff(&g.ring, &lp, &ln);
     for (c = 0; c < NP_NCHAN; c++) {
         float buf[NP_RING];
         static float snap[NP_NCHAN][NP_RING];
         static uint32_t snapn[NP_NCHAN];
         uint32_t want = (uint32_t)(g.window_s * (g.sps > 1.f ? g.sps : NP_DEFAULT_SPS));
         uint32_t n;
+        int y0, y1b, row_h, mid, q;
+        uint32_t i;
+        char lab[36];
+        float last, peak;
+        int cr, cg, cb, dim;
+
         if (want < 32) {
             want = 32;
         }
@@ -569,14 +629,12 @@ static void draw_waves(int x, int y, int w, int h)
             n = snapn[c];
             memcpy(buf, snap[c], n * sizeof(float));
         }
-        int y0 = y + (c * h) / NP_NCHAN;
-        int y1b = y + ((c + 1) * h) / NP_NCHAN;
-        int row_h = y1b - y0;
-        int mid = (y0 + y1b) / 2;
-        uint32_t i;
-        char lab[28];
-        float last = n ? buf[n - 1] : 0.f;
-        int nocontact = n && (last > 3000.f || last < -3000.f);
+        y0 = y + (c * h) / NP_NCHAN;
+        y1b = y + ((c + 1) * h) / NP_NCHAN;
+        row_h = y1b - y0;
+        mid = (y0 + y1b) / 2;
+        last = n ? buf[n - 1] : 0.f;
+        q = ch_quality(c, buf, n, lp, ln);
         fill(x, y1b - 1, w, 1, 32, 36, 44);
         snprintf(lab, sizeof(lab), "ch%d", c + 1);
         text(x + 4, y0 + 4, lab, CHCOL[c][0], CHCOL[c][1], CHCOL[c][2], 1);
@@ -584,10 +642,18 @@ static void draw_waves(int x, int y, int w, int h)
             snprintf(lab, sizeof(lab), "%+.0f uV", last);
             text(x + 40, y0 + 4, lab, 170, 176, 186, 1);
         }
-        if (nocontact) {
-            text(x + 120, y0 + 4, "no contact", 200, 90, 80, 1);
+        if (q == Q_OFF) {
+            text(x + 130, y0 + 4, "ADC off", 110, 114, 124, 1);
+        } else if (q == Q_ZERO) {
+            text(x + 130, y0 + 4, "ADC 0 (not enabled)", 200, 140, 70, 1);
+        } else if (q == Q_LEADOFF) {
+            snprintf(lab, sizeof(lab), "lead-off %s%s", (lp & (1u << c)) ? "P" : "",
+                     (ln & (1u << c)) ? "N" : "");
+            text(x + 130, y0 + 4, lab, 200, 90, 80, 1);
+        } else if (q == Q_OPEN) {
+            text(x + 130, y0 + 4, "open/rail - not EEG", 200, 90, 80, 1);
         }
-        if (!g.active[c] || n < 4) {
+        if (q == Q_OFF || n < 4) {
             continue;
         }
         apply_filt(c, buf, n);
@@ -601,37 +667,43 @@ static void draw_waves(int x, int y, int w, int h)
                 SDL_RenderDrawLine(R, xx, y0 + 1, xx, y1b - 2);
             }
         }
-        {
-            float peak = g.autoscale ? 8.f : (float)g.scale_uv;
-            if (g.autoscale) {
-                for (i = 0; i < n; i++) {
-                    float a = fabsf(buf[i]);
-                    if (a > peak) {
-                        peak = a;
-                    }
+        /* Never autoscale rail/open — that is what made floating pins look like EEG. */
+        peak = (float)g.scale_uv;
+        if (peak < 20.f) {
+            peak = 200.f;
+        }
+        if (g.autoscale && q == Q_LIVE) {
+            peak = 8.f;
+            for (i = 0; i < n; i++) {
+                float a = fabsf(buf[i]);
+                if (a > peak) {
+                    peak = a;
                 }
             }
-            SDL_SetRenderDrawColor(R, (Uint8)CHCOL[c][0], (Uint8)CHCOL[c][1],
-                                   (Uint8)CHCOL[c][2], 255);
-            for (i = 1; i < n; i++) {
-                int x1 = x + (int)((i - 1) * (w - 1) / (n - 1));
-                int x2 = x + (int)(i * (w - 1) / (n - 1));
-                int py1 = mid - (int)(buf[i - 1] / peak * (row_h * 0.40f));
-                int py2 = mid - (int)(buf[i] / peak * (row_h * 0.40f));
-                if (py1 < y0 + 2) {
-                    py1 = y0 + 2;
-                }
-                if (py1 > y1b - 3) {
-                    py1 = y1b - 3;
-                }
-                if (py2 < y0 + 2) {
-                    py2 = y0 + 2;
-                }
-                if (py2 > y1b - 3) {
-                    py2 = y1b - 3;
-                }
-                SDL_RenderDrawLine(R, x1, py1, x2, py2);
+        }
+        dim = (q != Q_LIVE);
+        cr = dim ? CHCOL[c][0] / 3 : CHCOL[c][0];
+        cg = dim ? CHCOL[c][1] / 3 : CHCOL[c][1];
+        cb = dim ? CHCOL[c][2] / 3 : CHCOL[c][2];
+        SDL_SetRenderDrawColor(R, (Uint8)cr, (Uint8)cg, (Uint8)cb, 255);
+        for (i = 1; i < n; i++) {
+            int x1 = x + (int)((i - 1) * (w - 1) / (n - 1));
+            int x2 = x + (int)(i * (w - 1) / (n - 1));
+            int py1 = mid - (int)(buf[i - 1] / peak * (row_h * 0.40f));
+            int py2 = mid - (int)(buf[i] / peak * (row_h * 0.40f));
+            if (py1 < y0 + 2) {
+                py1 = y0 + 2;
             }
+            if (py1 > y1b - 3) {
+                py1 = y1b - 3;
+            }
+            if (py2 < y0 + 2) {
+                py2 = y0 + 2;
+            }
+            if (py2 > y1b - 3) {
+                py2 = y1b - 3;
+            }
+            SDL_RenderDrawLine(R, x1, py1, x2, py2);
         }
     }
 }
@@ -641,15 +713,16 @@ static void draw_fft(int x, int y, int w, int h)
     enum { N = 128 };
     float mag[N / 2];
     float acc[N];
-    int c, i, used = 0, rail_n = 0, peak_i = 1;
-    char cap[48];
+    int c, i, used = 0, open_n = 0, peak_i = 1;
+    uint8_t lp = 0, ln = 0;
+    char cap[56];
     fill(x, y, w, h, 10, 12, 16);
     memset(mag, 0, sizeof(mag));
+    np_ring_loff(&g.ring, &lp, &ln);
     for (c = 0; c < NP_NCHAN; c++) {
         float buf[N];
         uint32_t n;
-        float last;
-        int rail;
+        int q;
         if (!g.active[c]) {
             continue;
         }
@@ -657,10 +730,9 @@ static void draw_fft(int x, int y, int w, int h)
         if (n < N) {
             continue;
         }
-        last = buf[n - 1];
-        rail = (last > 5000.f || last < -5000.f);
-        if (rail) {
-            rail_n++;
+        q = ch_quality(c, buf, n, lp, ln);
+        if (q != Q_LIVE) {
+            open_n++;
             continue;
         }
         apply_filt(c, buf, n);
@@ -678,35 +750,13 @@ static void draw_fft(int x, int y, int w, int h)
             used++;
         }
     }
-    /* If every enabled channel is open-input, still FFT them — that is what
-     * the original host does — but label it so it is not mistaken for EEG. */
-    if (used == 0 && rail_n) {
-        for (c = 0; c < NP_NCHAN; c++) {
-            float buf[N];
-            uint32_t n;
-            if (!g.active[c]) {
-                continue;
-            }
-            n = np_ring_copy(&g.ring, c, buf, N);
-            if (n < N) {
-                continue;
-            }
-            np_detrend(buf, (int)n);
-            for (i = 0; i < (int)n; i++) {
-                float win = 0.5f - 0.5f * cosf(2.f * (float)M_PI * (float)i / (float)(n - 1));
-                acc[i] = buf[i] * win;
-            }
-            {
-                float m[N / 2];
-                np_fft_mag(acc, N, m);
-                for (i = 0; i < N / 2; i++) {
-                    mag[i] += m[i];
-                }
-                used++;
-            }
-        }
+    if (used) {
+        snprintf(cap, sizeof(cap), "FFT Hz");
+    } else if (open_n) {
+        snprintf(cap, sizeof(cap), "FFT idle - open/rail inputs, not EEG");
+    } else {
+        snprintf(cap, sizeof(cap), "FFT Hz");
     }
-    snprintf(cap, sizeof(cap), rail_n ? "FFT  (no skin contact)" : "FFT Hz");
     text(x + 6, y + 4, cap, 160, 168, 180, 1);
     if (used) {
         float peak = 1e-12f;
@@ -768,6 +818,8 @@ static void draw_side(int x)
         snprintf(imu, sizeof(imu), "IMU %.2f %.2f %.2f", ax, ay, az);
         text(x + 12, y, imu, 180, 200, 120, 1);
     }
+    y += 12;
+    text(x + 12, y, "USB stream != switches", 120, 128, 140, 1);
     y += 14;
 
     text(x + 12, y, "Port", 140, 148, 160, 1);
@@ -847,14 +899,18 @@ static void draw_side(int x)
 
 static void draw_status(void)
 {
-    char st[256];
+    char st[320];
     uint64_t tot = 0;
     uint32_t good = 0, bad = 0;
+    uint8_t lp = 0, ln = 0;
     np_ring_stats(&g.ring, &tot, &good, &bad);
+    np_ring_loff(&g.ring, &lp, &ln);
     pthread_mutex_lock(&g.mu);
-    snprintf(st, sizeof(st), "%s   %.0f sps  frames %llu  bad %u  flen %d%s%s",
+    snprintf(st, sizeof(st),
+             "%s   %.0f sps  frames %llu  bad %u  flen %d%s  loff %02X/%02X%s",
              g.status, g.sps > 1.f ? g.sps : (float)NP_DEFAULT_SPS, (unsigned long long)tot, bad,
-             g.parser.frame_len, g.parser.locked ? " lock" : "", g.paused ? " PAUSE" : "");
+             g.parser.frame_len, g.parser.locked ? " lock" : "", lp, ln,
+             g.paused ? " PAUSE" : "");
     pthread_mutex_unlock(&g.mu);
     fill(0, win_h - STATUS_H, win_w, STATUS_H, 16, 18, 22);
     text(12, win_h - STATUS_H + 8, st, g.status_ok ? 80 : 240, g.status_ok ? 210 : 90,
@@ -1035,7 +1091,7 @@ static int run_gui(void)
     if (g.nports > 0) {
         do_connect();
     } else {
-        set_status(1, "idle — plug board, click Connect");
+        set_status(1, "idle - plug board, click Connect");
     }
 
     while (live) {
@@ -1117,6 +1173,11 @@ static int run_cli(const char *port, int seconds)
         fflush(stdout);
     }
     putchar('\n');
+    {
+        uint8_t lp = 0, ln = 0;
+        np_ring_loff(&g.ring, &lp, &ln);
+        printf("loff_p=0x%02X loff_n=0x%02X  (bit0=ch1 ... bit7=ch8)\n", lp, ln);
+    }
     for (i = 0; i < NP_NCHAN; i++) {
         float b[16];
         uint32_t n = np_ring_copy(&g.ring, i, b, 16);
