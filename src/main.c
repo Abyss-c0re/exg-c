@@ -686,8 +686,7 @@ static void *enable_thread(void *arg)
         }
     }
     if (g.connected) {
-        set_status(1, "connected %s - USB stream != analog switches",
-                   g.nports ? g.ports[g.port_i] : "");
+        set_status(1, "connected %s", g.nports ? g.ports[g.port_i] : "");
     }
     g.en_running = 0;
     return NULL;
@@ -1199,10 +1198,7 @@ static void wear_check(void)
     if (nchg > 0) {
         set_status(1, "analog CHANGED vs cal (max %.2fx) - %d ch left baseline", r, nchg);
     } else {
-        set_status(0,
-                   "still at baseline (%.2fx). Need: wires on CH+, earclip on RLD/COMM, "
-                   "board switches toward electrodes, paste on ear. Then clench jaw.",
-                   r > 0.f ? r : 1.f);
+        set_status(0, "still at baseline (%.2fx)", r > 0.f ? r : 1.f);
     }
 }
 
@@ -1451,9 +1447,9 @@ static void draw_fft(int x, int y, int w, int h)
         }
     }
     if (open_n && used == open_n) {
-        snprintf(cap, sizeof(cap), "FFT (open/rail inputs)");
+        snprintf(cap, sizeof(cap), "FFT  open");
     } else {
-        snprintf(cap, sizeof(cap), "FFT Hz");
+        snprintf(cap, sizeof(cap), "FFT");
     }
     text(x + 6, y + 4, cap, 160, 168, 180, 1);
     if (used) {
@@ -1484,41 +1480,56 @@ static void draw_fft(int x, int y, int w, int h)
             char hz[24];
             /* 125 SPS, N-point FFT → bin * sps / N */
             int sps = g.sps > 1.f ? (int)(g.sps + 0.5f) : NP_DEFAULT_SPS;
-            snprintf(hz, sizeof(hz), "peak %dHz", (peak_i * sps) / N);
-            text(x + w - 70, y + 4, hz, 180, 200, 210, 1);
+            snprintf(hz, sizeof(hz), "%d Hz", (peak_i * sps) / N);
+            text(x + w - 52, y + 4, hz, 180, 200, 210, 1);
         }
     }
 }
 
+static const char *port_short(void)
+{
+    const char *p = g.nports ? g.ports[g.port_i] : "";
+    if (!p[0]) {
+        return "(no port)";
+    }
+    if (p[0] == '/' && p[1] == 'd' && p[2] == 'e' && p[3] == 'v' && p[4] == '/') {
+        return p + 5;
+    }
+    return p;
+}
+
 static void draw_side(int x)
 {
-    int y = 16;
+    int y = 14;
     int c;
     char line[96];
-    const char *port = g.nports ? g.ports[g.port_i] : "(no port)";
+    const char *port = port_short();
     const char *bname = g.board == NP_BOARD_KNIGHT_IMU ? "8-ch + IMU" : "8-ch EEG";
 
     text(x + 12, y, "exg-c", 240, 242, 248, 2);
-    y += 22;
-    text(x + 12, y, "pure C host", 120, 128, 140, 1);
-    y += 14;
-    {
-        float ax = 0, ay = 0, az = 0;
-        char imu[40];
-        pthread_mutex_lock(&g.ring.mu);
-        if (g.ring.wr) {
-            uint32_t w = (g.ring.wr - 1) % NP_RING;
-            ax = g.ring.acc[0][w];
-            ay = g.ring.acc[1][w];
-            az = g.ring.acc[2][w];
+    y += 20;
+    if (g.connected) {
+        char live[48];
+        if (g.board == NP_BOARD_KNIGHT_IMU) {
+            float ax = 0, ay = 0, az = 0;
+            pthread_mutex_lock(&g.ring.mu);
+            if (g.ring.wr) {
+                uint32_t w = (g.ring.wr - 1) % NP_RING;
+                ax = g.ring.acc[0][w];
+                ay = g.ring.acc[1][w];
+                az = g.ring.acc[2][w];
+            }
+            pthread_mutex_unlock(&g.ring.mu);
+            snprintf(live, sizeof(live), "IMU  %.2f  %.2f  %.2f", ax, ay, az);
+        } else {
+            snprintf(live, sizeof(live), "live  %.0f sps",
+                     g.sps > 1.f ? g.sps : (float)NP_DEFAULT_SPS);
         }
-        pthread_mutex_unlock(&g.ring.mu);
-        snprintf(imu, sizeof(imu), "IMU %.2f %.2f %.2f", ax, ay, az);
-        text(x + 12, y, imu, 180, 200, 120, 1);
+        text(x + 12, y, live, 180, 200, 120, 1);
+    } else {
+        text(x + 12, y, "not connected", 120, 128, 140, 1);
     }
-    y += 12;
-    text(x + 12, y, "USB stream != switches", 120, 128, 140, 1);
-    y += 14;
+    y += 16;
 
     text(x + 12, y, "Port", 140, 148, 160, 1);
     y += 11;
@@ -1584,7 +1595,7 @@ static void draw_side(int x)
                 g.chrgb[c][2] / 3);
         }
         y += 4 * 26 + 8;
-        text(x + 12, y, "saved to ~/.config/exg-c.ini", 100, 108, 116, 1);
+        text(x + 12, y, "saved  ~/.config/exg-c.ini", 100, 108, 116, 1);
         return;
     }
     {
@@ -1594,7 +1605,7 @@ static void draw_side(int x)
         snprintf(b, sizeof(b), "win %ds", g.window_s);
         btn(x + 12, y, 136, 22, b, 1, 9, 0, 36, 40, 48);
         if (g.og) {
-            snprintf(b, sizeof(b), "scale OG");
+            snprintf(b, sizeof(b), "scale fit");
         } else if (g.autoscale) {
             snprintf(b, sizeof(b), "scale AUTO");
         } else {
@@ -1694,9 +1705,9 @@ static void draw_learn(int x, int y, int w, int h)
         snprintf(lab, sizeof(lab), "now: %s  %d%%", g.learn.s[g.learn.best].name, pct);
         text(x + 480, y + 8, lab, pct >= 55 ? 80 : 200, pct >= 55 ? 230 : 170, 120, 1);
     } else if (!g.namebuf[0]) {
-        text(x + 480, y + 8, "click the box, type, Record, hold still", 120, 128, 140, 1);
+        text(x + 480, y + 8, "name, then Record", 120, 128, 140, 1);
     } else {
-        text(x + 480, y + 8, "hold the pose, click Record, stay still 2s", 140, 180, 150, 1);
+        text(x + 480, y + 8, "Record and hold 2s", 140, 180, 150, 1);
     }
 
     nshow = g.learn.n > 8 ? 8 : g.learn.n;
@@ -1704,12 +1715,9 @@ static void draw_learn(int x, int y, int w, int h)
         float rr = 0.f;
         int nchg = live_vs_cal(&rr);
         if (nchg == 0) {
-            text(x + 8, y + 32,
-                 "flat = still open-input. wires on CH+  earclip RLD/COMM  flip analog switches  paste  clench jaw",
-                 210, 150, 80, 1);
+            text(x + 8, y + 32, "still at baseline", 210, 150, 80, 1);
         } else if (nchg > 0) {
-            snprintf(lab, sizeof(lab), "%d ch left baseline (%.2fx) - that is the analog change", nchg,
-                     rr);
+            snprintf(lab, sizeof(lab), "%d ch left baseline (%.2fx)", nchg, rr);
             text(x + 8, y + 32, lab, 80, 210, 140, 1);
         }
     } else if (nshow <= 0) {
@@ -1754,41 +1762,63 @@ static void draw_learn(int x, int y, int w, int h)
     btn(x + 210, y + h - 22, 48, 18, "write", 0, 24, 0, 32, 36, 44);
     btn(x + 262, y + h - 22, 48, 18, "WEAR", 0, 28, 0, 36, 50, 70);
     if (g.cal_arm) {
-        text(x + 264, y + h - 18, "headset OFF, then OK  (overwrites exg-c.cal)", 230, 190, 90, 1);
+        text(x + 264, y + h - 18, "headset off, then OK", 230, 190, 90, 1);
     } else if (g.off.have && g.on.have) {
         float r = (g.on.rms[0] > 1.f) ? g.off.rms[0] / g.on.rms[0] : 0.f;
         snprintf(lab, sizeof(lab), "A/B  off %.0f  on %.0f uV  %.1fx  %s", g.off.rms[0],
                  g.on.rms[0], r, (r > 3.f || (r > 0.f && r < 0.33f)) ? "DIFFERENT" : "SAME");
         text(x + 264, y + h - 18, lab, 160, 170, 150, 1);
     } else if (g.cal.have) {
-        text(x + 316, y + h - 18,
-             g.cal_cut ? "CUT on  WEAR checks if headset changed the ADC" : "CUT off: raw plot",
-             100, 120, 110, 1);
+        text(x + 316, y + h - 18, g.cal_cut ? "CUT on" : "CUT off", 100, 120, 110, 1);
     } else {
-        text(x + 264, y + h - 18, "CAL = save open-input baseline (headset off)", 90, 96, 104, 1);
+        text(x + 264, y + h - 18, "CAL  headset-off baseline", 90, 96, 104, 1);
     }
 }
 
 
+static void refresh_title(void)
+{
+    static char last[96];
+    char t[96];
+    if (!Win) {
+        return;
+    }
+    if (g.connected) {
+        snprintf(t, sizeof(t), "exg-c  %s  %.0f sps", port_short(),
+                 g.sps > 1.f ? g.sps : (float)NP_DEFAULT_SPS);
+    } else {
+        snprintf(t, sizeof(t), "exg-c");
+    }
+    if (strcmp(last, t) != 0) {
+        snprintf(last, sizeof(last), "%s", t);
+        SDL_SetWindowTitle(Win, t);
+    }
+}
+
 static void draw_status(void)
 {
-    char st[320];
+    char st[240];
     uint64_t tot = 0;
     uint32_t good = 0, bad = 0;
     uint8_t lp = 0, ln = 0;
     np_ring_stats(&g.ring, &tot, &good, &bad);
     np_ring_loff(&g.ring, &lp, &ln);
     pthread_mutex_lock(&g.mu);
-    snprintf(st, sizeof(st),
-             "%s   %.0f sps  frames %llu  bad %u  flen %d%s  loff %02X/%02X%s",
-             g.status, g.sps > 1.f ? g.sps : (float)NP_DEFAULT_SPS, (unsigned long long)tot, bad,
-             g.parser.frame_len, g.parser.locked ? " lock" : "", lp, ln,
-             g.paused ? " PAUSE" : "");
+    if (g.connected) {
+        snprintf(st, sizeof(st),
+                 "%s   %.0f sps   %llu frames   bad %u   %s   loff %02X/%02X%s",
+                 g.status, g.sps > 1.f ? g.sps : (float)NP_DEFAULT_SPS,
+                 (unsigned long long)tot, bad, g.parser.locked ? "lock" : "sync", lp, ln,
+                 g.paused ? "   PAUSE" : "");
+    } else {
+        snprintf(st, sizeof(st), "%s", g.status);
+    }
     pthread_mutex_unlock(&g.mu);
     fill(0, win_h - statush(), win_w, statush(), 16, 18, 22);
     text(12, win_h - statush() + (statush() - 8) / 2, st, g.status_ok ? 80 : 240,
          g.status_ok ? 210 : 90,
          g.status_ok ? 120 : 90, 1);
+    refresh_title();
 }
 
 static void next_gain(int ch)
@@ -2061,6 +2091,7 @@ static int run_gui(void)
 
     setenv("SDL_VIDEODRIVER", "x11", 0);
     setenv("SDL_AUDIODRIVER", "dummy", 1);
+    SDL_SetHint("SDL_RENDER_SCALE_QUALITY", "0");
     if (SDL_Init(SDL_INIT_VIDEO) != 0) {
         fprintf(stderr, "SDL_Init: %s\n", SDL_GetError());
         return 1;
