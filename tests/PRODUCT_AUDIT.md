@@ -55,6 +55,19 @@ Recorded 2026-09-01, board on the desk, **no DTR**:
 
 This is **50 Hz mains on open inputs**, not brain signal. AUTO tracked the plate. A second DTR during IMU scan was reproduced as a stream-killer; connect does one reset only.
 
+## ML harness (two plates)
+
+| Step | Plate | What it is |
+|------|--------|------------|
+| 1 | **NOISE** | Desk / headset off. Spectrum → line Hz. |
+| 2 | **CALM** | Worn, sitting still. Residual after destroying that line. |
+| 3 | **CLEAN** | Live minus noise tone minus calm DC. |
+| 4 | **Detect** | `noise` / `calm` / **SIGNAL** if residual > 1.5× calm |
+
+Proof in `make test`: an 8 Hz burst that is in neither plate is classified **SIGNAL**. Desk matches **noise**. Worn-still matches **calm**.
+
+Learn/Record uses the cleaned window. This is the front-end for on-device templates (`nplearn`), not a cloud model.
+
 ## Limits (say these to investors)
 
 1. **125 SPS.** Nyquist 62.5 Hz. 60 Hz is two samples/cycle; that notch is wide on purpose.

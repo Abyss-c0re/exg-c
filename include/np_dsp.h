@@ -23,5 +23,13 @@ float np_notch_step(struct np_notch *f, float x);
 int np_tone_hz(const float *x, int n, float sps, float *hz_out);
 /* Subtract the LS sinusoid at hz (the opposite wave). */
 void np_tone_cancel(float *x, int n, float hz, float sps);
+void np_sub_dc(float *x, int n, float dc);
+
+/* After noise-tone + calm-DC: 1 noise  2 calm  3 signal  0 unknown */
+#define NP_DET_NONE 0
+#define NP_DET_NOISE 1
+#define NP_DET_CALM 2
+#define NP_DET_SIGNAL 3
+int np_detect(float raw_rms, float resid_rms, float noise_rms, float calm_rms, float *ratio);
 
 #endif

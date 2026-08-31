@@ -94,10 +94,10 @@ struct np_app {
         int have;
         uint32_t n;
         float dc[NP_NCHAN], rms[NP_NCHAN], pk[NP_NCHAN];
-    } off, on, cal;
+    } off, on, cal, calm;
     int cal_arm;
     int cal_cut;
-    float cal_hz; /* line tone from cal spectrum; 0 = none */
+    float cal_hz; /* line tone from noise plate; 0 = none */
     uint32_t rec_t0;
     uint32_t saved_t0;
     uint64_t stall_tot;
@@ -149,6 +149,7 @@ static float ui_f(void)
 }
 static void set_status(int ok, const char *fmt, ...);
 static void typing_set(int on);
+static void apply_filt(int ch, float *buf, uint32_t n);
 static const int SCALE_UV[] = {50, 100, 200, 500, 1000, 5000};
 #define NSCALE 6
 static const int WIN_S[] = {1, 2, 4, 8};
@@ -244,6 +245,7 @@ static int learn_capture(float wave[NPL_NCHAN][NPL_LEN], float rms[NPL_NCHAN], u
         if (n < 16) {
             continue;
         }
+        apply_filt(c, buf, n);
         if (npl_prep(wave[c], &rms[c], buf, (int)n, sps, notch) == 0) {
             *mask |= (uint8_t)(1u << c);
         }
@@ -471,25 +473,33 @@ static void apply_filt(int ch, float *buf, uint32_t n)
 {
     uint32_t i;
     float sps = design_sps();
-    if (g.hp_hz <= 0 && g.notch_hz == 0) {
-        return;
-    }
-    /* Restart IIR on this copy. Carrying state across overlapping
-     * windows feeds newest-state then oldest-sample — the 60 Hz
-     * notch never sits on the tone. */
-    np_hp_init(&g.hp[ch], (float)g.hp_hz, sps);
-    if (g.notch_hz != 0 && notch_hz_eff() > 1.f) {
-        np_notch_init(&g.notch[ch], notch_hz_eff(), sps, 30.f);
-    }
-    for (i = 0; i < n; i++) {
-        float v = buf[i];
-        if (g.hp_hz > 0) {
-            v = np_hp_step(&g.hp[ch], v);
+    {
+        float nh = 0.f;
+        if (g.notch_hz != 0) {
+            nh = notch_hz_eff();
+        } else if (g.cal_cut && g.cal_hz > 1.f) {
+            nh = g.cal_hz;
         }
-        if (g.notch_hz != 0 && notch_hz_eff() > 1.f) {
-            v = np_notch_step(&g.notch[ch], v);
+        if (g.hp_hz <= 0 && nh <= 1.f && !(g.cal_cut && g.calm.have)) {
+            return;
         }
-        buf[i] = v;
+        np_hp_init(&g.hp[ch], (float)g.hp_hz, sps);
+        if (nh > 1.f) {
+            np_notch_init(&g.notch[ch], nh, sps, 30.f);
+        }
+        for (i = 0; i < n; i++) {
+            float v = buf[i];
+            if (g.hp_hz > 0) {
+                v = np_hp_step(&g.hp[ch], v);
+            }
+            if (nh > 1.f) {
+                v = np_notch_step(&g.notch[ch], v);
+            }
+            buf[i] = v;
+        }
+        if (g.cal_cut && g.calm.have) {
+            np_sub_dc(buf, (int)n, g.calm.dc[ch]);
+        }
     }
 }
 
@@ -1160,13 +1170,18 @@ static int cal_save(void)
     if (!f) {
         return -1;
     }
-    fprintf(f, "# exg-c open-input baseline (headset OFF)\n");
-    fprintf(f, "# overwritten by Calibrate -> OK\n");
-    fprintf(f, "# time %ld  samples %u\n", (long)t, g.cal.n);
+    fprintf(f, "# exg-c plates: NOISE (desk/off) then CALM (worn still)\n");
+    fprintf(f, "# time %ld  noise_n %u  calm %d\n", (long)t, g.cal.n, g.calm.have);
     fprintf(f, "tone_hz=%.3f\n", g.cal_hz);
     fprintf(f, "ch,dc_uV,rms_uV,pk_uV\n");
     for (c = 0; c < NP_NCHAN; c++) {
         fprintf(f, "%d,%.3f,%.3f,%.3f\n", c + 1, g.cal.dc[c], g.cal.rms[c], g.cal.pk[c]);
+    }
+    if (g.calm.have) {
+        for (c = 0; c < NP_NCHAN; c++) {
+            fprintf(f, "calm%d=%.3f,%.3f,%.3f\n", c + 1, g.calm.dc[c], g.calm.rms[c],
+                    g.calm.pk[c]);
+        }
     }
     fclose(f);
     return 0;
@@ -1186,14 +1201,21 @@ static int cal_load(void)
     while (fgets(line, sizeof(line), f)) {
         int ch;
         float dc, rms, pk;
-        if (line[0] == '#' || line[0] == 'c') {
+        if (line[0] == '#' || (line[0] == 'c' && line[1] == 'h')) {
             continue;
         }
         if (sscanf(line, "tone_hz=%f", &dc) == 1) {
             g.cal_hz = dc;
             continue;
         }
-        if (sscanf(line, "%d,%f,%f,%f", &ch, &dc, &rms, &pk) == 4 && ch >= 1 && ch <= NP_NCHAN) {
+        if (sscanf(line, "calm%d=%f,%f,%f", &ch, &dc, &rms, &pk) == 4 && ch >= 1 &&
+            ch <= NP_NCHAN) {
+            g.calm.dc[ch - 1] = dc;
+            g.calm.rms[ch - 1] = rms;
+            g.calm.pk[ch - 1] = pk;
+            g.calm.have = 1;
+        } else if (sscanf(line, "%d,%f,%f,%f", &ch, &dc, &rms, &pk) == 4 && ch >= 1 &&
+                   ch <= NP_NCHAN) {
             g.cal.dc[ch - 1] = dc;
             g.cal.rms[ch - 1] = rms;
             g.cal.pk[ch - 1] = pk;
@@ -1258,10 +1280,56 @@ static void cal_capture(void)
         return;
     }
     if (g.cal_hz > 1.f) {
-        set_status(1, "calibrated  ch1 rms %.0f uV  line %.1f Hz", g.cal.rms[0], g.cal_hz);
+        set_status(1, "NOISE plate  ch1 rms %.0f uV  line %.1f Hz", g.cal.rms[0], g.cal_hz);
     } else {
-        set_status(1, "calibrated  ch1 rms %.0f uV  no line tone", g.cal.rms[0]);
+        set_status(1, "NOISE plate  ch1 rms %.0f uV  no line tone", g.cal.rms[0]);
     }
+}
+
+static void calm_capture(void)
+{
+    int c;
+    uint32_t want = (uint32_t)(g.window_s * (g.sps > 1.f ? g.sps : NP_DEFAULT_SPS));
+    if (!g.cal.have) {
+        set_status(0, "NOISE first (desk / headset off, then OK)");
+        return;
+    }
+    if (want < 32) {
+        want = 32;
+    }
+    if (want > NP_RING) {
+        want = NP_RING;
+    }
+    memset(&g.calm, 0, sizeof(g.calm));
+    for (c = 0; c < NP_NCHAN; c++) {
+        float buf[NP_RING], dc, rms, pk;
+        uint32_t n = np_ring_copy(&g.ring, c, buf, want);
+        if (n < 16) {
+            continue;
+        }
+        if (g.cal_hz > 1.f) {
+            struct np_notch nt;
+            uint32_t i;
+            np_notch_init(&nt, g.cal_hz, design_sps(), 30.f);
+            for (i = 0; i < n; i++) {
+                buf[i] = np_notch_step(&nt, buf[i]);
+            }
+        }
+        ch_stats(buf, n, &dc, &rms, &pk);
+        g.calm.dc[c] = dc;
+        np_sub_dc(buf, (int)n, dc);
+        ch_stats(buf, n, &dc, &g.calm.rms[c], &g.calm.pk[c]);
+        if (n > g.calm.n) {
+            g.calm.n = n;
+        }
+    }
+    g.calm.have = 1;
+    g.cal_cut = 1;
+    if (cal_save() != 0) {
+        set_status(0, "calm captured but could not write exg-c.cal");
+        return;
+    }
+    set_status(1, "CALM plate  ch1 resid %.0f uV  CLEAN on", g.calm.rms[0]);
 }
 
 static int live_vs_cal(float *ratio_out)
@@ -1345,15 +1413,13 @@ static void draw_waves(int x, int y, int w, int h)
         row_h = y1b - y0;
         mid = (y0 + y1b) / 2;
         {
-            float dc = 0, rms = 0, pk = 0, r = 0.f;
+            float dc = 0, rms = 0, pk = 0, r = 0.f, raw_rms = 0.f;
             if (!g.paused) {
                 n = np_ring_copy(&g.ring, c, buf, want);
                 ch_stats(buf, n, &dc, &rms, &pk);
-                if (g.cal.have && g.cal_cut && g.cal.rms[c] > 1.f && n >= 4) {
+                raw_rms = rms;
+                if (g.cal.have && g.cal_cut && !g.calm.have && g.cal.rms[c] > 1.f && n >= 4) {
                     r = rms / g.cal.rms[c];
-                    /* Official: take the headset off and the strip stops.
-                     * Same energy as the off-head cal → freeze, do not keep
-                     * painting a new rail hash every frame. */
                     if (r > 0.85f && r < 1.18f) {
                         gated = 1;
                     }
@@ -1415,6 +1481,18 @@ static void draw_waves(int x, int y, int w, int h)
                 text(x + 220, y0 + 4, lab, 200, 90, 80, 1);
             } else if (gated) {
                 text(x + 220, y0 + 4, "FROZEN", 200, 140, 70, 1);
+            } else if (g.cal_cut && g.cal.have) {
+                float rr = 0.f;
+                int det = np_detect(raw_rms > 1.f ? raw_rms : rms, rms, g.cal.rms[c],
+                                    g.calm.have ? g.calm.rms[c] : 0.f, &rr);
+                if (det == NP_DET_SIGNAL) {
+                    snprintf(lab, sizeof(lab), "SIGNAL %.1fx", rr);
+                    text(x + 220, y0 + 4, lab, 80, 230, 120, 1);
+                } else if (det == NP_DET_CALM) {
+                    text(x + 220, y0 + 4, "calm", 140, 180, 160, 1);
+                } else if (det == NP_DET_NOISE) {
+                    text(x + 220, y0 + 4, "noise", 210, 150, 80, 1);
+                }
             } else if (g.cal.have && g.cal.rms[c] > 1.f) {
                 snprintf(lab, sizeof(lab), "vs cal %.2fx", r > 0.f ? r : rms / g.cal.rms[c]);
                 text(x + 220, y0 + 4, lab, 80, 210, 140, 1);
@@ -1871,27 +1949,26 @@ static void draw_learn(int x, int y, int w, int h)
         }
     }
 
-    btn(x + 6, y + h - 22, 40, 18, "CAL", g.cal_arm || g.cal.have, 25, 0,
+    btn(x + 6, y + h - 22, 48, 18, "NOISE", g.cal_arm || g.cal.have, 25, 0,
         g.cal_arm ? 110 : 32, g.cal_arm ? 70 : 36, 40);
-    btn(x + 50, y + h - 22, 32, 18, "OK", g.cal_arm, 26, 0, g.cal_arm ? 28 : 36,
+    btn(x + 58, y + h - 22, 28, 18, "OK", g.cal_arm, 26, 0, g.cal_arm ? 28 : 36,
         g.cal_arm ? 100 : 38, g.cal_arm ? 70 : 46);
-    btn(x + 86, y + h - 22, 44, 18, g.cal_cut ? "CUT" : "cut", g.cal_cut && g.cal.have, 27, 0,
-        g.cal_cut ? 28 : 36, g.cal_cut ? 80 : 38, g.cal_cut ? 70 : 46);
-    btn(x + 134, y + h - 22, 36, 18, "OFF", g.off.have, 22, 0, g.off.have ? 90 : 32, 38, 42);
-    btn(x + 174, y + h - 22, 32, 18, "ON", g.on.have, 23, 0, 32, g.on.have ? 90 : 38, 48);
-    btn(x + 210, y + h - 22, 48, 18, "write", 0, 24, 0, 32, 36, 44);
-    btn(x + 262, y + h - 22, 48, 18, "WEAR", 0, 28, 0, 36, 50, 70);
+    btn(x + 90, y + h - 22, 44, 18, "CALM", g.calm.have, 35, 0, g.calm.have ? 28 : 36,
+        g.calm.have ? 80 : 38, g.calm.have ? 70 : 46);
+    btn(x + 138, y + h - 22, 40, 18, g.cal_cut ? "CLN" : "cln",
+        g.cal_cut && g.cal.have, 27, 0, g.cal_cut ? 28 : 36, g.cal_cut ? 80 : 38,
+        g.cal_cut ? 70 : 46);
+    btn(x + 182, y + h - 22, 44, 18, "write", 0, 24, 0, 32, 36, 44);
     if (g.cal_arm) {
-        text(x + 264, y + h - 18, "headset off, then OK", 230, 190, 90, 1);
-    } else if (g.off.have && g.on.have) {
-        float r = (g.on.rms[0] > 1.f) ? g.off.rms[0] / g.on.rms[0] : 0.f;
-        snprintf(lab, sizeof(lab), "A/B  off %.0f  on %.0f uV  %.1fx  %s", g.off.rms[0],
-                 g.on.rms[0], r, (r > 3.f || (r > 0.f && r < 0.33f)) ? "DIFFERENT" : "SAME");
-        text(x + 264, y + h - 18, lab, 160, 170, 150, 1);
+        text(x + 232, y + h - 18, "desk / off, then OK", 230, 190, 90, 1);
+    } else if (g.cal.have && g.calm.have) {
+        snprintf(lab, sizeof(lab), "noise %.0fHz  calm %.0f uV%s", g.cal_hz,
+                 g.calm.rms[0], g.cal_cut ? "  CLEAN" : "");
+        text(x + 232, y + h - 18, lab, 140, 180, 150, 1);
     } else if (g.cal.have) {
-        text(x + 316, y + h - 18, g.cal_cut ? "CUT on" : "CUT off", 100, 120, 110, 1);
+        text(x + 232, y + h - 18, "wear headset, sit still, CALM", 100, 120, 110, 1);
     } else {
-        text(x + 264, y + h - 18, "CAL  headset-off baseline", 90, 96, 104, 1);
+        text(x + 232, y + h - 18, "NOISE = desk plate   then CALM on head", 90, 96, 104, 1);
     }
 }
 
@@ -2118,7 +2195,7 @@ static void click(int x, int y)
             break;
         case 25:
             g.cal_arm = 1;
-            set_status(1, "Remove the headset, wait one window, then click OK");
+            set_status(1, "NOISE: board on desk / headset off, then OK");
             break;
         case 26:
             if (!g.cal_arm) {
@@ -2132,10 +2209,13 @@ static void click(int x, int y)
         case 27:
             g.cal_cut = !g.cal_cut;
             cfg_save();
-            set_status(1, g.cal_cut ? "CUT on - baseline static zeroed" : "CUT off - raw plot");
+            set_status(1, g.cal_cut ? "CLEAN on - noise+calm removed" : "CLEAN off - raw plot");
             break;
         case 28:
             wear_check();
+            break;
+        case 35:
+            calm_capture();
             break;
         case 30:
             g.tab = 0;

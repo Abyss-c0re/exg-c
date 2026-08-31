@@ -189,6 +189,63 @@ static void test_auto_from_cal(void)
     expect(pout < 0.5f * pin, "60 Hz wide notch cuts");
 }
 
+static float rms_of(const float *x, int n)
+{
+    int i;
+    double q = 0;
+    for (i = 0; i < n; i++) {
+        q += (double)x[i] * x[i];
+    }
+    return sqrtf((float)(q / (n > 0 ? n : 1)));
+}
+
+/* NOISE plate (desk) then CALM plate (worn still). An 8 Hz burst
+ * that is in neither plate must come out as SIGNAL. */
+static void test_ml_harness(void)
+{
+    float noise[256], worn[256], ev[256];
+    float hz = 0.f, noise_rms, calm_rms, raw_c, resid_c, raw_e, resid_e;
+    struct np_notch nt;
+    int i;
+
+    synth(noise, 256, 125.f, 50.f, 20.f, 10.f, 0.2f);
+    expect(np_tone_hz(noise, 256, 125.f, &hz) == 0, "harness: noise tone");
+    noise_rms = rms_of(noise, 256);
+
+    synth(worn, 256, 125.f, 50.f, 20.f, 10.f, 0.2f);
+    for (i = 0; i < 256; i++) {
+        worn[i] += 80.f;
+    }
+    raw_c = rms_of(worn, 256);
+    np_notch_init(&nt, hz, 125.f, 30.f);
+    for (i = 0; i < 256; i++) {
+        worn[i] = np_notch_step(&nt, worn[i]);
+    }
+    np_sub_dc(worn, 256, 80.f);
+    calm_rms = rms_of(worn, 256);
+    resid_c = calm_rms;
+
+    synth(ev, 256, 125.f, 50.f, 20.f, 8.f, 12.f);
+    for (i = 0; i < 256; i++) {
+        ev[i] += 80.f;
+    }
+    raw_e = rms_of(ev, 256);
+    np_notch_init(&nt, hz, 125.f, 30.f);
+    for (i = 0; i < 256; i++) {
+        ev[i] = np_notch_step(&nt, ev[i]);
+    }
+    np_sub_dc(ev, 256, 80.f);
+    resid_e = rms_of(ev, 256);
+
+    expect(np_detect(noise_rms, noise_rms, noise_rms, calm_rms, NULL) == NP_DET_NOISE,
+           "harness: desk = noise");
+    expect(np_detect(raw_c, resid_c, noise_rms, calm_rms, NULL) == NP_DET_CALM,
+           "harness: worn still = calm");
+    expect(np_detect(raw_e, resid_e, noise_rms, calm_rms, NULL) == NP_DET_SIGNAL,
+           "harness: 8 Hz burst = SIGNAL");
+    expect(resid_e > 1.5f * calm_rms, "harness: cleared event above calm");
+}
+
 static void test_nplearn(void)
 {
     struct npl L;
@@ -269,6 +326,7 @@ int main(void)
     test_parser();
     test_ring();
     test_auto_from_cal();
+    test_ml_harness();
     test_nplearn();
     test_disk_cal();
     test_replay_live_csv();
