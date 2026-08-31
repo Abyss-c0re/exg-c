@@ -73,6 +73,7 @@ struct np_app {
     /* visualization / sampling */
     int window_s;
     int autoscale;
+    int og;
     int scale_uv;
     int notch_hz;
     int hp_hz;
@@ -283,6 +284,7 @@ static void cfg_save(void)
     }
     fprintf(f, "window_s=%d\n", g.window_s);
     fprintf(f, "autoscale=%d\n", g.autoscale);
+    fprintf(f, "og=%d\n", g.og);
     fprintf(f, "scale_uv=%d\n", g.scale_uv);
     fprintf(f, "notch_hz=%d\n", g.notch_hz);
     fprintf(f, "hp_hz=%d\n", g.hp_hz);
@@ -309,6 +311,8 @@ static void cfg_load(void)
             g.window_s = v;
         } else if (sscanf(line, "autoscale=%d", &v) == 1) {
             g.autoscale = v;
+        } else if (sscanf(line, "og=%d", &v) == 1) {
+            g.og = v;
         } else if (sscanf(line, "scale_uv=%d", &v) == 1) {
             g.scale_uv = v;
         } else if (sscanf(line, "notch_hz=%d", &v) == 1) {
@@ -1052,7 +1056,7 @@ static void draw_waves(int x, int y, int w, int h)
         {
             float dc = 0, rms = 0, pk = 0, r = 0.f;
             ch_stats(buf, n, &dc, &rms, &pk);
-            if (g.cal.have && g.cal_cut && n >= 4) {
+            if (!g.og && g.cal.have && g.cal_cut && n >= 4) {
                 for (i = 0; i < n; i++) {
                     buf[i] -= g.cal.dc[c];
                 }
@@ -1114,34 +1118,60 @@ static void draw_waves(int x, int y, int w, int h)
                 SDL_RenderDrawLine(R, xx, y0 + 1, xx, y1b - 2);
             }
         }
-        /* EEG-range scale. Autoscale only when the window is actually small.
-         * Fitting a 0.13 V rail into the row is what made on/off look identical. */
         peak = (float)g.scale_uv;
         if (peak < 20.f) {
             peak = 200.f;
         }
-        if (g.autoscale && q == Q_LIVE) {
-            peak = 8.f;
-            for (i = 0; i < n; i++) {
-                float a = fabsf(buf[i]);
-                if (a > peak) {
-                    peak = a;
+        {
+            float omin = 0.f, omax = 0.f, ospan = 0.f;
+            if (g.og && n > 0) {
+                omin = omax = buf[0];
+                for (i = 1; i < n; i++) {
+                    if (buf[i] < omin) {
+                        omin = buf[i];
+                    }
+                    if (buf[i] > omax) {
+                        omax = buf[i];
+                    }
+                }
+                ospan = omax - omin;
+                if (ospan < 8.f) {
+                    ospan = 8.f;
+                }
+            } else if (g.autoscale && q == Q_LIVE) {
+                peak = 8.f;
+                for (i = 0; i < n; i++) {
+                    float a = fabsf(buf[i]);
+                    if (a > peak) {
+                        peak = a;
+                    }
+                }
+                if (peak > 2000.f) {
+                    peak = 2000.f;
                 }
             }
-            if (peak > 2000.f) {
-                peak = 2000.f;
+            if (g.og) {
+                dim = 0;
+            } else {
+                dim = (q == Q_OPEN || q == Q_LEADOFF || gated);
             }
-        }
-        dim = (q == Q_OPEN || q == Q_LEADOFF);
-        cr = dim ? CHCOL[c][0] / 3 : CHCOL[c][0];
-        cg = dim ? CHCOL[c][1] / 3 : CHCOL[c][1];
-        cb = dim ? CHCOL[c][2] / 3 : CHCOL[c][2];
-        SDL_SetRenderDrawColor(R, (Uint8)cr, (Uint8)cg, (Uint8)cb, 255);
-        for (i = 1; i < n; i++) {
-            int x1 = x + (int)((i - 1) * (w - 1) / (n - 1));
-            int x2 = x + (int)(i * (w - 1) / (n - 1));
-            int py1 = mid - (int)(buf[i - 1] / peak * (row_h * 0.40f));
-            int py2 = mid - (int)(buf[i] / peak * (row_h * 0.40f));
+            cr = dim ? CHCOL[c][0] / 3 : CHCOL[c][0];
+            cg = dim ? CHCOL[c][1] / 3 : CHCOL[c][1];
+            cb = dim ? CHCOL[c][2] / 3 : CHCOL[c][2];
+            SDL_SetRenderDrawColor(R, (Uint8)cr, (Uint8)cg, (Uint8)cb, 255);
+            for (i = 1; i < n; i++) {
+                int x1 = x + (int)((i - 1) * (w - 1) / (n - 1));
+                int x2 = x + (int)(i * (w - 1) / (n - 1));
+                int py1, py2;
+                if (g.og) {
+                    float u1 = (buf[i - 1] - omin) / ospan;
+                    float u2 = (buf[i] - omin) / ospan;
+                    py1 = y1b - 3 - (int)(u1 * (row_h - 8));
+                    py2 = y1b - 3 - (int)(u2 * (row_h - 8));
+                } else {
+                    py1 = mid - (int)(buf[i - 1] / peak * (row_h * 0.40f));
+                    py2 = mid - (int)(buf[i] / peak * (row_h * 0.40f));
+                }
             if (py1 < y0 + 2) {
                 py1 = y0 + 2;
             }
@@ -1155,6 +1185,7 @@ static void draw_waves(int x, int y, int w, int h)
                 py2 = y1b - 3;
             }
             SDL_RenderDrawLine(R, x1, py1, x2, py2);
+            }
         }
     }
 }
@@ -1315,7 +1346,9 @@ static void draw_side(int x)
         y += 14;
         snprintf(b, sizeof(b), "win %ds", g.window_s);
         btn(x + 12, y, 136, 22, b, 1, 9, 0, 36, 40, 48);
-        if (g.autoscale) {
+        if (g.og) {
+            snprintf(b, sizeof(b), "scale OG");
+        } else if (g.autoscale) {
             snprintf(b, sizeof(b), "scale AUTO");
         } else {
             snprintf(b, sizeof(b), "scale +-%duV", g.scale_uv);
@@ -1567,9 +1600,13 @@ static void click(int x, int y)
             }
             break;
         case 10:
-            if (g.autoscale) {
+            if (g.og) {
+                g.og = 0;
                 g.autoscale = 0;
                 g.scale_uv = 200;
+            } else if (g.autoscale) {
+                g.autoscale = 0;
+                g.og = 1;
             } else {
                 int k, found = 0;
                 for (k = 0; k < NSCALE; k++) {
@@ -1903,6 +1940,7 @@ int main(int argc, char **argv)
     g.board = NP_BOARD_KNIGHT_IMU;
     g.window_s = 2;
     g.autoscale = 0;
+    g.og = 1;
     g.scale_uv = 200;
     g.notch_hz = 50;
     g.hp_hz = 1;
