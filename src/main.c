@@ -78,6 +78,7 @@ struct np_app {
     int grid;
     int paused;
     int show_uv;
+    int detrend;
     float sps;
     uint32_t sps_n;
     struct timespec sps_t;
@@ -254,6 +255,7 @@ static void cfg_save(void)
     fprintf(f, "hp_hz=%d\n", g.hp_hz);
     fprintf(f, "grid=%d\n", g.grid);
     fprintf(f, "show_uv=%d\n", g.show_uv);
+    fprintf(f, "detrend=%d\n", g.detrend);
     fprintf(f, "board=%d\n", (int)g.board);
     fclose(f);
 }
@@ -283,6 +285,8 @@ static void cfg_load(void)
             g.grid = v;
         } else if (sscanf(line, "show_uv=%d", &v) == 1) {
             g.show_uv = v;
+        } else if (sscanf(line, "detrend=%d", &v) == 1) {
+            g.detrend = v;
         } else if (sscanf(line, "board=%d", &v) == 1) {
             g.board = v ? NP_BOARD_KNIGHT_IMU : NP_BOARD_KNIGHT;
         }
@@ -721,10 +725,35 @@ static int ch_quality(int c, const float *buf, uint32_t n, uint8_t lp, uint8_t l
     if (mx < 0.5f) {
         return Q_ZERO;
     }
+    /* Open/floating inputs swing tens of mV. Scalp EXG is tens of µV. */
     if (mx > OPEN_UV) {
         return Q_OPEN;
     }
     return Q_LIVE;
+}
+
+static void ch_stats(const float *buf, uint32_t n, float *dc, float *rms, float *pk)
+{
+    uint32_t i;
+    double s = 0, e = 0;
+    float p = 0.f;
+    *dc = 0;
+    *rms = 0;
+    *pk = 0;
+    if (!n) {
+        return;
+    }
+    for (i = 0; i < n; i++) {
+        float a = fabsf(buf[i]);
+        s += buf[i];
+        e += (double)buf[i] * (double)buf[i];
+        if (a > p) {
+            p = a;
+        }
+    }
+    *dc = (float)(s / (double)n);
+    *rms = sqrtf((float)(e / (double)n));
+    *pk = p;
 }
 
 static void draw_waves(int x, int y, int w, int h)
@@ -765,27 +794,43 @@ static void draw_waves(int x, int y, int w, int h)
         mid = (y0 + y1b) / 2;
         last = n ? buf[n - 1] : 0.f;
         q = ch_quality(c, buf, n, lp, ln);
-        fill(x, y1b - 1, w, 1, 32, 36, 44);
-        snprintf(lab, sizeof(lab), "ch%d", c + 1);
-        text(x + 4, y0 + 4, lab, CHCOL[c][0], CHCOL[c][1], CHCOL[c][2], 1);
-        if (g.show_uv) {
-            snprintf(lab, sizeof(lab), "%+.0f uV", last);
-            text(x + 40, y0 + 4, lab, 170, 176, 186, 1);
-        }
-        if (q == Q_OFF) {
-            text(x + 130, y0 + 4, "off", 110, 114, 124, 1);
-        } else if (q == Q_LEADOFF) {
-            snprintf(lab, sizeof(lab), "lead-off %s%s", (lp & (1u << c)) ? "P" : "",
-                     (ln & (1u << c)) ? "N" : "");
-            text(x + 130, y0 + 4, lab, 200, 90, 80, 1);
-        } else if (q == Q_OPEN) {
-            text(x + 130, y0 + 4, "open/rail", 200, 90, 80, 1);
+        {
+            float dc = 0, rms = 0, pk = 0;
+            ch_stats(buf, n, &dc, &rms, &pk);
+            if (rms > OPEN_UV) {
+                q = Q_OPEN;
+            }
+            fill(x, y1b - 1, w, 1, 32, 36, 44);
+            if (q == Q_OPEN || q == Q_LEADOFF) {
+                fill(x, y0, w, row_h - 1, 28, 14, 14);
+            }
+            snprintf(lab, sizeof(lab), "ch%d", c + 1);
+            text(x + 4, y0 + 4, lab, CHCOL[c][0], CHCOL[c][1], CHCOL[c][2], 1);
+            if (g.show_uv) {
+                if (rms >= 1000.f) {
+                    snprintf(lab, sizeof(lab), "%+.0f  rms %.1f mV", last, rms / 1000.f);
+                } else {
+                    snprintf(lab, sizeof(lab), "%+.0f  rms %.0f uV", last, rms);
+                }
+                text(x + 40, y0 + 4, lab, 170, 176, 186, 1);
+            }
+            if (q == Q_OFF) {
+                text(x + 220, y0 + 4, "off", 110, 114, 124, 1);
+            } else if (q == Q_LEADOFF) {
+                snprintf(lab, sizeof(lab), "lead-off %s%s", (lp & (1u << c)) ? "P" : "",
+                         (ln & (1u << c)) ? "N" : "");
+                text(x + 220, y0 + 4, lab, 200, 90, 80, 1);
+            } else if (q == Q_OPEN) {
+                text(x + 220, y0 + 4, "OPEN - not skin", 220, 80, 70, 1);
+            }
         }
         if (q == Q_OFF || n < 4) {
             continue;
         }
         apply_filt(c, buf, n);
-        np_detrend(buf, (int)n);
+        if (g.detrend) {
+            np_detrend(buf, (int)n);
+        }
         if (g.grid) {
             int gx;
             SDL_SetRenderDrawColor(R, 28, 32, 40, 255);
@@ -795,19 +840,22 @@ static void draw_waves(int x, int y, int w, int h)
                 SDL_RenderDrawLine(R, xx, y0 + 1, xx, y1b - 2);
             }
         }
-        /* Always show the converter output. Autoscale is visibility, not a
-         * claim that the amplitude is EEG. The label above says open/rail. */
+        /* EEG-range scale. Autoscale only when the window is actually small.
+         * Fitting a 0.13 V rail into the row is what made on/off look identical. */
         peak = (float)g.scale_uv;
         if (peak < 20.f) {
             peak = 200.f;
         }
-        if (g.autoscale) {
+        if (g.autoscale && q == Q_LIVE) {
             peak = 8.f;
             for (i = 0; i < n; i++) {
                 float a = fabsf(buf[i]);
                 if (a > peak) {
                     peak = a;
                 }
+            }
+            if (peak > 2000.f) {
+                peak = 2000.f;
             }
         }
         dim = (q == Q_OPEN || q == Q_LEADOFF);
@@ -1018,8 +1066,7 @@ static void draw_side(int x)
             g.paused ? 110 : 36, g.paused ? 50 : 40, g.paused ? 40 : 48);
         y += 26;
         btn(x + 12, y, 136, 22, g.show_uv ? "uV on" : "uV off", g.show_uv, 15, 0, 36, 40, 48);
-        snprintf(b, sizeof(b), "sps %.0f", g.sps > 1.f ? g.sps : (float)NP_DEFAULT_SPS);
-        btn(x + 152, y, 136, 22, b, 0, 0, 0, 28, 30, 36);
+        btn(x + 152, y, 136, 22, g.detrend ? "detrend" : "raw DC", g.detrend, 21, 0, 36, 40, 48);
     }
 }
 
@@ -1217,6 +1264,10 @@ static void click(int x, int y)
             break;
         case 15:
             g.show_uv = !g.show_uv;
+            cfg_save();
+            break;
+        case 21:
+            g.detrend = !g.detrend;
             cfg_save();
             break;
         case 16:
@@ -1449,10 +1500,11 @@ int main(int argc, char **argv)
     g.running = 1;
     g.board = NP_BOARD_KNIGHT_IMU;
     g.window_s = 2;
-    g.autoscale = 1;
+    g.autoscale = 0;
     g.scale_uv = 200;
     g.notch_hz = 50;
     g.hp_hz = 1;
+    g.detrend = 0;
     g.grid = 1;
     g.show_uv = 1;
     cfg_load();
@@ -1473,6 +1525,7 @@ int main(int argc, char **argv)
     }
     for (i = 0; i < NP_NCHAN; i++) {
         g.active[i] = 1;
+        g.rld[i] = 1;
         g.gain[i] = 12;
     }
     g.nports = np_list_ports(g.ports, NP_MAX_PORTS);

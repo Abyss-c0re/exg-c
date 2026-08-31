@@ -21,6 +21,11 @@ view notch is off). Save records the live window as-is after that filter;
 it does not refuse rail or large EMG. Samples persist in ~/.config/exg-c.learn
 Firmware on the board is 125 SPS; the status line shows measured rate.
 
+Each row shows last sample and RMS. Open/floating inputs are tens of
+millivolts and clip on the ±200 µV EEG scale. Skin contact should drop
+RMS into the tens of µV. The official host also sends rldadd on connect;
+this host now does the same. Autoscale is not applied to open channels.
+
 USB frames keep coming when the analog switches are off — those switches
 only route the front-end, they do not stop acquire_data(). Open inputs
 sit at the ADS1299 rail (~±0.13 V) and are labeled open/rail, not EEG.
