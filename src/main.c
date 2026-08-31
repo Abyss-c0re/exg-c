@@ -153,18 +153,13 @@ static float design_sps(void)
     return (float)NP_DEFAULT_SPS;
 }
 
-static int notch_ok(int hz)
-{
-    return hz > 0 && (float)hz < design_sps() * 0.47f;
-}
-
 static void filt_reset(void)
 {
     int i;
     float sps = design_sps();
     for (i = 0; i < NP_NCHAN; i++) {
         np_hp_init(&g.hp[i], (float)g.hp_hz, sps);
-        np_notch_init(&g.notch[i], notch_ok(g.notch_hz) ? (float)g.notch_hz : 0.f, sps, 30.f);
+        np_notch_init(&g.notch[i], (float)g.notch_hz, sps, 30.f);
     }
 }
 
@@ -1300,8 +1295,7 @@ static void draw_waves(int x, int y, int w, int h)
             }
         } else {
             np_hp_init(&g.hp[c], (float)g.hp_hz, design_sps());
-            np_notch_init(&g.notch[c], notch_ok(g.notch_hz) ? (float)g.notch_hz : 0.f,
-                          design_sps(), 30.f);
+            np_notch_init(&g.notch[c], (float)g.notch_hz, design_sps(), 30.f);
         }
         if (g.grid) {
             int gx;
@@ -1581,14 +1575,15 @@ static void draw_side(int x)
         }
         btn(x + 152, y, 136, 22, b, 1, 10, 0, 36, 40, 48);
         y += 26;
-        if (g.notch_hz && !notch_ok(g.notch_hz)) {
-            snprintf(b, sizeof(b), "notch %d n/a", g.notch_hz);
-        } else if (g.notch_hz) {
-            snprintf(b, sizeof(b), "notch %dHz", g.notch_hz);
+        if (g.notch_hz) {
+            snprintf(b, sizeof(b), (float)g.notch_hz > design_sps() * 0.42f
+                                       ? "notch %d wide"
+                                       : "notch %dHz",
+                     g.notch_hz);
         } else {
             snprintf(b, sizeof(b), "notch off");
         }
-        btn(x + 12, y, 136, 22, b, notch_ok(g.notch_hz), 11, 0, 36, 40, 48);
+        btn(x + 12, y, 136, 22, b, g.notch_hz != 0, 11, 0, 36, 40, 48);
         if (g.hp_hz) {
             snprintf(b, sizeof(b), "hp %dHz", g.hp_hz);
         } else {

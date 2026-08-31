@@ -111,29 +111,46 @@ float np_hp_step(struct np_hp *f, float x)
 
 void np_notch_init(struct np_notch *f, float hz, float sps, float q)
 {
-    float w, c, a;
+    float w, c, r, bw, g, den;
     memset(f, 0, sizeof(*f));
     if (hz <= 0.f || sps <= 0.f) {
         f->b0 = 1.f;
         return;
     }
-    /* Knight is 125 SPS. Nyquist 62.5 Hz. A 60 Hz biquad is two
-     * samples per cycle — Q=30 becomes a sliver and looks like off. */
-    if (hz >= sps * 0.47f) {
-        f->b0 = 1.f;
-        return;
+    if (hz >= sps * 0.5f) {
+        hz = sps * 0.48f;
     }
     if (q < 0.5f) {
         q = 0.5f;
     }
+    /* 60 Hz at 125 SPS is 0.48·fs. Cookbook Q=30 → a≈0.002, a sliver.
+     * Zeros on the unit circle at ±ω, poles at r·e^{±jω}, r from BW. */
+    if (hz > sps * 0.42f && q > 4.f) {
+        q = 3.f;
+    }
     w = 2.f * (float)M_PI * hz / sps;
     c = cosf(w);
-    a = sinf(w) / (2.f * q);
-    f->b0 = 1.f / (1.f + a);
-    f->b1 = -2.f * c * f->b0;
-    f->b2 = f->b0;
-    f->a1 = f->b1;
-    f->a2 = (1.f - a) * f->b0;
+    bw = hz / q;
+    r = 1.f - (float)M_PI * bw / sps;
+    if (r < 0.55f) {
+        r = 0.55f;
+    }
+    if (r > 0.98f) {
+        r = 0.98f;
+    }
+    den = 1.f - 2.f * r * c + r * r;
+    if (den < 1e-6f) {
+        den = 1e-6f;
+    }
+    g = (2.f - 2.f * c) / den;
+    if (g < 1e-6f) {
+        g = 1e-6f;
+    }
+    f->b0 = 1.f / g;
+    f->b1 = -2.f * c / g;
+    f->b2 = 1.f / g;
+    f->a1 = -2.f * r * c;
+    f->a2 = r * r;
 }
 
 float np_notch_step(struct np_notch *f, float x)
