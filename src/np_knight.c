@@ -158,7 +158,7 @@ int np_parser_feed(struct np_parser *p, unsigned char b, struct np_sample *out)
  * and dropped. 1.1 s is enough; 1.6 s was padding. Trailing newline
  * is ignored by readString and lets a readStringUntil('\n') build
  * return immediately. */
-#define NP_CMD_GAP_US 1100000
+#define NP_CMD_GAP_US 1250000
 
 static int send_cmd(int fd, const char *s)
 {

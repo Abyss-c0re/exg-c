@@ -108,6 +108,7 @@ struct np_app {
     int pref_w, pref_h;
     int chrgb[NP_NCHAN][3];
     pthread_mutex_t csv_mu;
+    pthread_mutex_t parse_mu;
 };
 
 static struct np_app g;
@@ -180,7 +181,8 @@ static void filt_reset(void)
     float nh = notch_hz_eff();
     for (i = 0; i < NP_NCHAN; i++) {
         np_hp_init(&g.hp[i], (float)g.hp_hz, sps);
-        np_notch_init(&g.notch[i], nh > 0.f && g.notch_hz > 0 ? nh : 0.f, sps, 30.f);
+        /* AUTO uses the cal tone as a cheap IIR — not a per-frame LS fit. */
+        np_notch_init(&g.notch[i], nh > 1.f ? nh : 0.f, sps, 30.f);
     }
 }
 
@@ -476,21 +478,18 @@ static void apply_filt(int ch, float *buf, uint32_t n)
      * windows feeds newest-state then oldest-sample — the 60 Hz
      * notch never sits on the tone. */
     np_hp_init(&g.hp[ch], (float)g.hp_hz, sps);
-    if (g.notch_hz > 0) {
-        np_notch_init(&g.notch[ch], (float)g.notch_hz, sps, 30.f);
+    if (g.notch_hz != 0 && notch_hz_eff() > 1.f) {
+        np_notch_init(&g.notch[ch], notch_hz_eff(), sps, 30.f);
     }
     for (i = 0; i < n; i++) {
         float v = buf[i];
         if (g.hp_hz > 0) {
             v = np_hp_step(&g.hp[ch], v);
         }
-        if (g.notch_hz > 0) {
+        if (g.notch_hz != 0 && notch_hz_eff() > 1.f) {
             v = np_notch_step(&g.notch[ch], v);
         }
         buf[i] = v;
-    }
-    if (g.notch_hz < 0 && g.cal_hz > 1.f) {
-        np_tone_cancel(buf, (int)n, g.cal_hz, sps);
     }
 }
 
@@ -522,25 +521,31 @@ static int in_group(gid_t gid)
 static void ensure_dialout(int argc, char **argv)
 {
     struct group *gr = getgrnam("dialout");
+    char cmd[2048];
+    int i, off = 0;
     if (!gr || in_group(gr->gr_gid) || getenv("NP_EXG_NOSG")) {
         return;
     }
-    {
-        char **na = calloc((size_t)argc + 3, sizeof(*na));
-        int i;
-        if (!na) {
-            return;
+    cmd[0] = 0;
+    for (i = 0; i < argc && off < (int)sizeof(cmd) - 8; i++) {
+        const char *p = argv[i] ? argv[i] : "";
+        if (i) {
+            cmd[off++] = ' ';
         }
-        na[0] = "sg";
-        na[1] = "dialout";
-        na[2] = argv[0];
-        for (i = 1; i < argc; i++) {
-            na[i + 2] = argv[i];
+        cmd[off++] = '\'';
+        while (*p && off < (int)sizeof(cmd) - 6) {
+            if (*p == '\'') {
+                off += snprintf(cmd + off, sizeof(cmd) - (size_t)off, "'\\''");
+            } else {
+                cmd[off++] = *p;
+            }
+            p++;
         }
-        setenv("NP_EXG_NOSG", "1", 1);
-        execvp("sg", na);
-        free(na);
+        cmd[off++] = '\'';
+        cmd[off] = 0;
     }
+    setenv("NP_EXG_NOSG", "1", 1);
+    execlp("sg", "sg", "dialout", "-c", cmd, (char *)NULL);
 }
 
 static void set_status(int ok, const char *fmt, ...)
@@ -609,7 +614,9 @@ static void *cmd_thread(void *arg)
         }
         if (op == CMD_CHON) {
             set_status(1, "enable ch%d", ch);
+            pthread_mutex_lock(&g.parse_mu);
             np_parser_set_gain(&g.parser, ch, gain);
+            pthread_mutex_unlock(&g.parse_mu);
             np_cmd_chon(g.fd, ch, gain);
         } else if (op == CMD_CHOFF) {
             np_cmd_choff(g.fd, ch);
@@ -642,9 +649,13 @@ static void *reader_thread(void *arg)
         }
         for (i = 0; i < n; i++) {
             struct np_sample s;
-            int r = np_parser_feed(&g.parser, buf[i], &s);
+            int r, locked;
+            pthread_mutex_lock(&g.parse_mu);
+            r = np_parser_feed(&g.parser, buf[i], &s);
+            locked = g.parser.locked;
+            pthread_mutex_unlock(&g.parse_mu);
             if (r < 0) {
-                if (g.parser.locked) {
+                if (locked) {
                     pthread_mutex_lock(&g.ring.mu);
                     g.ring.bad++;
                     pthread_mutex_unlock(&g.ring.mu);
@@ -685,45 +696,47 @@ static void *reader_thread(void *arg)
     return NULL;
 }
 
-/* Official host: sleep 2s after start_stream, then chon_1..8 with ~1s gaps.
- * After a DTR reset the board prints "Scanning for IMU..." and may emit a
- * few A0 frames then stop. Do not send commands on the first lock — wait
- * until a real run of frames is in the ring, then chon, then rldadd.
- * Skip DTR if the board is already streaming — that reboot is the long wait. */
+/* Wait until tot grows. Skip DTR only if the acquire atom is already
+ * locked and still producing frames. Never init the parser unlocked. */
+static int wait_live(int frames, int tries, int gap_us)
+{
+    int w;
+    uint64_t tot = 0, last = 0;
+    int grew = 0, locked = 0;
+    for (w = 0; w < tries && g.connected; w++) {
+        np_ring_stats(&g.ring, &tot, NULL, NULL);
+        pthread_mutex_lock(&g.parse_mu);
+        locked = g.parser.locked;
+        pthread_mutex_unlock(&g.parse_mu);
+        if (tot > last) {
+            grew++;
+            last = tot;
+        }
+        if (locked && (int)tot >= frames && grew >= 1) {
+            return 1;
+        }
+        usleep(gap_us);
+    }
+    return 0;
+}
+
+static void parser_rearm(void)
+{
+    pthread_mutex_lock(&g.parse_mu);
+    np_parser_init(&g.parser, g.board);
+    np_parser_set_gains(&g.parser, g.gain);
+    pthread_mutex_unlock(&g.parse_mu);
+}
+
 static void *enable_thread(void *arg)
 {
-    int c, waits, need_reset = 1;
-    uint64_t tot = 0;
+    int c;
     (void)arg;
     set_status(1, "waiting for stream...");
-    for (waits = 0; waits < 5 && g.connected; waits++) {
-        np_ring_stats(&g.ring, &tot, NULL, NULL);
-        if (g.parser.locked && tot >= 8) {
-            need_reset = 0;
-            break;
-        }
-        usleep(80000);
-    }
-    if (need_reset && g.connected && g.fd >= 0) {
-        set_status(1, "board reset...");
-        np_parser_init(&g.parser, g.board);
-        np_parser_set_gains(&g.parser, g.gain);
-        np_serial_pulse_dtr(g.fd);
-        np_serial_flush(g.fd);
-        for (waits = 0; waits < 80 && g.connected; waits++) {
-            np_ring_stats(&g.ring, &tot, NULL, NULL);
-            if (g.parser.locked && tot >= 16) {
-                break;
-            }
-            usleep(100000);
-        }
-    }
-    if (!g.connected || g.fd < 0) {
-        g.en_running = 0;
-        return NULL;
-    }
-    if (!g.parser.locked || tot < 8) {
-        set_status(0, "no live stream (frames %llu)", (unsigned long long)tot);
+    /* One DTR already happened in do_connect. Do not pulse again —
+     * a second reset during IMU scan is what kills the stream. */
+    if (!wait_live(50, 150, 100000)) {
+        set_status(0, "no live stream");
         g.en_running = 0;
         return NULL;
     }
@@ -733,17 +746,17 @@ static void *enable_thread(void *arg)
             cmd_push(CMD_CHON, c + 1, g.gain[c]);
         }
     }
-    cmd_drain(20000);
-    if (g.connected) {
-        set_status(1, "connected %s", g.nports ? g.ports[g.port_i] : "");
-    }
-    g.en_running = 0;
-    /* RLD after the strips are already live — do not block the first view. */
+    cmd_drain(25000);
     for (c = 0; c < NP_NCHAN && g.connected; c++) {
         if (g.active[c] && g.rld[c]) {
             cmd_push(CMD_RLDADD, c + 1, 0);
         }
     }
+    cmd_drain(25000);
+    if (g.connected) {
+        set_status(1, "connected %s", g.nports ? g.ports[g.port_i] : "");
+    }
+    g.en_running = 0;
     return NULL;
 }
 
@@ -758,8 +771,7 @@ static void stream_recover(void)
     }
     g.recover_n++;
     set_status(0, "stream stalled - board reset %d/3", g.recover_n);
-    np_parser_init(&g.parser, g.board);
-    np_parser_set_gains(&g.parser, g.gain);
+    parser_rearm();
     np_serial_pulse_dtr(g.fd);
     np_serial_flush(g.fd);
     g.en_running = 1;
@@ -793,6 +805,7 @@ static void do_connect(void)
     np_parser_init(&g.parser, g.board);
     np_parser_set_gains(&g.parser, g.gain);
     filt_reset();
+    np_serial_pulse_dtr(g.fd);
     np_serial_flush(g.fd);
     g.connected = 1;
     if (pthread_create(&g.thr, NULL, reader_thread, NULL) != 0) {
@@ -1379,7 +1392,8 @@ static void draw_waves(int x, int y, int w, int h)
                 ch_stats(buf, n, &dc, &rms, &pk);
             } else if (gated) {
                 np_hp_init(&g.hp[c], (float)g.hp_hz, design_sps());
-                np_notch_init(&g.notch[c], (float)g.notch_hz, design_sps(), 30.f);
+                np_notch_init(&g.notch[c], notch_hz_eff() > 1.f ? notch_hz_eff() : 0.f,
+                              design_sps(), 30.f);
             }
             last = n ? buf[n - 1] : 0.f;
             fill(x, y1b - 1, w, 1, 32, 36, 44);
@@ -1984,7 +1998,9 @@ static void click(int x, int y)
             break;
         case 8:
             next_gain(hits[i].ch);
+            pthread_mutex_lock(&g.parse_mu);
             np_parser_set_gain(&g.parser, hits[i].ch + 1, g.gain[hits[i].ch]);
+            pthread_mutex_unlock(&g.parse_mu);
             if (g.connected && g.active[hits[i].ch]) {
                 cmd_push(CMD_CHON, hits[i].ch + 1, g.gain[hits[i].ch]);
             }
@@ -2428,6 +2444,7 @@ int main(int argc, char **argv)
     pthread_mutex_init(&g.mu, NULL);
     pthread_mutex_init(&g.qmu, NULL);
     pthread_mutex_init(&g.csv_mu, NULL);
+    pthread_mutex_init(&g.parse_mu, NULL);
     pthread_cond_init(&g.qcv, NULL);
     np_ring_init(&g.ring);
     npl_init(&g.learn);
