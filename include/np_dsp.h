@@ -12,7 +12,12 @@ struct np_notch {
     float x1, x2, y1, y2;
 };
 
+#define NP_PLATE_N 1024
+#define NP_PSD_BINS (NP_FFT_N / 2)
+
 void np_fft_mag(const float *in, int n, float *mag);
+void np_welch_psd(const float *x, int n, float *psd);
+void np_plate_destroy(float *x, int n, const float *noise_psd);
 void np_detrend(float *x, int n);
 void np_hp_init(struct np_hp *f, float hz, float sps);
 float np_hp_step(struct np_hp *f, float x);
@@ -21,6 +26,7 @@ float np_notch_step(struct np_notch *f, float x);
 
 /* Dominant tone in [40 Hz, 0.47·fs]. 0 = found. */
 int np_tone_hz(const float *x, int n, float sps, float *hz_out);
+int np_tone_from_psd(const float *psd, float sps, float *hz_out);
 /* Subtract the LS sinusoid at hz (the opposite wave). */
 void np_tone_cancel(float *x, int n, float hz, float sps);
 void np_sub_dc(float *x, int n, float dc);

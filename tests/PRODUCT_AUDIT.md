@@ -61,7 +61,7 @@ This is **50 Hz mains on open inputs**, not brain signal. AUTO tracked the plate
 |------|--------|------------|
 | 1 | **NOISE** | Desk / headset off. Spectrum → line Hz. |
 | 2 | **CALM** | Worn, sitting still. Residual after destroying that line. |
-| 3 | **CLEAN** | Live minus noise tone minus calm DC. |
+| 3 | **CLEAN** | ~8 s window. Welch noise plate → destroy matching bins (Wiener) + line lock + calm DC. |
 | 4 | **Detect** | `noise` / `calm` / **SIGNAL** if residual > 1.5× calm |
 
 Proof in `make test`: an 8 Hz burst that is in neither plate is classified **SIGNAL**. Desk matches **noise**. Worn-still matches **calm**.

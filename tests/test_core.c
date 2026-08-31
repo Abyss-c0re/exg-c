@@ -258,6 +258,38 @@ static void test_ml_harness(void)
     expect(resid_e > 1.5f * calm_rms, "harness: cleared event above calm");
 }
 
+static void test_plate_destroy(void)
+{
+    float noise[NP_PLATE_N], live[NP_PLATE_N], sig[NP_PLATE_N], psd[NP_PSD_BINS];
+    float hz = 0.f, pin = 0.f, pout = 0.f, spin = 0.f, spout = 0.f;
+    int i;
+
+    synth(noise, NP_PLATE_N, 125.f, 50.f, 10.f, 10.f, 0.3f);
+    np_welch_psd(noise, NP_PLATE_N, psd);
+    expect(np_tone_from_psd(psd, 125.f, &hz) == 0 && hz > 48.f && hz < 52.f,
+           "welch plate tone ~50");
+
+    synth(live, NP_PLATE_N, 125.f, 50.f, 10.f, 8.f, 3.f);
+    for (i = 0; i < NP_PLATE_N; i++) {
+        pin += live[i] * live[i];
+    }
+    np_plate_destroy(live, NP_PLATE_N, psd);
+    for (i = 0; i < NP_PLATE_N; i++) {
+        pout += live[i] * live[i];
+    }
+    expect(pout < 0.65f * pin, "plate destroy cuts 50 Hz plate");
+
+    synth(sig, NP_PLATE_N, 125.f, 8.f, 3.f, 8.f, 0.f);
+    for (i = 0; i < NP_PLATE_N; i++) {
+        spin += sig[i] * sig[i];
+    }
+    np_plate_destroy(sig, NP_PLATE_N, psd);
+    for (i = 0; i < NP_PLATE_N; i++) {
+        spout += sig[i] * sig[i];
+    }
+    expect(spout > 0.35f * spin, "plate destroy keeps 8 Hz");
+}
+
 static void test_nplearn(void)
 {
     struct npl L;
@@ -339,6 +371,7 @@ int main(void)
     test_ring();
     test_auto_from_cal();
     test_ml_harness();
+    test_plate_destroy();
     test_nplearn();
     test_disk_cal();
     test_replay_live_csv();

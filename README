@@ -21,9 +21,9 @@ Keys: c connect  d disconnect  r record  space pause  1-8 toggle  q quit
 Click View buttons for window, scale, 50/60/AUTO notch, high-pass, grid.
 60 Hz at 125 SPS is 2 samples/cycle, so that notch is a wide digital
 zero at 60 Hz (not the sharp Q=30 used at 50 Hz). It still cuts line.
-AUTO measures the line tone from the NOISE plate (desk / headset off).
-Then CALM (worn, still). CLEAN subtracts both; leftover is the signal
-the matcher can learn. Desk → noise, still → calm, anything else → SIGNAL.
+NOISE uses ~8 s (1024 samples) and a Welch plate. CLEAN destroys bins
+that match that plate (Wiener), then the line lock, then calm DC.
+CALM is worn-still. Leftover is the signal the matcher can learn.
 Default plot is ±200 µV. After CAL (headset off), a channel still at
 that baseline FROZEN — the strip stops scrolling, like the official
 host when you take the headset off. Live update resumes when RMS

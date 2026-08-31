@@ -98,6 +98,8 @@ struct np_app {
     int cal_arm;
     int cal_cut;
     float cal_hz; /* line tone from noise plate; 0 = none */
+    float noise_psd[NP_PSD_BINS];
+    int noise_psd_ok;
     uint32_t rec_t0;
     uint32_t saved_t0;
     uint64_t stall_tot;
@@ -165,6 +167,18 @@ static float design_sps(void)
         return g.sps;
     }
     return (float)NP_DEFAULT_SPS;
+}
+
+static uint32_t plate_want(void)
+{
+    uint32_t w = (uint32_t)(g.window_s * design_sps());
+    if (w < (uint32_t)NP_PLATE_N) {
+        w = (uint32_t)NP_PLATE_N;
+    }
+    if (w > NP_RING) {
+        w = NP_RING;
+    }
+    return w;
 }
 
 static float notch_hz_eff(void)
@@ -496,6 +510,9 @@ static void apply_filt(int ch, float *buf, uint32_t n)
                 v = np_notch_step(&g.notch[ch], v);
             }
             buf[i] = v;
+        }
+        if (g.cal_cut && g.noise_psd_ok && n >= (uint32_t)NP_FFT_N) {
+            np_plate_destroy(buf, (int)n, g.noise_psd);
         }
         if (g.cal_cut && g.calm.have) {
             np_sub_dc(buf, (int)n, g.calm.dc[ch]);
@@ -1173,6 +1190,14 @@ static int cal_save(void)
     fprintf(f, "# exg-c plates: NOISE (desk/off) then CALM (worn still)\n");
     fprintf(f, "# time %ld  noise_n %u  calm %d\n", (long)t, g.cal.n, g.calm.have);
     fprintf(f, "tone_hz=%.3f\n", g.cal_hz);
+    if (g.noise_psd_ok) {
+        int k;
+        fprintf(f, "psd");
+        for (k = 0; k < NP_PSD_BINS; k++) {
+            fprintf(f, " %.5g", g.noise_psd[k]);
+        }
+        fputc('\n', f);
+    }
     fprintf(f, "ch,dc_uV,rms_uV,pk_uV\n");
     for (c = 0; c < NP_NCHAN; c++) {
         fprintf(f, "%d,%.3f,%.3f,%.3f\n", c + 1, g.cal.dc[c], g.cal.rms[c], g.cal.pk[c]);
@@ -1208,6 +1233,25 @@ static int cal_load(void)
             g.cal_hz = dc;
             continue;
         }
+        if (!strncmp(line, "psd ", 4) || !strncmp(line, "psd\t", 4)) {
+            const char *s = line + 3;
+            int k = 0;
+            g.noise_psd_ok = 0;
+            memset(g.noise_psd, 0, sizeof(g.noise_psd));
+            while (k < NP_PSD_BINS) {
+                char *end = NULL;
+                float v = strtof(s, &end);
+                if (end == s) {
+                    break;
+                }
+                g.noise_psd[k++] = v;
+                s = end;
+            }
+            if (k >= 8) {
+                g.noise_psd_ok = 1;
+            }
+            continue;
+        }
         if (sscanf(line, "calm%d=%f,%f,%f", &ch, &dc, &rms, &pk) == 4 && ch >= 1 &&
             ch <= NP_NCHAN) {
             g.calm.dc[ch - 1] = dc;
@@ -1233,17 +1277,13 @@ static int cal_load(void)
 static void cal_capture(void)
 {
     int c;
-    uint32_t want = (uint32_t)(g.window_s * (g.sps > 1.f ? g.sps : NP_DEFAULT_SPS));
-    if (want < 32) {
-        want = 32;
-    }
-    if (want > NP_RING) {
-        want = NP_RING;
-    }
+    uint32_t want = plate_want();
     memset(&g.cal, 0, sizeof(g.cal));
     g.cal_hz = 0.f;
+    g.noise_psd_ok = 0;
+    memset(g.noise_psd, 0, sizeof(g.noise_psd));
     {
-        float acc[NP_FFT_N];
+        float acc[NP_PLATE_N];
         int accn = 0, used = 0;
         memset(acc, 0, sizeof(acc));
         for (c = 0; c < NP_NCHAN; c++) {
@@ -1254,7 +1294,7 @@ static void cal_capture(void)
             if (n > g.cal.n) {
                 g.cal.n = n;
             }
-            take = n > (uint32_t)NP_FFT_N ? (uint32_t)NP_FFT_N : n;
+            take = n > (uint32_t)NP_PLATE_N ? (uint32_t)NP_PLATE_N : n;
             if (take < 32) {
                 continue;
             }
@@ -1266,7 +1306,17 @@ static void cal_capture(void)
             }
             used++;
         }
-        if (used > 0) {
+        if (used > 0 && accn >= NP_FFT_N) {
+            float hz = 0.f;
+            np_welch_psd(acc, accn, g.noise_psd);
+            g.noise_psd_ok = 1;
+            if (np_tone_from_psd(g.noise_psd, design_sps(), &hz) == 0) {
+                g.cal_hz = hz;
+            } else if (np_tone_hz(acc, accn > NP_FFT_N ? NP_FFT_N : accn, design_sps(),
+                                 &hz) == 0) {
+                g.cal_hz = hz;
+            }
+        } else if (used > 0) {
             float hz = 0.f;
             if (np_tone_hz(acc, accn, design_sps(), &hz) == 0) {
                 g.cal_hz = hz;
@@ -1289,16 +1339,10 @@ static void cal_capture(void)
 static void calm_capture(void)
 {
     int c;
-    uint32_t want = (uint32_t)(g.window_s * (g.sps > 1.f ? g.sps : NP_DEFAULT_SPS));
+    uint32_t want = plate_want();
     if (!g.cal.have) {
         set_status(0, "NOISE first (desk / headset off, then OK)");
         return;
-    }
-    if (want < 32) {
-        want = 32;
-    }
-    if (want > NP_RING) {
-        want = NP_RING;
     }
     memset(&g.calm, 0, sizeof(g.calm));
     for (c = 0; c < NP_NCHAN; c++) {
@@ -1393,7 +1437,8 @@ static void draw_waves(int x, int y, int w, int h)
         float buf[NP_RING];
         static float snap[NP_NCHAN][NP_RING];
         static uint32_t snapn[NP_NCHAN];
-        uint32_t want = (uint32_t)(g.window_s * (g.sps > 1.f ? g.sps : NP_DEFAULT_SPS));
+        uint32_t want = (g.cal_cut && g.noise_psd_ok) ? plate_want()
+                                                     : (uint32_t)(g.window_s * (g.sps > 1.f ? g.sps : NP_DEFAULT_SPS));
         int y0, y1b, row_h, mid, q, gated = 0;
         uint32_t i;
         uint32_t n = 0;
