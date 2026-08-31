@@ -9,7 +9,8 @@ nplearn/ is a separate no-heap C library (filter + named templates +
 score). The SDL host links it; an MCU compiles nplearn.c + nplearn_filt.c
 only. See nplearn/README.
 
-Requires libSDL2, dialout (or the launcher re-execs via sg).
+Requires libSDL2 and dialout (the host re-execs via sg if needed).
+Once:  sudo ./install-usb-permissions.sh
 Settings persist in ~/.config/exg-c.conf
 
 Keys: c connect  d disconnect  r record  space pause  1-8 toggle  q quit
