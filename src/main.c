@@ -109,32 +109,51 @@ struct np_app {
 
 static struct np_app g;
 static SDL_Window *Win;
-static int U(int v)
-{
-    int s = g.ui_scale;
-    if (s < 1) {
-        s = 1;
-    }
-    if (s > 3) {
-        s = 3;
-    }
-    return v * s;
-}
+static SDL_Renderer *R;
 static int sidew(void)
 {
-    return U(300);
+    return SIDE_W;
 }
 static int statush(void)
 {
-    return U(22) + 6;
+    return STATUS_H;
 }
 static int learnh(void)
 {
-    return U(70) + 24;
+    return LEARN_H;
 }
 static int ffth(void)
 {
-    return U(70);
+    return FFT_H;
+}
+/* 1 = layout in window pixels (more plot). 2 = lock 1280x800 and
+ * scale the whole UI to the window (bigger chrome, no overflow). */
+static void apply_zoom(void)
+{
+    if (!R) {
+        return;
+    }
+    if (g.ui_scale >= 2) {
+        SDL_RenderSetLogicalSize(R, WIN_W, WIN_H);
+        win_w = WIN_W;
+        win_h = WIN_H;
+    } else {
+        SDL_RenderSetLogicalSize(R, 0, 0);
+    }
+}
+static void map_mouse(int wx, int wy, int *lx, int *ly)
+{
+    if (g.ui_scale < 2 || !R) {
+        *lx = wx;
+        *ly = wy;
+        return;
+    }
+    {
+        float fx = (float)wx, fy = (float)wy;
+        SDL_RenderWindowToLogical(R, wx, wy, &fx, &fy);
+        *lx = (int)fx;
+        *ly = (int)fy;
+    }
 }
 static void set_status(int ok, const char *fmt, ...);
 static void typing_set(int on);
@@ -391,8 +410,8 @@ static void cfg_load(void)
             g.cal_cut = v;
         } else if (sscanf(line, "board=%d", &v) == 1) {
             g.board = v ? NP_BOARD_KNIGHT_IMU : NP_BOARD_KNIGHT;
-        } else if (sscanf(line, "scale=%d", &v) == 1 && v >= 1 && v <= 3) {
-            g.ui_scale = v;
+        } else if (sscanf(line, "scale=%d", &v) == 1 && v >= 1) {
+            g.ui_scale = v >= 2 ? 2 : 1;
         } else if (sscanf(line, "width=%d", &v) == 1 && v >= 800) {
             g.pref_w = v;
         } else if (sscanf(line, "height=%d", &v) == 1 && v >= 560) {
@@ -419,6 +438,9 @@ static void cfg_load(void)
     }
     if (g.ui_scale < 1) {
         g.ui_scale = 1;
+    }
+    if (g.ui_scale > 2) {
+        g.ui_scale = 2;
     }
     if (g.pref_w < 800) {
         g.pref_w = WIN_W;
@@ -790,8 +812,6 @@ static void toggle_record(void)
 
 /* ---------- drawing ---------- */
 
-static SDL_Renderer *R;
-
 static void fill(int x, int y, int w, int h, int r, int gcol, int b)
 {
     SDL_Rect rc = {x, y, w, h};
@@ -818,11 +838,8 @@ static void glyph(int x, int y, char ch, int r, int gcol, int b, int s)
 
 static void text(int x, int y, const char *s, int r, int gcol, int b, int sc)
 {
-    int ui = g.ui_scale < 1 ? 1 : (g.ui_scale > 3 ? 3 : g.ui_scale);
-    if (sc <= 1) {
-        sc = ui;
-    } else {
-        sc = ui + 1;
+    if (sc < 1) {
+        sc = 1;
     }
     while (*s) {
         glyph(x, y, *s, r, gcol, b, sc);
@@ -1531,8 +1548,8 @@ static void draw_side(int x)
         char b[48];
         text(x + 12, y, "UI", 140, 148, 160, 1);
         y += 14;
-        snprintf(b, sizeof(b), "text %dx", g.ui_scale);
-        btn(x + 12, y, 136, 22, b, 1, 32, 0, 36, 40, 48);
+        snprintf(b, sizeof(b), g.ui_scale >= 2 ? "UI zoom" : "UI fill");
+        btn(x + 12, y, 136, 22, b, g.ui_scale >= 2, 32, 0, 36, 40, 48);
         snprintf(b, sizeof(b), "%dx%d", g.pref_w, g.pref_h);
         btn(x + 152, y, 136, 22, b, 1, 33, 0, 36, 40, 48);
         y += 28;
@@ -1952,7 +1969,8 @@ static void click(int x, int y)
             g.tab = 1;
             break;
         case 32:
-            g.ui_scale = g.ui_scale >= 3 ? 1 : g.ui_scale + 1;
+            g.ui_scale = g.ui_scale >= 2 ? 1 : 2;
+            apply_zoom();
             cfg_save();
             break;
         case 33:
@@ -2038,6 +2056,7 @@ static int run_gui(void)
         return 1;
     }
     SDL_SetRenderDrawBlendMode(R, SDL_BLENDMODE_BLEND);
+    apply_zoom();
     g.nports = np_list_ports(g.ports, NP_MAX_PORTS);
     if (g.nports > 0) {
         do_connect();
@@ -2097,7 +2116,9 @@ static int run_gui(void)
                     }
                 }
             } else if (ev.type == SDL_MOUSEBUTTONDOWN && ev.button.button == SDL_BUTTON_LEFT) {
-                click(ev.button.x, ev.button.y);
+                int mx, my;
+                map_mouse(ev.button.x, ev.button.y, &mx, &my);
+                click(mx, my);
             }
         }
         learn_tick();
@@ -2121,12 +2142,17 @@ static int run_gui(void)
                 }
             }
         }
-        SDL_GetWindowSize(win, &win_w, &win_h);
-        if (win_w < 800) {
-            win_w = 800;
-        }
-        if (win_h < 560) {
-            win_h = 560;
+        if (g.ui_scale >= 2) {
+            win_w = WIN_W;
+            win_h = WIN_H;
+        } else {
+            SDL_GetWindowSize(win, &win_w, &win_h);
+            if (win_w < 800) {
+                win_w = 800;
+            }
+            if (win_h < 560) {
+                win_h = 560;
+            }
         }
         frame();
         SDL_RenderPresent(R);
