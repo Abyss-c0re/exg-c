@@ -1,0 +1,5 @@
+/np-exg
+*.o
+*.csv
+*~
+exg-c.conf

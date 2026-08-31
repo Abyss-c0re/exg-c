@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=exg-c
+Comment=8-channel EXG host (unaffiliated)
+Exec=/opt/exg-c/np-exg
+Path=/opt/exg-c
+Icon=/opt/exg-c/exg-c.png
+Terminal=false
+Categories=Science;
