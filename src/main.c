@@ -553,6 +553,23 @@ static void cmd_push(int op, int ch, int gain)
     pthread_mutex_unlock(&g.qmu);
 }
 
+static int cmd_pending(void)
+{
+    int n;
+    pthread_mutex_lock(&g.qmu);
+    n = (g.qh - g.qt + QMAX) % QMAX;
+    pthread_mutex_unlock(&g.qmu);
+    return n;
+}
+
+static void cmd_drain(int timeout_ms)
+{
+    int waits = timeout_ms / 50;
+    while (waits-- > 0 && g.connected && cmd_pending() > 0) {
+        usleep(50000);
+    }
+}
+
 static void *cmd_thread(void *arg)
 {
     (void)arg;
@@ -575,6 +592,7 @@ static void *cmd_thread(void *arg)
             continue;
         }
         if (op == CMD_CHON) {
+            set_status(1, "enable ch%d", ch);
             np_parser_set_gain(&g.parser, ch, gain);
             np_cmd_chon(g.fd, ch, gain);
         } else if (op == CMD_CHOFF) {
@@ -654,58 +672,62 @@ static void *reader_thread(void *arg)
 /* Official host: sleep 2s after start_stream, then chon_1..8 with ~1s gaps.
  * After a DTR reset the board prints "Scanning for IMU..." and may emit a
  * few A0 frames then stop. Do not send commands on the first lock — wait
- * until a real run of frames is in the ring, then chon, then rldadd. */
+ * until a real run of frames is in the ring, then chon, then rldadd.
+ * Skip DTR if the board is already streaming — that reboot is the long wait. */
 static void *enable_thread(void *arg)
 {
-    int c, waits;
-    uint64_t tot = 0, before;
+    int c, waits, need_reset = 1;
+    uint64_t tot = 0;
     (void)arg;
     set_status(1, "waiting for stream...");
-    for (waits = 0; waits < 150 && g.connected; waits++) {
+    for (waits = 0; waits < 5 && g.connected; waits++) {
         np_ring_stats(&g.ring, &tot, NULL, NULL);
-        if (g.parser.locked && tot >= 50) {
+        if (g.parser.locked && tot >= 8) {
+            need_reset = 0;
             break;
         }
-        usleep(100000);
+        usleep(80000);
+    }
+    if (need_reset && g.connected && g.fd >= 0) {
+        set_status(1, "board reset...");
+        np_parser_init(&g.parser, g.board);
+        np_parser_set_gains(&g.parser, g.gain);
+        np_serial_pulse_dtr(g.fd);
+        np_serial_flush(g.fd);
+        for (waits = 0; waits < 80 && g.connected; waits++) {
+            np_ring_stats(&g.ring, &tot, NULL, NULL);
+            if (g.parser.locked && tot >= 16) {
+                break;
+            }
+            usleep(100000);
+        }
     }
     if (!g.connected || g.fd < 0) {
         g.en_running = 0;
         return NULL;
     }
-    if (!g.parser.locked || tot < 20) {
-        set_status(0, "no live stream after reset (frames %llu)", (unsigned long long)tot);
+    if (!g.parser.locked || tot < 8) {
+        set_status(0, "no live stream (frames %llu)", (unsigned long long)tot);
         g.en_running = 0;
         return NULL;
     }
-    before = tot;
     set_status(1, "enabling channels...");
     for (c = 0; c < NP_NCHAN && g.connected; c++) {
-        if (!g.active[c]) {
-            continue;
+        if (g.active[c]) {
+            cmd_push(CMD_CHON, c + 1, g.gain[c]);
         }
-        cmd_push(CMD_CHON, c + 1, g.gain[c]);
     }
-    for (waits = 0; waits < 200 && g.connected; waits++) {
-        np_ring_stats(&g.ring, &tot, NULL, NULL);
-        if (tot >= before + 40) {
-            break;
-        }
-        usleep(100000);
+    cmd_drain(20000);
+    if (g.connected) {
+        set_status(1, "connected %s", g.nports ? g.ports[g.port_i] : "");
     }
-    if (tot < before + 10) {
-        set_status(0, "stream died during chon (frames %llu)", (unsigned long long)tot);
-        g.en_running = 0;
-        return NULL;
-    }
+    g.en_running = 0;
+    /* RLD after the strips are already live — do not block the first view. */
     for (c = 0; c < NP_NCHAN && g.connected; c++) {
         if (g.active[c] && g.rld[c]) {
             cmd_push(CMD_RLDADD, c + 1, 0);
         }
     }
-    if (g.connected) {
-        set_status(1, "connected %s", g.nports ? g.ports[g.port_i] : "");
-    }
-    g.en_running = 0;
     return NULL;
 }
 
@@ -755,7 +777,6 @@ static void do_connect(void)
     np_parser_init(&g.parser, g.board);
     np_parser_set_gains(&g.parser, g.gain);
     filt_reset();
-    np_serial_pulse_dtr(g.fd);
     np_serial_flush(g.fd);
     g.connected = 1;
     if (pthread_create(&g.thr, NULL, reader_thread, NULL) != 0) {

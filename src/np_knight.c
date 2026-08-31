@@ -153,44 +153,47 @@ int np_parser_feed(struct np_parser *p, unsigned char b, struct np_sample *out)
     return 0;
 }
 
+/* Firmware Stream::readString() returns after 1 s of silence, then
+ * startsWith("chon_"). A second token inside that window is glued on
+ * and dropped. 1.1 s is enough; 1.6 s was padding. Trailing newline
+ * is ignored by readString and lets a readStringUntil('\n') build
+ * return immediately. */
+#define NP_CMD_GAP_US 1100000
+
 static int send_cmd(int fd, const char *s)
 {
     int n = (int)strlen(s);
-    /* Firmware uses Stream::readString() (1 s timeout) + startsWith("chon_").
-     * A second command inside that window is concatenated and only the first
-     * channel is parsed. Wait out the timeout after each token. */
     if (np_serial_write(fd, s, n) != n) {
         return -1;
     }
-    usleep(1600000);
+    usleep(NP_CMD_GAP_US);
     return 0;
 }
 
 int np_cmd_chon(int fd, int ch, int gain)
 {
     char s[32];
-    /* Official GUI / BrainFlow: chon_1..8 (1-based). ch==0 is unused. */
-    snprintf(s, sizeof(s), "chon_%d_%d", ch, gain);
+    snprintf(s, sizeof(s), "chon_%d_%d\n", ch, gain);
     return send_cmd(fd, s);
 }
 
 int np_cmd_choff(int fd, int ch)
 {
     char s[32];
-    snprintf(s, sizeof(s), "choff_%d", ch);
+    snprintf(s, sizeof(s), "choff_%d\n", ch);
     return send_cmd(fd, s);
 }
 
 int np_cmd_rldadd(int fd, int ch)
 {
     char s[32];
-    snprintf(s, sizeof(s), "rldadd_%d", ch);
+    snprintf(s, sizeof(s), "rldadd_%d\n", ch);
     return send_cmd(fd, s);
 }
 
 int np_cmd_rldremove(int fd, int ch)
 {
     char s[32];
-    snprintf(s, sizeof(s), "rldremove_%d", ch);
+    snprintf(s, sizeof(s), "rldremove_%d\n", ch);
     return send_cmd(fd, s);
 }
