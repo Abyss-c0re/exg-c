@@ -117,6 +117,12 @@ void np_notch_init(struct np_notch *f, float hz, float sps, float q)
         f->b0 = 1.f;
         return;
     }
+    /* Knight is 125 SPS. Nyquist 62.5 Hz. A 60 Hz biquad is two
+     * samples per cycle — Q=30 becomes a sliver and looks like off. */
+    if (hz >= sps * 0.47f) {
+        f->b0 = 1.f;
+        return;
+    }
     if (q < 0.5f) {
         q = 0.5f;
     }

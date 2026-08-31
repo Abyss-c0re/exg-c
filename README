@@ -17,6 +17,7 @@ per-channel colors. Scale multiplies every control the same amount.
 
 Keys: c connect  d disconnect  r record  space pause  1-8 toggle  q quit
 Click View buttons for window, scale, 50/60 Hz notch, high-pass, grid.
+60 Hz notch is n/a at 125 SPS (Nyquist 62.5 Hz, two samples/cycle).
 Default plot is ±200 µV. After CAL (headset off), a channel still at
 that baseline FROZEN — the strip stops scrolling, like the official
 host when you take the headset off. Live update resumes when RMS

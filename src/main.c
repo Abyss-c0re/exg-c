@@ -143,13 +143,28 @@ static const int WIN_S[] = {1, 2, 4, 8};
 static const int WINPREF[][2] = {{1280, 800}, {1440, 900}, {1600, 1000}, {1920, 1080}};
 #define NWINPREF 4
 
+/* Do not cook filter poles from a lagged measured rate (46 SPS makes
+ * a 50 Hz notch sit past Nyquist and a 60 Hz notch is already there). */
+static float design_sps(void)
+{
+    if (g.sps >= 100.f && g.sps <= 160.f) {
+        return g.sps;
+    }
+    return (float)NP_DEFAULT_SPS;
+}
+
+static int notch_ok(int hz)
+{
+    return hz > 0 && (float)hz < design_sps() * 0.47f;
+}
+
 static void filt_reset(void)
 {
     int i;
-    float sps = g.sps > 1.f ? g.sps : (float)NP_DEFAULT_SPS;
+    float sps = design_sps();
     for (i = 0; i < NP_NCHAN; i++) {
         np_hp_init(&g.hp[i], (float)g.hp_hz, sps);
-        np_notch_init(&g.notch[i], (float)g.notch_hz, sps, 30.f);
+        np_notch_init(&g.notch[i], notch_ok(g.notch_hz) ? (float)g.notch_hz : 0.f, sps, 30.f);
     }
 }
 
@@ -1284,9 +1299,9 @@ static void draw_waves(int x, int y, int w, int h)
                 np_detrend(buf, (int)n);
             }
         } else {
-            np_hp_init(&g.hp[c], (float)g.hp_hz, g.sps > 1.f ? g.sps : (float)NP_DEFAULT_SPS);
-            np_notch_init(&g.notch[c], (float)g.notch_hz, g.sps > 1.f ? g.sps : (float)NP_DEFAULT_SPS,
-                          30.f);
+            np_hp_init(&g.hp[c], (float)g.hp_hz, design_sps());
+            np_notch_init(&g.notch[c], notch_ok(g.notch_hz) ? (float)g.notch_hz : 0.f,
+                          design_sps(), 30.f);
         }
         if (g.grid) {
             int gx;
@@ -1566,12 +1581,14 @@ static void draw_side(int x)
         }
         btn(x + 152, y, 136, 22, b, 1, 10, 0, 36, 40, 48);
         y += 26;
-        if (g.notch_hz) {
+        if (g.notch_hz && !notch_ok(g.notch_hz)) {
+            snprintf(b, sizeof(b), "notch %d n/a", g.notch_hz);
+        } else if (g.notch_hz) {
             snprintf(b, sizeof(b), "notch %dHz", g.notch_hz);
         } else {
             snprintf(b, sizeof(b), "notch off");
         }
-        btn(x + 12, y, 136, 22, b, g.notch_hz != 0, 11, 0, 36, 40, 48);
+        btn(x + 12, y, 136, 22, b, notch_ok(g.notch_hz), 11, 0, 36, 40, 48);
         if (g.hp_hz) {
             snprintf(b, sizeof(b), "hp %dHz", g.hp_hz);
         } else {

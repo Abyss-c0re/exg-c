@@ -48,7 +48,7 @@ static void notch_init(struct npl_notch *f, float hz, float sps, float q)
 {
     float w, c, a;
     memset(f, 0, sizeof(*f));
-    if (hz <= 0.f || sps <= 0.f) {
+    if (hz <= 0.f || sps <= 0.f || hz >= sps * 0.47f) {
         f->b0 = 1.f;
         return;
     }
