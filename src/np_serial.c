@@ -42,6 +42,15 @@ int np_serial_open(const char *path)
     return fd;
 }
 
+void np_serial_pulse_dtr(int fd)
+{
+    int bits = TIOCM_DTR;
+    /* Stuck firmware (IMU scan loop, hung chon_) needs a Nano reset. */
+    ioctl(fd, TIOCMBIC, &bits);
+    usleep(100000);
+    ioctl(fd, TIOCMBIS, &bits);
+}
+
 void np_serial_close(int fd)
 {
     if (fd >= 0) {

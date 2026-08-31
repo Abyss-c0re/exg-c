@@ -350,27 +350,26 @@ static void *reader_thread(void *arg)
 }
 
 /* Official host: sleep 2s after start_stream, then chon_1..8 with ~1s gaps.
- * Commands are processed inside firmware acquire_data(); sending during the
- * Arduino DTR reboot is ignored. This firmware also treats chon_0_G as
- * "power every ADS channel" — without it, slots 5–8 stay at 0 even after
- * the official 1-based sequence. */
+ * After a DTR reset the board prints "Scanning for IMU..." and emits no
+ * A0 frames until that finishes. Wait for a locked frame, not a wall clock.
+ * Do not send chon_0: official never does, and it is not a documented cmd. */
 static void *enable_thread(void *arg)
 {
-    int c, wake_gain = 12;
+    int c, waits;
     (void)arg;
-    set_status(1, "waiting for board (2s)...");
-    usleep(2000000);
+    set_status(1, "board reset, waiting for frames...");
+    for (waits = 0; waits < 80 && g.connected; waits++) {
+        if (g.parser.locked) {
+            break;
+        }
+        usleep(100000);
+    }
     if (!g.connected || g.fd < 0) {
         return NULL;
     }
-    for (c = 0; c < NP_NCHAN; c++) {
-        if (g.active[c]) {
-            wake_gain = g.gain[c];
-            break;
-        }
+    if (!g.parser.locked) {
+        set_status(0, "no frames after reset (IMU scan stuck?)");
     }
-    set_status(1, "enable all ADS slots (chon_0)...");
-    cmd_push(CMD_CHON, 0, wake_gain);
     for (c = 0; c < NP_NCHAN && g.connected; c++) {
         if (!g.active[c]) {
             continue;
@@ -411,6 +410,7 @@ static void do_connect(void)
     }
     np_parser_init(&g.parser, g.board);
     filt_reset();
+    np_serial_pulse_dtr(g.fd);
     np_serial_flush(g.fd);
     g.connected = 1;
     if (pthread_create(&g.thr, NULL, reader_thread, NULL) != 0) {
@@ -643,15 +643,13 @@ static void draw_waves(int x, int y, int w, int h)
             text(x + 40, y0 + 4, lab, 170, 176, 186, 1);
         }
         if (q == Q_OFF) {
-            text(x + 130, y0 + 4, "ADC off", 110, 114, 124, 1);
-        } else if (q == Q_ZERO) {
-            text(x + 130, y0 + 4, "ADC 0 (not enabled)", 200, 140, 70, 1);
+            text(x + 130, y0 + 4, "off", 110, 114, 124, 1);
         } else if (q == Q_LEADOFF) {
             snprintf(lab, sizeof(lab), "lead-off %s%s", (lp & (1u << c)) ? "P" : "",
                      (ln & (1u << c)) ? "N" : "");
             text(x + 130, y0 + 4, lab, 200, 90, 80, 1);
         } else if (q == Q_OPEN) {
-            text(x + 130, y0 + 4, "open/rail - not EEG", 200, 90, 80, 1);
+            text(x + 130, y0 + 4, "open/rail", 200, 90, 80, 1);
         }
         if (q == Q_OFF || n < 4) {
             continue;
@@ -667,12 +665,13 @@ static void draw_waves(int x, int y, int w, int h)
                 SDL_RenderDrawLine(R, xx, y0 + 1, xx, y1b - 2);
             }
         }
-        /* Never autoscale rail/open — that is what made floating pins look like EEG. */
+        /* Always show the converter output. Autoscale is visibility, not a
+         * claim that the amplitude is EEG. The label above says open/rail. */
         peak = (float)g.scale_uv;
         if (peak < 20.f) {
             peak = 200.f;
         }
-        if (g.autoscale && q == Q_LIVE) {
+        if (g.autoscale) {
             peak = 8.f;
             for (i = 0; i < n; i++) {
                 float a = fabsf(buf[i]);
@@ -681,7 +680,7 @@ static void draw_waves(int x, int y, int w, int h)
                 }
             }
         }
-        dim = (q != Q_LIVE);
+        dim = (q == Q_OPEN || q == Q_LEADOFF);
         cr = dim ? CHCOL[c][0] / 3 : CHCOL[c][0];
         cg = dim ? CHCOL[c][1] / 3 : CHCOL[c][1];
         cb = dim ? CHCOL[c][2] / 3 : CHCOL[c][2];
@@ -733,7 +732,6 @@ static void draw_fft(int x, int y, int w, int h)
         q = ch_quality(c, buf, n, lp, ln);
         if (q != Q_LIVE) {
             open_n++;
-            continue;
         }
         apply_filt(c, buf, n);
         np_detrend(buf, (int)n);
@@ -750,10 +748,8 @@ static void draw_fft(int x, int y, int w, int h)
             used++;
         }
     }
-    if (used) {
-        snprintf(cap, sizeof(cap), "FFT Hz");
-    } else if (open_n) {
-        snprintf(cap, sizeof(cap), "FFT idle - open/rail inputs, not EEG");
+    if (open_n && used == open_n) {
+        snprintf(cap, sizeof(cap), "FFT (open/rail inputs)");
     } else {
         snprintf(cap, sizeof(cap), "FFT Hz");
     }

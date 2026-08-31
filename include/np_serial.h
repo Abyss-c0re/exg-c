@@ -4,6 +4,7 @@
 #include "np_types.h"
 
 int np_serial_open(const char *path);
+void np_serial_pulse_dtr(int fd);
 void np_serial_close(int fd);
 int np_serial_write(int fd, const void *buf, int n);
 int np_serial_read(int fd, void *buf, int n);

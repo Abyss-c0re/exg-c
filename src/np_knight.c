@@ -156,9 +156,7 @@ static int send_cmd(int fd, const char *s)
 int np_cmd_chon(int fd, int ch, int gain)
 {
     char s[32];
-    /* Official GUI / BrainFlow: chon_1..8 (1-based).
-     * Live dump on this firmware: chon_0_<gain> fills all 8 ADS slots;
-     * chon_1..8 alone left slots 5–8 at 0. ch==0 is that wake-all. */
+    /* Official GUI / BrainFlow: chon_1..8 (1-based). ch==0 is unused. */
     snprintf(s, sizeof(s), "chon_%d_%d", ch, gain);
     return send_cmd(fd, s);
 }
