@@ -2,6 +2,7 @@
 #define NP_KNIGHT_H
 
 #include "np_types.h"
+#include <stddef.h>
 
 struct np_sample {
     uint8_t seq;
@@ -29,6 +30,10 @@ void np_parser_set_gain(struct np_parser *p, int ch, int gain);
 void np_parser_set_gains(struct np_parser *p, const int gain[NP_NCHAN]);
 int np_parser_feed(struct np_parser *p, unsigned char b, struct np_sample *out);
 
+int np_fmt_chon(char *s, size_t n, int ch, int gain);
+int np_fmt_choff(char *s, size_t n, int ch);
+int np_fmt_rldadd(char *s, size_t n, int ch);
+int np_fmt_rldremove(char *s, size_t n, int ch);
 int np_cmd_chon(int fd, int ch, int gain);
 int np_cmd_choff(int fd, int ch);
 int np_cmd_rldadd(int fd, int ch);

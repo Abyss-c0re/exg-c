@@ -2,6 +2,8 @@ exg-c — unaffiliated 8-channel EXG host (C)
 
 Build:  make            # libnplearn.a + ./np-exg
         make lib        # matcher only
+        make test       # mock parser / CAL / AUTO / nplearn
+        make test-live  # table-top collect on /dev/ttyUSB1
 Run:    ./np-exg
         ./np-exg --cli --port /dev/ttyUSB1 --seconds 8
 

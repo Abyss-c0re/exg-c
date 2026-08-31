@@ -170,30 +170,50 @@ static int send_cmd(int fd, const char *s)
     return 0;
 }
 
+int np_fmt_chon(char *s, size_t n, int ch, int gain)
+{
+    return snprintf(s, n, "chon_%d_%d\n", ch, gain);
+}
+
+int np_fmt_choff(char *s, size_t n, int ch)
+{
+    return snprintf(s, n, "choff_%d\n", ch);
+}
+
+int np_fmt_rldadd(char *s, size_t n, int ch)
+{
+    return snprintf(s, n, "rldadd_%d\n", ch);
+}
+
+int np_fmt_rldremove(char *s, size_t n, int ch)
+{
+    return snprintf(s, n, "rldremove_%d\n", ch);
+}
+
 int np_cmd_chon(int fd, int ch, int gain)
 {
     char s[32];
-    snprintf(s, sizeof(s), "chon_%d_%d\n", ch, gain);
+    np_fmt_chon(s, sizeof(s), ch, gain);
     return send_cmd(fd, s);
 }
 
 int np_cmd_choff(int fd, int ch)
 {
     char s[32];
-    snprintf(s, sizeof(s), "choff_%d\n", ch);
+    np_fmt_choff(s, sizeof(s), ch);
     return send_cmd(fd, s);
 }
 
 int np_cmd_rldadd(int fd, int ch)
 {
     char s[32];
-    snprintf(s, sizeof(s), "rldadd_%d\n", ch);
+    np_fmt_rldadd(s, sizeof(s), ch);
     return send_cmd(fd, s);
 }
 
 int np_cmd_rldremove(int fd, int ch)
 {
     char s[32];
-    snprintf(s, sizeof(s), "rldremove_%d\n", ch);
+    np_fmt_rldremove(s, sizeof(s), ch);
     return send_cmd(fd, s);
 }

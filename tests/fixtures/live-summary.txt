@@ -1,0 +1,7 @@
+live table-top 2026-09-01 /dev/ttyUSB1  (headset off, board on desk)
+listen 5s  NO DTR
+frames 786  good 786  bad 103  lock 1  flen 57
+per-ch tone 49.80–49.81 Hz
+CAL sum-8 tone 49.80 Hz
+AUTO IIR energy ratio 0.514
+not cortex — open-input + 50 Hz mains

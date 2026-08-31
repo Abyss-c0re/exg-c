@@ -10,7 +10,12 @@ NPL = nplearn/src/nplearn.c nplearn/src/nplearn_filt.c nplearn/src/nplearn_posix
 LIB = libnplearn.a
 BIN = np-exg
 
-.PHONY: all lib clean cli
+TEST_CORE = tests/test_core
+LIVE = tests/live_collect
+TEST_SRC = src/np_serial.c src/np_knight.c src/np_ring.c src/np_dsp.c
+TEST_NPL = nplearn/src/nplearn.c nplearn/src/nplearn_filt.c nplearn/src/nplearn_posix.c
+
+.PHONY: all lib clean cli test test-live
 
 all: $(BIN)
 
@@ -26,7 +31,23 @@ $(BIN): $(HOST) $(LIB)
 	$(CC) $(CFLAGS) -o $@ $(HOST) $(LIB) $(SDL) $(LDFLAGS)
 
 clean:
-	rm -f $(BIN) $(LIB) nplearn/src/*.o
+	rm -f $(BIN) $(LIB) nplearn/src/*.o $(TEST_CORE) $(LIVE)
 
 cli: $(BIN)
 	./$(BIN) --cli --seconds 4
+
+$(TEST_CORE): tests/test_core.c $(TEST_SRC) $(LIB)
+	$(CC) $(CFLAGS) -o $@ tests/test_core.c $(TEST_SRC) $(LIB) $(LDFLAGS)
+
+$(LIVE): tests/live_collect.c $(TEST_SRC)
+	$(CC) $(CFLAGS) -o $@ tests/live_collect.c $(TEST_SRC) $(LDFLAGS)
+
+test: $(TEST_CORE)
+	./$(TEST_CORE)
+
+test-live: $(LIVE)
+	@if [ -r /dev/ttyUSB1 ]; then \
+		./$(LIVE) /dev/ttyUSB1 tests/fixtures/live-table.csv; \
+	else \
+		sg dialout -c './$(LIVE) /dev/ttyUSB1 tests/fixtures/live-table.csv'; \
+	fi
