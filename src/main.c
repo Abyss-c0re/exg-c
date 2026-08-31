@@ -94,6 +94,7 @@ struct np_app {
         float dc[NP_NCHAN], rms[NP_NCHAN], pk[NP_NCHAN];
     } off, on, cal;
     int cal_arm;
+    int cal_cut;
     uint32_t rec_t0;
     uint32_t saved_t0;
     uint64_t stall_tot;
@@ -288,6 +289,7 @@ static void cfg_save(void)
     fprintf(f, "grid=%d\n", g.grid);
     fprintf(f, "show_uv=%d\n", g.show_uv);
     fprintf(f, "detrend=%d\n", g.detrend);
+    fprintf(f, "cal_cut=%d\n", g.cal_cut);
     fprintf(f, "board=%d\n", (int)g.board);
     fclose(f);
 }
@@ -319,6 +321,8 @@ static void cfg_load(void)
             g.show_uv = v;
         } else if (sscanf(line, "detrend=%d", &v) == 1) {
             g.detrend = v;
+        } else if (sscanf(line, "cal_cut=%d", &v) == 1) {
+            g.cal_cut = v;
         } else if (sscanf(line, "board=%d", &v) == 1) {
             g.board = v ? NP_BOARD_KNIGHT_IMU : NP_BOARD_KNIGHT;
         }
@@ -1023,7 +1027,7 @@ static void draw_waves(int x, int y, int w, int h)
         uint32_t i;
         char lab[36];
         float last, peak;
-        int cr, cg, cb, dim;
+        int cr, cg, cb, dim = 0;
 
         if (want < 32) {
             want = 32;
@@ -1046,8 +1050,22 @@ static void draw_waves(int x, int y, int w, int h)
         last = n ? buf[n - 1] : 0.f;
         q = ch_quality(c, buf, n, lp, ln);
         {
-            float dc = 0, rms = 0, pk = 0;
+            float dc = 0, rms = 0, pk = 0, r = 0.f;
+            int gated = 0;
             ch_stats(buf, n, &dc, &rms, &pk);
+            if (g.cal.have && g.cal_cut && n >= 4) {
+                for (i = 0; i < n; i++) {
+                    buf[i] -= g.cal.dc[c];
+                }
+                if (g.cal.rms[c] > 1.f) {
+                    r = rms / g.cal.rms[c];
+                    /* Same energy as the open-input snapshot: that is the static. */
+                    if (r > 0.70f && r < 1.40f) {
+                        gated = 1;
+                        memset(buf, 0, n * sizeof(float));
+                    }
+                }
+            }
             fill(x, y1b - 1, w, 1, 32, 36, 44);
             snprintf(lab, sizeof(lab), "ch%d", c + 1);
             text(x + 4, y0 + 4, lab, CHCOL[c][0], CHCOL[c][1], CHCOL[c][2], 1);
@@ -1065,14 +1083,14 @@ static void draw_waves(int x, int y, int w, int h)
                 snprintf(lab, sizeof(lab), "lead-off %s%s", (lp & (1u << c)) ? "P" : "",
                          (ln & (1u << c)) ? "N" : "");
                 text(x + 220, y0 + 4, lab, 200, 90, 80, 1);
+            } else if (gated) {
+                text(x + 220, y0 + 4, "static cut", 180, 150, 70, 1);
             } else if (g.cal.have && g.cal.rms[c] > 1.f) {
-                float r = rms / g.cal.rms[c];
-                if (r > 0.70f && r < 1.40f) {
-                    text(x + 220, y0 + 4, "at baseline", 200, 140, 80, 1);
-                } else {
-                    snprintf(lab, sizeof(lab), "vs cal %.2fx", r);
-                    text(x + 220, y0 + 4, lab, r < 0.33f ? 80 : 200, r < 0.33f ? 210 : 180, 120, 1);
-                }
+                snprintf(lab, sizeof(lab), "vs cal %.2fx", r > 0.f ? r : rms / g.cal.rms[c]);
+                text(x + 220, y0 + 4, lab, 80, 210, 140, 1);
+            }
+            if (gated) {
+                dim = 1;
             }
         }
         if (q == Q_OFF || n < 4) {
@@ -1428,20 +1446,24 @@ static void draw_learn(int x, int y, int w, int h)
         g.cal_arm ? 110 : 32, g.cal_arm ? 70 : 36, 40);
     btn(x + 50, y + h - 22, 32, 18, "OK", g.cal_arm, 26, 0, g.cal_arm ? 28 : 36,
         g.cal_arm ? 100 : 38, g.cal_arm ? 70 : 46);
-    btn(x + 90, y + h - 22, 36, 18, "OFF", g.off.have, 22, 0, g.off.have ? 90 : 32, 38, 42);
-    btn(x + 130, y + h - 22, 32, 18, "ON", g.on.have, 23, 0, 32, g.on.have ? 90 : 38, 48);
-    btn(x + 166, y + h - 22, 48, 18, "write", 0, 24, 0, 32, 36, 44);
+    btn(x + 86, y + h - 22, 44, 18, g.cal_cut ? "CUT" : "cut", g.cal_cut && g.cal.have, 27, 0,
+        g.cal_cut ? 28 : 36, g.cal_cut ? 80 : 38, g.cal_cut ? 70 : 46);
+    btn(x + 134, y + h - 22, 36, 18, "OFF", g.off.have, 22, 0, g.off.have ? 90 : 32, 38, 42);
+    btn(x + 174, y + h - 22, 32, 18, "ON", g.on.have, 23, 0, 32, g.on.have ? 90 : 38, 48);
+    btn(x + 210, y + h - 22, 48, 18, "write", 0, 24, 0, 32, 36, 44);
     if (g.cal_arm) {
-        text(x + 220, y + h - 18, "headset OFF, then OK  (overwrites exg-c.cal)", 230, 190, 90, 1);
+        text(x + 264, y + h - 18, "headset OFF, then OK  (overwrites exg-c.cal)", 230, 190, 90, 1);
     } else if (g.off.have && g.on.have) {
         float r = (g.on.rms[0] > 1.f) ? g.off.rms[0] / g.on.rms[0] : 0.f;
         snprintf(lab, sizeof(lab), "A/B  off %.0f  on %.0f uV  %.1fx  %s", g.off.rms[0],
                  g.on.rms[0], r, (r > 3.f || (r > 0.f && r < 0.33f)) ? "DIFFERENT" : "SAME");
-        text(x + 220, y + h - 18, lab, 160, 170, 150, 1);
+        text(x + 264, y + h - 18, lab, 160, 170, 150, 1);
     } else if (g.cal.have) {
-        text(x + 220, y + h - 18, "baseline loaded   CAL to recapture", 100, 120, 110, 1);
+        text(x + 264, y + h - 18,
+             g.cal_cut ? "CUT on: baseline static is zeroed" : "CUT off: raw plot", 100, 120, 110,
+             1);
     } else {
-        text(x + 220, y + h - 18, "CAL = save open-input baseline (headset off)", 90, 96, 104, 1);
+        text(x + 264, y + h - 18, "CAL = save open-input baseline (headset off)", 90, 96, 104, 1);
     }
 }
 
@@ -1642,7 +1664,14 @@ static void click(int x, int y)
                 set_status(0, "click CAL first, then remove headset, then OK");
             } else {
                 cal_capture();
+                g.cal_cut = 1;
+                cfg_save();
             }
+            break;
+        case 27:
+            g.cal_cut = !g.cal_cut;
+            cfg_save();
+            set_status(1, g.cal_cut ? "CUT on - baseline static zeroed" : "CUT off - raw plot");
             break;
         default:
             break;
@@ -1873,6 +1902,7 @@ int main(int argc, char **argv)
     g.notch_hz = 50;
     g.hp_hz = 1;
     g.detrend = 0;
+    g.cal_cut = 1;
     g.grid = 1;
     g.show_uv = 1;
     cfg_load();

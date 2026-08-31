@@ -23,9 +23,10 @@ it does not refuse rail or large EMG. Samples persist in ~/.config/exg-c.learn
 Firmware on the board is 125 SPS; the status line shows measured rate.
 
 Calibrate: click CAL, take the headset off, click OK. That window is the
-open-input baseline, written next to the binary as exg-c.cal (overwritten
-on the next calibrate). Live rows then show "at baseline" or "vs cal 0.2x".
-A/B OFF/ON/write still dumps ~/exg-c-ab.txt for a one-shot compare.
+open-input baseline (exg-c.cal next to the binary). With CUT on, any
+channel still at that baseline is drawn flat (static removed); a real
+change vs cal is shown after subtracting the baseline DC. Toggle CUT to
+see the raw rail again.
 
 USB frames keep coming when the analog switches are off — those switches
 only route the front-end, they do not stop acquire_data(). Open inputs
