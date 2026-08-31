@@ -1080,9 +1080,9 @@ static void draw_waves(int x, int y, int w, int h)
         static float snap[NP_NCHAN][NP_RING];
         static uint32_t snapn[NP_NCHAN];
         uint32_t want = (uint32_t)(g.window_s * (g.sps > 1.f ? g.sps : NP_DEFAULT_SPS));
-        uint32_t n;
         int y0, y1b, row_h, mid, q, gated = 0;
         uint32_t i;
+        uint32_t n = 0;
         char lab[36];
         float last, peak;
         int cr, cg, cb, dim = 0;
