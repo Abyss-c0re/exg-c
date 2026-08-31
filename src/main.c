@@ -450,6 +450,11 @@ static void apply_filt(int ch, float *buf, uint32_t n)
     if (g.hp_hz <= 0 && g.notch_hz <= 0) {
         return;
     }
+    /* Restart IIR on this copy. Carrying state across overlapping
+     * windows feeds newest-state then oldest-sample — the 60 Hz
+     * notch never sits on the tone. */
+    np_hp_init(&g.hp[ch], (float)g.hp_hz, design_sps());
+    np_notch_init(&g.notch[ch], (float)g.notch_hz, design_sps(), 30.f);
     for (i = 0; i < n; i++) {
         float v = buf[i];
         if (g.hp_hz > 0) {
@@ -1217,6 +1222,7 @@ static void draw_waves(int x, int y, int w, int h)
         uint32_t n = 0;
         char lab[36];
         float last, peak;
+        float pre_min = 0.f, pre_max = 0.f;
         int cr, cg, cb, dim = 0;
 
         if (want < 32) {
@@ -1256,8 +1262,30 @@ static void draw_waves(int x, int y, int w, int h)
                 memcpy(buf, snap[c], n * sizeof(float));
                 ch_stats(buf, n, &dc, &rms, &pk);
             }
-            last = n ? buf[n - 1] : 0.f;
+            if (n > 0) {
+                uint32_t k;
+                pre_min = pre_max = buf[0];
+                for (k = 1; k < n; k++) {
+                    if (buf[k] < pre_min) {
+                        pre_min = buf[k];
+                    }
+                    if (buf[k] > pre_max) {
+                        pre_max = buf[k];
+                    }
+                }
+            }
             q = ch_quality(c, buf, n, lp, ln);
+            if (q != Q_OFF && n >= 4 && !gated) {
+                apply_filt(c, buf, n);
+                if (g.detrend) {
+                    np_detrend(buf, (int)n);
+                }
+                ch_stats(buf, n, &dc, &rms, &pk);
+            } else if (gated) {
+                np_hp_init(&g.hp[c], (float)g.hp_hz, design_sps());
+                np_notch_init(&g.notch[c], (float)g.notch_hz, design_sps(), 30.f);
+            }
+            last = n ? buf[n - 1] : 0.f;
             fill(x, y1b - 1, w, 1, 32, 36, 44);
             snprintf(lab, sizeof(lab), "ch%d", c + 1);
             text(x + 4, y0 + 4, lab, g.chrgb[c][0], g.chrgb[c][1], g.chrgb[c][2], 1);
@@ -1288,15 +1316,6 @@ static void draw_waves(int x, int y, int w, int h)
         if (q == Q_OFF || n < 4) {
             continue;
         }
-        if (!gated) {
-            apply_filt(c, buf, n);
-            if (g.detrend) {
-                np_detrend(buf, (int)n);
-            }
-        } else {
-            np_hp_init(&g.hp[c], (float)g.hp_hz, design_sps());
-            np_notch_init(&g.notch[c], (float)g.notch_hz, design_sps(), 30.f);
-        }
         if (g.grid) {
             int gx;
             SDL_SetRenderDrawColor(R, 28, 32, 40, 255);
@@ -1313,13 +1332,21 @@ static void draw_waves(int x, int y, int w, int h)
         {
             float omin = 0.f, omax = 0.f, ospan = 0.f;
             if (g.og && n > 0) {
-                omin = omax = buf[0];
-                for (i = 1; i < n; i++) {
-                    if (buf[i] < omin) {
-                        omin = buf[i];
-                    }
-                    if (buf[i] > omax) {
-                        omax = buf[i];
+                /* Keep the pre-notch span so cutting 60 Hz shrinks the
+                 * strip. Post-filter min-max restretches leftovers to
+                 * the same pixels and looks like off. */
+                if (g.notch_hz > 0) {
+                    omin = pre_min;
+                    omax = pre_max;
+                } else {
+                    omin = omax = buf[0];
+                    for (i = 1; i < n; i++) {
+                        if (buf[i] < omin) {
+                            omin = buf[i];
+                        }
+                        if (buf[i] > omax) {
+                            omax = buf[i];
+                        }
                     }
                 }
                 ospan = omax - omin;
