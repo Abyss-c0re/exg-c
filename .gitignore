@@ -2,6 +2,7 @@
 /libnplearn.a
 *.o
 *.csv
+!tests/fixtures/live-table.csv
 *~
 exg-c.conf
 exg-c.ini
