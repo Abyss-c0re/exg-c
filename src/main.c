@@ -27,8 +27,9 @@
 #define WIN_H 800
 #define SIDE_W 300
 #define STATUS_H 28
-#define FFT_H 118
-#define LEARN_H 72
+#define FFT_H 96
+#define LEARN_H 108
+#define REC_MS 2000
 #define WAVE_TOP 8
 #define OPEN_UV 3000.f
 #define QMAX 48
@@ -93,6 +94,8 @@ struct np_app {
         float dc[NP_NCHAN], rms[NP_NCHAN], pk[NP_NCHAN];
     } off, on, cal;
     int cal_arm;
+    uint32_t rec_t0;
+    uint32_t saved_t0;
     uint64_t stall_tot;
     int stall_n;
     int recover_n;
@@ -100,6 +103,7 @@ struct np_app {
 
 static struct np_app g;
 static void set_status(int ok, const char *fmt, ...);
+static void typing_set(int on);
 static const int SCALE_UV[] = {50, 100, 200, 500, 1000, 5000};
 #define NSCALE 6
 static const int WIN_S[] = {1, 2, 4, 8};
@@ -233,9 +237,28 @@ static void learn_save_named(void)
                 nc++;
             }
         }
-        set_status(1, "saved '%s'  %d ch  filt hp%.0f/lp%.0f/notch%.0f", g.namebuf, nc, NPL_HP_HZ,
-                   NPL_LP_HZ, g.notch_hz > 0 ? (float)g.notch_hz : 50.f);
+        g.saved_t0 = SDL_GetTicks();
+        g.rec_t0 = 0;
+        set_status(1, "saved '%s'  %d ch  hold another pose or watch match", g.namebuf, nc);
     }
+}
+
+static void learn_start_hold(void)
+{
+    if (!g.namebuf[0]) {
+        typing_set(1);
+        set_status(0, "step 1: type a name, then Record");
+        return;
+    }
+    if (!g.connected) {
+        set_status(0, "connect the board first");
+        return;
+    }
+    g.rec_t0 = SDL_GetTicks();
+    if (!g.rec_t0) {
+        g.rec_t0 = 1;
+    }
+    set_status(1, "hold still - recording '%s'...", g.namebuf);
 }
 
 static void typing_set(int on)
@@ -1300,107 +1323,128 @@ static void draw_side(int x)
 
 static void draw_learn(int x, int y, int w, int h)
 {
-    char lab[48];
-    int i, bx, bw;
-    int notch = g.notch_hz > 0 ? g.notch_hz : 50;
-    fill(x, y, w, h, 10, 12, 16);
-    text(x + 4, y + 4, "Learn", 160, 168, 180, 1);
-    snprintf(lab, sizeof(lab), "hp%.0f lp%.0f n%d", NPL_HP_HZ, NPL_LP_HZ, notch);
-    text(x + 46, y + 4, lab, 100, 108, 118, 1);
+    char lab[80];
+    int i, bx, bw, nshow;
+    uint32_t now = SDL_GetTicks();
+    int holding = 0, left_ms = 0;
+    int saved_ago = g.saved_t0 ? (int)(now - g.saved_t0) : 99999;
 
-    fill(x + 160, y + 2, 150, 16, g.typing ? 40 : 28, g.typing ? 48 : 32, g.typing ? 58 : 40);
+    if (g.rec_t0) {
+        int dt = (int)(now - g.rec_t0);
+        if (dt >= (int)REC_MS) {
+            g.rec_t0 = 0;
+            learn_save_named();
+            now = SDL_GetTicks();
+            saved_ago = 0;
+        } else {
+            holding = 1;
+            left_ms = (int)REC_MS - dt;
+        }
+    }
+
+    fill(x, y, w, h, 12, 14, 18);
+    text(x + 6, y + 5, "LEARN", 200, 210, 220, 1);
+
+    text(x + 52, y + 6, "1.", 100, 140, 180, 1);
+    fill(x + 70, y + 3, 168, 20, g.typing ? 46 : 28, g.typing ? 56 : 32, g.typing ? 70 : 42);
     {
         char shown[NPL_NAME + 2];
-        snprintf(shown, sizeof(shown), "%s%s", g.namebuf[0] ? g.namebuf : "name",
-                 g.typing ? "_" : "");
-        text(x + 164, y + 5, shown, g.namebuf[0] ? 230 : 120, 230, 236, 1);
-    }
-    add_hit(x + 160, y + 2, 150, 16, 16, 0);
-    btn(x + 314, y + 1, 50, 18, "Save", 1, 17, 0, 30, 90, 70);
-    btn(x + 368, y + 1, 58, 18, g.learn.match ? "MATCH" : "match", g.learn.match, 18, 0,
-        g.learn.match ? 30 : 40, g.learn.match ? 80 : 42, g.learn.match ? 70 : 50);
-    btn(x + 430, y + 1, 36, 18, "del", 0, 19, 0, 90, 40, 44);
-    btn(x + 474, y + 1, 44, 18, "CAL", g.cal_arm || g.cal.have, 25, 0,
-        g.cal_arm ? 110 : 36, g.cal_arm ? 70 : 40, 40);
-    btn(x + 522, y + 1, 36, 18, "OK", g.cal_arm, 26, 0, g.cal_arm ? 30 : 40, g.cal_arm ? 100 : 42,
-        g.cal_arm ? 70 : 50);
-    if (g.cal.have && !g.cal_arm) {
-        text(x + 564, y + 5, "cal ok", 80, 180, 120, 1);
-    } else if (g.cal_arm) {
-        text(x + 564, y + 5, "headset OFF, then OK", 230, 180, 80, 1);
-    }
-
-    if (g.learn.best >= 0 && g.learn.match && g.learn.n && !g.cal_arm) {
-        snprintf(lab, sizeof(lab), "now %s %.0f%%", g.learn.s[g.learn.best].name,
-                 g.learn.score[g.learn.best] * 100.f);
-        text(x + 620, y + 5, lab,
-             g.learn.score[g.learn.best] > 0.55f ? 80 : 200,
-             g.learn.score[g.learn.best] > 0.55f ? 220 : 160,
-             g.learn.score[g.learn.best] > 0.55f ? 120 : 80, 1);
-    }
-
-    btn(x + 4, y + 20, 40, 16, "OFF", g.off.have, 22, 0, g.off.have ? 90 : 36, 40, 44);
-    btn(x + 48, y + 20, 36, 16, "ON", g.on.have, 23, 0, 36, g.on.have ? 90 : 40, 50);
-    btn(x + 88, y + 20, 48, 16, "write", 0, 24, 0, 36, 40, 48);
-    {
-        char ab[96];
-        if (g.off.have && g.on.have) {
-            int c, diff = 0;
-            float rmax = 0.f;
-            for (c = 0; c < NP_NCHAN; c++) {
-                if (!g.active[c] || g.on.rms[c] < 1.f) {
-                    continue;
-                }
-                {
-                    float r = g.off.rms[c] / g.on.rms[c];
-                    if (r > rmax) {
-                        rmax = r;
-                    }
-                    if (r > 3.f || r < 0.33f) {
-                        diff = 1;
-                    }
-                }
-            }
-            snprintf(ab, sizeof(ab), "off %.0f uV  on %.0f uV  ratio %.1fx  %s",
-                     g.off.rms[0], g.on.rms[0], rmax, diff ? "DIFFERENT" : "SAME amp");
-            text(x + 142, y + 24, ab, diff ? 80 : 220, diff ? 210 : 140, 90, 1);
-        } else if (g.off.have) {
-            snprintf(ab, sizeof(ab), "off ch1 rms %.0f uV - put headset on, click ON",
-                     g.off.rms[0]);
-            text(x + 142, y + 24, ab, 180, 180, 160, 1);
-        } else if (g.on.have) {
-            snprintf(ab, sizeof(ab), "on ch1 rms %.0f uV - remove headset, click OFF",
-                     g.on.rms[0]);
-            text(x + 142, y + 24, ab, 180, 180, 160, 1);
+        if (g.namebuf[0]) {
+            snprintf(shown, sizeof(shown), "%s%s", g.namebuf, g.typing ? "_" : "");
         } else {
-            text(x + 142, y + 24, "A/B: click OFF (no headset), then ON (on skin)", 110, 116,
-                 124, 1);
+            snprintf(shown, sizeof(shown), "%s", g.typing ? "_" : "type a name");
+        }
+        text(x + 76, y + 8, shown, g.namebuf[0] ? 240 : 130, 240, 246, 1);
+    }
+    add_hit(x + 70, y + 3, 168, 20, 16, 0);
+
+    text(x + 246, y + 6, "2.", 100, 140, 180, 1);
+    if (holding) {
+        snprintf(lab, sizeof(lab), "HOLD %.1fs", left_ms / 1000.f);
+        btn(x + 264, y + 2, 100, 22, lab, 1, 17, 0, 120, 70, 30);
+    } else {
+        btn(x + 264, y + 2, 100, 22, g.namebuf[0] ? "Record 2s" : "need name", g.namebuf[0], 17,
+            0, g.namebuf[0] ? 28 : 36, g.namebuf[0] ? 100 : 42, g.namebuf[0] ? 70 : 50);
+    }
+    btn(x + 370, y + 2, 58, 22, g.learn.match ? "MATCH" : "match", g.learn.match, 18, 0,
+        g.learn.match ? 28 : 40, g.learn.match ? 90 : 42, g.learn.match ? 70 : 50);
+    btn(x + 432, y + 2, 40, 22, "del", 0, 19, 0, 90, 42, 46);
+
+    if (holding) {
+        int barw = w - 490;
+        int fillw;
+        if (barw < 40) {
+            barw = 40;
+        }
+        fillw = (int)((REC_MS - left_ms) * (barw - 4) / REC_MS);
+        fill(x + 480, y + 6, barw, 14, 40, 32, 20);
+        fill(x + 482, y + 8, fillw > 0 ? fillw : 1, 10, 230, 160, 50);
+        text(x + 484, y + 8, "hold still", 20, 16, 10, 1);
+    } else if (saved_ago < 2500) {
+        snprintf(lab, sizeof(lab), "saved '%s'  -  again or watch match", g.namebuf);
+        text(x + 480, y + 8, lab, 80, 220, 140, 1);
+    } else if (g.learn.best >= 0 && g.learn.match && g.learn.n) {
+        int pct = (int)(g.learn.score[g.learn.best] * 100.f);
+        snprintf(lab, sizeof(lab), "now: %s  %d%%", g.learn.s[g.learn.best].name, pct);
+        text(x + 480, y + 8, lab, pct >= 55 ? 80 : 200, pct >= 55 ? 230 : 170, 120, 1);
+    } else if (!g.namebuf[0]) {
+        text(x + 480, y + 8, "click the box, type, Record, hold still", 120, 128, 140, 1);
+    } else {
+        text(x + 480, y + 8, "hold the pose, click Record, stay still 2s", 140, 180, 150, 1);
+    }
+
+    nshow = g.learn.n > 8 ? 8 : g.learn.n;
+    if (nshow <= 0) {
+        text(x + 8, y + 32, "no samples yet", 90, 96, 104, 1);
+    } else {
+        bw = (w - 12) / nshow;
+        if (bw > 140) {
+            bw = 140;
+        }
+        if (bw < 72) {
+            bw = 72;
+        }
+        for (i = 0; i < nshow; i++) {
+            int on = (i == g.learn.sel);
+            int hit = (g.learn.match && i == g.learn.best && g.learn.score[i] > 0.55f);
+            int bar, pct;
+            bx = x + 6 + i * bw;
+            fill(bx, y + 28, bw - 5, 36, on ? 42 : 22, hit ? 50 : (on ? 50 : 26),
+                 hit ? 42 : 32);
+            text(bx + 4, y + 31, g.learn.s[i].name, 230, 232, 236, 1);
+            pct = (int)(g.learn.score[i] * 100.f);
+            snprintf(lab, sizeof(lab), "%d%%", pct);
+            text(bx + 4, y + 42, lab, hit ? 80 : 160, hit ? 230 : 180, hit ? 140 : 150, 1);
+            bar = (int)(g.learn.score[i] * (bw - 14));
+            if (bar < 2) {
+                bar = 2;
+            }
+            fill(bx + 4, y + 54, bar, 6, hit ? 60 : 50, hit ? 190 : 90, 90);
+            add_hit(bx, y + 28, bw - 5, 36, 20, i);
         }
     }
-    if (g.learn.n <= 0) {
-        return;
-    }
-    bw = (w - 8) / (g.learn.n > 8 ? 8 : g.learn.n);
-    if (bw < 70) {
-        bw = 70;
-    }
-    for (i = 0; i < g.learn.n && i < 8; i++) {
-        int on = (i == g.learn.sel);
-        int hit = (g.learn.match && i == g.learn.best && g.learn.score[i] > 0.55f);
-        int bar;
-        bx = x + 4 + i * bw;
-        fill(bx, y + 38, bw - 4, 28, on ? 40 : 24, on ? 48 : 28, hit ? 50 : 34);
-        text(bx + 3, y + 40, g.learn.s[i].name, 220, 222, 228, 1);
-        snprintf(lab, sizeof(lab), "%3.0f", g.learn.score[i] * 100.f);
-        text(bx + 3, y + 50, lab, 140, 180, 160, 1);
-        bar = (int)(g.learn.score[i] * (bw - 10));
-        if (bar < 1) {
-            bar = 1;
-        }
-        fill(bx + 3, y + 60, bar, 3, hit ? 70 : 50, hit ? 180 : 90, 90);
-        add_hit(bx, y + 38, bw - 4, 28, 20, i);
+
+    btn(x + 6, y + h - 22, 40, 18, "CAL", g.cal_arm || g.cal.have, 25, 0,
+        g.cal_arm ? 110 : 32, g.cal_arm ? 70 : 36, 40);
+    btn(x + 50, y + h - 22, 32, 18, "OK", g.cal_arm, 26, 0, g.cal_arm ? 28 : 36,
+        g.cal_arm ? 100 : 38, g.cal_arm ? 70 : 46);
+    btn(x + 90, y + h - 22, 36, 18, "OFF", g.off.have, 22, 0, g.off.have ? 90 : 32, 38, 42);
+    btn(x + 130, y + h - 22, 32, 18, "ON", g.on.have, 23, 0, 32, g.on.have ? 90 : 38, 48);
+    btn(x + 166, y + h - 22, 48, 18, "write", 0, 24, 0, 32, 36, 44);
+    if (g.cal_arm) {
+        text(x + 220, y + h - 18, "headset OFF, then OK  (overwrites exg-c.cal)", 230, 190, 90, 1);
+    } else if (g.off.have && g.on.have) {
+        float r = (g.on.rms[0] > 1.f) ? g.off.rms[0] / g.on.rms[0] : 0.f;
+        snprintf(lab, sizeof(lab), "A/B  off %.0f  on %.0f uV  %.1fx  %s", g.off.rms[0],
+                 g.on.rms[0], r, (r > 3.f || (r > 0.f && r < 0.33f)) ? "DIFFERENT" : "SAME");
+        text(x + 220, y + h - 18, lab, 160, 170, 150, 1);
+    } else if (g.cal.have) {
+        text(x + 220, y + h - 18, "baseline loaded   CAL to recapture", 100, 120, 110, 1);
+    } else {
+        text(x + 220, y + h - 18, "CAL = save open-input baseline (headset off)", 90, 96, 104, 1);
     }
 }
+
 
 static void draw_status(void)
 {
@@ -1548,7 +1592,12 @@ static void click(int x, int y)
             return;
         case 17:
             typing_set(0);
-            learn_save_named();
+            if (g.rec_t0) {
+                g.rec_t0 = 0;
+                set_status(1, "record cancelled");
+            } else {
+                learn_start_hold();
+            }
             break;
         case 18:
             g.learn.match = !g.learn.match;
@@ -1678,7 +1727,7 @@ static int run_gui(void)
                         typing_set(0);
                     } else if (k == SDLK_RETURN) {
                         typing_set(0);
-                        learn_save_named();
+                        learn_start_hold();
                     } else if (k == SDLK_BACKSPACE) {
                         int n = (int)strlen(g.namebuf);
                         if (n > 0) {
