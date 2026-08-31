@@ -17,8 +17,8 @@ Click View buttons for window, scale, 50/60 Hz notch, high-pass, grid.
 Learn: click the name box, type a label, hold the pose, Save. MATCH scores
 the live window against every saved sample. Same name overwrites.
 Learn always runs hp 2 Hz, a 40 Hz low-pass, and the mains notch (50 if
-view notch is off) so rail hiss and 50/60 Hz do not dominate the score.
-Samples persist in ~/.config/exg-c.learn
+view notch is off). Save records the live window as-is after that filter;
+it does not refuse rail or large EMG. Samples persist in ~/.config/exg-c.learn
 Firmware on the board is 125 SPS; the status line shows measured rate.
 
 USB frames keep coming when the analog switches are off — those switches
