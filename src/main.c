@@ -2,7 +2,7 @@
 #include "np_dsp.h"
 #include "np_font.h"
 #include "np_knight.h"
-#include "np_learn.h"
+#include "nplearn.h"
 #include "np_ring.h"
 #include "np_serial.h"
 #include "sdl2_min.h"
@@ -30,8 +30,6 @@
 #define FFT_H 118
 #define LEARN_H 54
 #define WAVE_TOP 8
-#define LEARN_HP_HZ 2.f
-#define LEARN_LP_HZ 40.f
 #define OPEN_UV 3000.f
 #define QMAX 48
 #define CMD_CHON 1
@@ -85,9 +83,9 @@ struct np_app {
     struct timespec sps_t;
     struct np_hp hp[NP_NCHAN];
     struct np_notch notch[NP_NCHAN];
-    struct np_learn learn;
+    struct npl learn;
     int typing;
-    char namebuf[NP_LEARN_NAME];
+    char namebuf[NPL_NAME];
 };
 
 static struct np_app g;
@@ -134,103 +132,52 @@ static void learn_persist(void)
 {
     char path[NP_MAX_PATH];
     learn_path(path, sizeof(path));
-    np_learn_save(&g.learn, path);
+    npl_save(&g.learn, path);
 }
 
-struct np_lp {
-    float a, y;
-};
-
-static void lp_init(struct np_lp *f, float hz, float sps)
+/* Pull the live window through nplearn. Does not reject rail — that was
+ * why Save said "nothing to learn" on a perfectly live stream. */
+static int learn_capture(float wave[NPL_NCHAN][NPL_LEN], float rms[NPL_NCHAN], uint8_t *mask)
 {
-    float rc, dt;
-    memset(f, 0, sizeof(*f));
-    if (hz <= 0.f || sps <= 0.f) {
-        f->a = 1.f;
-        return;
-    }
-    rc = 1.f / (2.f * (float)M_PI * hz);
-    dt = 1.f / sps;
-    f->a = dt / (rc + dt);
-}
-
-static float lp_step(struct np_lp *f, float x)
-{
-    f->y += f->a * (x - f->y);
-    return f->y;
-}
-
-/* Band-limit for learn/match: drop DC/drift, mains, and hash above ~40 Hz. */
-static void learn_filter(float *buf, int n)
-{
-    struct np_hp hp;
-    struct np_notch nt;
-    struct np_lp lp;
+    int c, have = 0;
+    uint32_t want = (uint32_t)(g.window_s * (g.sps > 1.f ? g.sps : NP_DEFAULT_SPS));
     float sps = g.sps > 1.f ? g.sps : (float)NP_DEFAULT_SPS;
     float notch = g.notch_hz > 0 ? (float)g.notch_hz : 50.f;
-    int i;
-    np_hp_init(&hp, LEARN_HP_HZ, sps);
-    np_notch_init(&nt, notch, sps, 30.f);
-    lp_init(&lp, LEARN_LP_HZ, sps);
-    for (i = 0; i < n; i++) {
-        float v = np_hp_step(&hp, buf[i]);
-        v = np_notch_step(&nt, v);
-        buf[i] = lp_step(&lp, v);
-    }
-    np_detrend(buf, n);
-}
-
-static int learn_capture(float wave[NP_NCHAN][NP_LEARN_LEN], float rms[NP_NCHAN], uint8_t *mask)
-{
-    int c;
-    uint32_t want = (uint32_t)(g.window_s * (g.sps > 1.f ? g.sps : NP_DEFAULT_SPS));
     *mask = 0;
-    memset(wave, 0, (size_t)NP_NCHAN * NP_LEARN_LEN * sizeof(float));
-    memset(rms, 0, NP_NCHAN * sizeof(float));
+    memset(wave, 0, (size_t)NPL_NCHAN * NPL_LEN * sizeof(float));
+    memset(rms, 0, NPL_NCHAN * sizeof(float));
     if (want < 32) {
         want = 32;
     }
     if (want > NP_RING) {
         want = NP_RING;
     }
-    for (c = 0; c < NP_NCHAN; c++) {
+    for (c = 0; c < NPL_NCHAN; c++) {
         float buf[NP_RING];
-        uint32_t n, i;
-        float peak = 0.f;
-        double e = 0;
+        uint32_t n;
         if (!g.active[c]) {
             continue;
         }
+        have = 1;
         n = np_ring_copy(&g.ring, c, buf, want);
-        if (n < 32) {
+        if (n < 16) {
             continue;
         }
-        learn_filter(buf, (int)n);
-        for (i = 0; i < n; i++) {
-            float a = fabsf(buf[i]);
-            if (a > peak) {
-                peak = a;
-            }
-            e += (double)buf[i] * (double)buf[i];
+        if (npl_prep(wave[c], &rms[c], buf, (int)n, sps, notch) == 0) {
+            *mask |= (uint8_t)(1u << c);
         }
-        if (peak > OPEN_UV) {
-            continue;
-        }
-        rms[c] = sqrtf((float)(e / (double)n));
-        if (rms[c] < 0.5f) {
-            continue;
-        }
-        np_learn_pack(wave[c], buf, (int)n);
-        *mask |= (uint8_t)(1u << c);
     }
-    return *mask ? 0 : -1;
+    if (*mask) {
+        return 0;
+    }
+    return have ? -2 : -1;
 }
 
 static void learn_tick(void)
 {
-    float wave[NP_NCHAN][NP_LEARN_LEN], rms[NP_NCHAN];
+    float wave[NPL_NCHAN][NPL_LEN], rms[NPL_NCHAN];
     uint8_t mask;
-    if (!g.learn.match || g.learn.n <= 0 || !g.connected) {
+    if (!g.learn.match || g.learn.n <= 0) {
         g.learn.best = -1;
         return;
     }
@@ -238,25 +185,30 @@ static void learn_tick(void)
         g.learn.best = -1;
         return;
     }
-    np_learn_score(&g.learn, wave, rms, mask);
+    npl_score(&g.learn, wave, rms, mask);
 }
 
 static void learn_save_named(void)
 {
-    float wave[NP_NCHAN][NP_LEARN_LEN], rms[NP_NCHAN];
+    float wave[NPL_NCHAN][NPL_LEN], rms[NPL_NCHAN];
     uint8_t mask;
-    int r;
+    int r, err;
     if (!g.namebuf[0]) {
         set_status(0, "type a name, then Save");
         return;
     }
-    if (learn_capture(wave, rms, &mask) != 0) {
-        set_status(0, "nothing to learn (need signal, not rail/zero)");
+    err = learn_capture(wave, rms, &mask);
+    if (err == -1) {
+        set_status(0, "no samples yet - wait for the stream");
         return;
     }
-    r = np_learn_add(&g.learn, g.namebuf, wave, rms, mask);
+    if (err != 0) {
+        set_status(0, "turn a channel ON and wait one window");
+        return;
+    }
+    r = npl_add(&g.learn, g.namebuf, wave, rms, mask);
     if (r == -2) {
-        set_status(0, "learn full (%d)", NP_LEARN_MAX);
+        set_status(0, "learn full (%d)", NPL_MAX);
         return;
     }
     if (r < 0) {
@@ -266,13 +218,13 @@ static void learn_save_named(void)
     learn_persist();
     {
         int nc = 0, b;
-        for (b = 0; b < NP_NCHAN; b++) {
+        for (b = 0; b < NPL_NCHAN; b++) {
             if (mask & (uint8_t)(1u << b)) {
                 nc++;
             }
         }
-        set_status(1, "saved '%s'  %d ch  filt hp%.0f/lp%.0f/notch%.0f", g.namebuf, nc,
-                   LEARN_HP_HZ, LEARN_LP_HZ, g.notch_hz > 0 ? (float)g.notch_hz : 50.f);
+        set_status(1, "saved '%s'  %d ch  filt hp%.0f/lp%.0f/notch%.0f", g.namebuf, nc, NPL_HP_HZ,
+                   NPL_LP_HZ, g.notch_hz > 0 ? (float)g.notch_hz : 50.f);
     }
 }
 
@@ -1078,12 +1030,12 @@ static void draw_learn(int x, int y, int w, int h)
     int notch = g.notch_hz > 0 ? g.notch_hz : 50;
     fill(x, y, w, h, 10, 12, 16);
     text(x + 4, y + 4, "Learn", 160, 168, 180, 1);
-    snprintf(lab, sizeof(lab), "hp%.0f lp%.0f n%d", LEARN_HP_HZ, LEARN_LP_HZ, notch);
+    snprintf(lab, sizeof(lab), "hp%.0f lp%.0f n%d", NPL_HP_HZ, NPL_LP_HZ, notch);
     text(x + 46, y + 4, lab, 100, 108, 118, 1);
 
     fill(x + 160, y + 2, 150, 16, g.typing ? 40 : 28, g.typing ? 48 : 32, g.typing ? 58 : 40);
     {
-        char shown[NP_LEARN_NAME + 2];
+        char shown[NPL_NAME + 2];
         snprintf(shown, sizeof(shown), "%s%s", g.namebuf[0] ? g.namebuf : "name",
                  g.typing ? "_" : "");
         text(x + 164, y + 5, shown, g.namebuf[0] ? 230 : 120, 230, 236, 1);
@@ -1095,7 +1047,7 @@ static void draw_learn(int x, int y, int w, int h)
     btn(x + 430, y + 1, 36, 18, "del", 0, 19, 0, 90, 40, 44);
 
     if (g.learn.best >= 0 && g.learn.match && g.learn.n) {
-        snprintf(lab, sizeof(lab), "now %s %.0f%%", g.learn.t[g.learn.best].name,
+        snprintf(lab, sizeof(lab), "now %s %.0f%%", g.learn.s[g.learn.best].name,
                  g.learn.score[g.learn.best] * 100.f);
         text(x + 474, y + 5, lab,
              g.learn.score[g.learn.best] > 0.55f ? 80 : 200,
@@ -1118,7 +1070,7 @@ static void draw_learn(int x, int y, int w, int h)
         int bar;
         bx = x + 4 + i * bw;
         fill(bx, y + 20, bw - 4, 30, on ? 40 : 24, on ? 48 : 28, hit ? 50 : 34);
-        text(bx + 3, y + 22, g.learn.t[i].name, 220, 222, 228, 1);
+        text(bx + 3, y + 22, g.learn.s[i].name, 220, 222, 228, 1);
         snprintf(lab, sizeof(lab), "%3.0f", g.learn.score[i] * 100.f);
         text(bx + 3, y + 32, lab, 140, 180, 160, 1);
         bar = (int)(g.learn.score[i] * (bw - 10));
@@ -1282,16 +1234,16 @@ static void click(int x, int y)
             break;
         case 19:
             if (g.learn.sel >= 0) {
-                char gone[NP_LEARN_NAME];
-                snprintf(gone, sizeof(gone), "%s", g.learn.t[g.learn.sel].name);
-                np_learn_del(&g.learn, g.learn.sel);
+                char gone[NPL_NAME];
+                snprintf(gone, sizeof(gone), "%s", g.learn.s[g.learn.sel].name);
+                npl_del(&g.learn, g.learn.sel);
                 learn_persist();
                 set_status(1, "deleted '%s'", gone);
             }
             break;
         case 20:
             g.learn.sel = hits[i].ch;
-            snprintf(g.namebuf, sizeof(g.namebuf), "%s", g.learn.t[g.learn.sel].name);
+            snprintf(g.namebuf, sizeof(g.namebuf), "%s", g.learn.s[g.learn.sel].name);
             break;
         default:
             break;
@@ -1362,7 +1314,7 @@ static int run_gui(void)
             } else if (ev.type == SDL_TEXTINPUT && g.typing) {
                 const char *s = ev.text.text;
                 int n = (int)strlen(g.namebuf);
-                while (*s && n < NP_LEARN_NAME - 1) {
+                while (*s && n < NPL_NAME - 1) {
                     unsigned char c = (unsigned char)*s++;
                     if (c >= 32 && c < 127 && c != '/' && c != '\\') {
                         g.namebuf[n++] = (char)c;
@@ -1509,11 +1461,11 @@ int main(int argc, char **argv)
     pthread_mutex_init(&g.qmu, NULL);
     pthread_cond_init(&g.qcv, NULL);
     np_ring_init(&g.ring);
-    np_learn_init(&g.learn);
+    npl_init(&g.learn);
     {
         char lp[NP_MAX_PATH];
         learn_path(lp, sizeof(lp));
-        np_learn_load(&g.learn, lp);
+        npl_load(&g.learn, lp);
     }
     if (pthread_create(&g.cmd_thr, NULL, cmd_thread, NULL) != 0) {
         fprintf(stderr, "cmd thread failed\n");

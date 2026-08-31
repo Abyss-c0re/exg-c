@@ -1,4 +1,5 @@
 /np-exg
+/libnplearn.a
 *.o
 *.csv
 *~

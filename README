@@ -1,8 +1,13 @@
 exg-c — unaffiliated 8-channel EXG host (C)
 
-Build:  make
+Build:  make            # libnplearn.a + ./np-exg
+        make lib        # matcher only
 Run:    ./np-exg
         ./np-exg --cli --port /dev/ttyUSB1 --seconds 8
+
+nplearn/ is a separate no-heap C library (filter + named templates +
+score). The SDL host links it; an MCU compiles nplearn.c + nplearn_filt.c
+only. See nplearn/README.
 
 Requires libSDL2, dialout (or the launcher re-execs via sg).
 Settings persist in ~/.config/exg-c.conf

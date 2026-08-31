@@ -1,0 +1,24 @@
+nplearn — portable EXG template matcher
+
+No heap, no FILE, no threads. Floats in, scores out.
+
+  nplearn.c       store, score, flash blob
+  nplearn_filt.c  hp 2 Hz + notch + lp 40 Hz + pack
+  nplearn_posix.c optional path save/load (host only)
+
+MCU:
+
+  cc -c nplearn/src/nplearn.c nplearn/src/nplearn_filt.c -Inplearn/include
+
+  float wave[8][64], rms[8];
+  uint8_t mask = 0;
+  for (ch = 0; ch < 8; ch++) {
+      if (npl_prep(wave[ch], &rms[ch], uv[ch], n, 125.f, 50.f) == 0)
+          mask |= (uint8_t)(1u << ch);
+  }
+  npl_add(&L, "fist", wave, rms, mask);   /* record */
+  npl_score(&L, wave, rms, mask);         /* L.best, L.score[] */
+
+  unsigned char blob[npl_bound()];
+  n = npl_export(&L, blob, sizeof blob);  /* write to flash */
+  npl_import(&L, blob, n);
