@@ -28,7 +28,7 @@
 #define SIDE_W 300
 #define STATUS_H 28
 #define FFT_H 118
-#define LEARN_H 54
+#define LEARN_H 72
 #define WAVE_TOP 8
 #define OPEN_UV 3000.f
 #define QMAX 48
@@ -87,6 +87,11 @@ struct np_app {
     struct npl learn;
     int typing;
     char namebuf[NPL_NAME];
+    struct {
+        int have;
+        uint32_t n;
+        float dc[NP_NCHAN], rms[NP_NCHAN], pk[NP_NCHAN];
+    } off, on;
 };
 
 static struct np_app g;
@@ -725,8 +730,9 @@ static int ch_quality(int c, const float *buf, uint32_t n, uint8_t lp, uint8_t l
     if (mx < 0.5f) {
         return Q_ZERO;
     }
-    /* Open/floating inputs swing tens of mV. Scalp EXG is tens of µV. */
-    if (mx > OPEN_UV) {
+    /* Near ADS1299 full-scale only. 3 mV is not "no skin" — EMG and
+     * a worn but noisy headset both exceed that. */
+    if (mx > 250000.f) {
         return Q_OPEN;
     }
     return Q_LIVE;
@@ -754,6 +760,79 @@ static void ch_stats(const float *buf, uint32_t n, float *dc, float *rms, float 
     *dc = (float)(s / (double)n);
     *rms = sqrtf((float)(e / (double)n));
     *pk = p;
+}
+
+static void ab_grab(int onhead)
+{
+    uint32_t want = (uint32_t)(g.window_s * (g.sps > 1.f ? g.sps : NP_DEFAULT_SPS));
+    int c;
+    if (want < 32) {
+        want = 32;
+    }
+    if (want > NP_RING) {
+        want = NP_RING;
+    }
+    if (onhead) {
+        memset(&g.on, 0, sizeof(g.on));
+    } else {
+        memset(&g.off, 0, sizeof(g.off));
+    }
+    for (c = 0; c < NP_NCHAN; c++) {
+        float buf[NP_RING], dc, rms, pk;
+        uint32_t n = np_ring_copy(&g.ring, c, buf, want);
+        ch_stats(buf, n, &dc, &rms, &pk);
+        if (onhead) {
+            g.on.dc[c] = dc;
+            g.on.rms[c] = rms;
+            g.on.pk[c] = pk;
+            if (n > g.on.n) {
+                g.on.n = n;
+            }
+        } else {
+            g.off.dc[c] = dc;
+            g.off.rms[c] = rms;
+            g.off.pk[c] = pk;
+            if (n > g.off.n) {
+                g.off.n = n;
+            }
+        }
+    }
+    if (onhead) {
+        g.on.have = 1;
+    } else {
+        g.off.have = 1;
+    }
+}
+
+static void ab_write(void)
+{
+    char path[NP_MAX_PATH];
+    const char *h = getenv("HOME");
+    FILE *f;
+    int c;
+    if (h && h[0]) {
+        snprintf(path, sizeof(path), "%s/exg-c-ab.txt", h);
+    } else {
+        snprintf(path, sizeof(path), "exg-c-ab.txt");
+    }
+    f = fopen(path, "w");
+    if (!f) {
+        set_status(0, "cannot write %s", path);
+        return;
+    }
+    fprintf(f, "ch,off_dc_uV,off_rms_uV,off_pk_uV,on_dc_uV,on_rms_uV,on_pk_uV,ratio\n");
+    for (c = 0; c < NP_NCHAN; c++) {
+        float ratio = 0.f;
+        if (g.on.have && g.on.rms[c] > 1.f) {
+            ratio = g.off.rms[c] / g.on.rms[c];
+        }
+        fprintf(f, "%d,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f\n", c + 1,
+                g.off.have ? g.off.dc[c] : 0, g.off.have ? g.off.rms[c] : 0,
+                g.off.have ? g.off.pk[c] : 0, g.on.have ? g.on.dc[c] : 0,
+                g.on.have ? g.on.rms[c] : 0, g.on.have ? g.on.pk[c] : 0, ratio);
+    }
+    fclose(f);
+    set_status(1, "wrote %s", path);
 }
 
 static void draw_waves(int x, int y, int w, int h)
@@ -797,13 +876,7 @@ static void draw_waves(int x, int y, int w, int h)
         {
             float dc = 0, rms = 0, pk = 0;
             ch_stats(buf, n, &dc, &rms, &pk);
-            if (rms > OPEN_UV) {
-                q = Q_OPEN;
-            }
             fill(x, y1b - 1, w, 1, 32, 36, 44);
-            if (q == Q_OPEN || q == Q_LEADOFF) {
-                fill(x, y0, w, row_h - 1, 28, 14, 14);
-            }
             snprintf(lab, sizeof(lab), "ch%d", c + 1);
             text(x + 4, y0 + 4, lab, CHCOL[c][0], CHCOL[c][1], CHCOL[c][2], 1);
             if (g.show_uv) {
@@ -820,8 +893,6 @@ static void draw_waves(int x, int y, int w, int h)
                 snprintf(lab, sizeof(lab), "lead-off %s%s", (lp & (1u << c)) ? "P" : "",
                          (ln & (1u << c)) ? "N" : "");
                 text(x + 220, y0 + 4, lab, 200, 90, 80, 1);
-            } else if (q == Q_OPEN) {
-                text(x + 220, y0 + 4, "OPEN - not skin", 220, 80, 70, 1);
             }
         }
         if (q == Q_OFF || n < 4) {
@@ -1102,9 +1173,45 @@ static void draw_learn(int x, int y, int w, int h)
              g.learn.score[g.learn.best] > 0.55f ? 120 : 80, 1);
     }
 
+    btn(x + 4, y + 20, 40, 16, "OFF", g.off.have, 22, 0, g.off.have ? 90 : 36, 40, 44);
+    btn(x + 48, y + 20, 36, 16, "ON", g.on.have, 23, 0, 36, g.on.have ? 90 : 40, 50);
+    btn(x + 88, y + 20, 48, 16, "write", 0, 24, 0, 36, 40, 48);
+    {
+        char ab[96];
+        if (g.off.have && g.on.have) {
+            int c, diff = 0;
+            float rmax = 0.f;
+            for (c = 0; c < NP_NCHAN; c++) {
+                if (!g.active[c] || g.on.rms[c] < 1.f) {
+                    continue;
+                }
+                {
+                    float r = g.off.rms[c] / g.on.rms[c];
+                    if (r > rmax) {
+                        rmax = r;
+                    }
+                    if (r > 3.f || r < 0.33f) {
+                        diff = 1;
+                    }
+                }
+            }
+            snprintf(ab, sizeof(ab), "off %.0f uV  on %.0f uV  ratio %.1fx  %s",
+                     g.off.rms[0], g.on.rms[0], rmax, diff ? "DIFFERENT" : "SAME amp");
+            text(x + 142, y + 24, ab, diff ? 80 : 220, diff ? 210 : 140, 90, 1);
+        } else if (g.off.have) {
+            snprintf(ab, sizeof(ab), "off ch1 rms %.0f uV - put headset on, click ON",
+                     g.off.rms[0]);
+            text(x + 142, y + 24, ab, 180, 180, 160, 1);
+        } else if (g.on.have) {
+            snprintf(ab, sizeof(ab), "on ch1 rms %.0f uV - remove headset, click OFF",
+                     g.on.rms[0]);
+            text(x + 142, y + 24, ab, 180, 180, 160, 1);
+        } else {
+            text(x + 142, y + 24, "A/B: click OFF (no headset), then ON (on skin)", 110, 116,
+                 124, 1);
+        }
+    }
     if (g.learn.n <= 0) {
-        text(x + 6, y + 24, "type a name, hold the pose, Save. match scores live.", 110, 116,
-             124, 1);
         return;
     }
     bw = (w - 8) / (g.learn.n > 8 ? 8 : g.learn.n);
@@ -1116,16 +1223,16 @@ static void draw_learn(int x, int y, int w, int h)
         int hit = (g.learn.match && i == g.learn.best && g.learn.score[i] > 0.55f);
         int bar;
         bx = x + 4 + i * bw;
-        fill(bx, y + 20, bw - 4, 30, on ? 40 : 24, on ? 48 : 28, hit ? 50 : 34);
-        text(bx + 3, y + 22, g.learn.s[i].name, 220, 222, 228, 1);
+        fill(bx, y + 38, bw - 4, 28, on ? 40 : 24, on ? 48 : 28, hit ? 50 : 34);
+        text(bx + 3, y + 40, g.learn.s[i].name, 220, 222, 228, 1);
         snprintf(lab, sizeof(lab), "%3.0f", g.learn.score[i] * 100.f);
-        text(bx + 3, y + 32, lab, 140, 180, 160, 1);
+        text(bx + 3, y + 50, lab, 140, 180, 160, 1);
         bar = (int)(g.learn.score[i] * (bw - 10));
         if (bar < 1) {
             bar = 1;
         }
-        fill(bx + 3, y + 44, bar, 4, hit ? 70 : 50, hit ? 180 : 90, 90);
-        add_hit(bx, y + 20, bw - 4, 30, 20, i);
+        fill(bx + 3, y + 60, bar, 3, hit ? 70 : 50, hit ? 180 : 90, 90);
+        add_hit(bx, y + 38, bw - 4, 28, 20, i);
     }
 }
 
@@ -1295,6 +1402,21 @@ static void click(int x, int y)
         case 20:
             g.learn.sel = hits[i].ch;
             snprintf(g.namebuf, sizeof(g.namebuf), "%s", g.learn.s[g.learn.sel].name);
+            break;
+        case 22:
+            ab_grab(0);
+            set_status(1, "OFF-head snap  ch1 rms %.0f uV  n=%u", g.off.rms[0], g.off.n);
+            break;
+        case 23:
+            ab_grab(1);
+            set_status(1, "ON-head snap  ch1 rms %.0f uV  n=%u", g.on.rms[0], g.on.n);
+            break;
+        case 24:
+            if (!g.off.have && !g.on.have) {
+                set_status(0, "snap OFF and/or ON first");
+            } else {
+                ab_write();
+            }
             break;
         default:
             break;
