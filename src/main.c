@@ -2,6 +2,7 @@
 #include "np_dsp.h"
 #include "np_font.h"
 #include "np_knight.h"
+#include "np_learn.h"
 #include "np_ring.h"
 #include "np_serial.h"
 #include "sdl2_min.h"
@@ -9,6 +10,7 @@
 #include <errno.h>
 #include <stdarg.h>
 #include <grp.h>
+#include <sys/stat.h>
 #include <math.h>
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -25,8 +27,12 @@
 #define WIN_H 800
 #define SIDE_W 300
 #define STATUS_H 28
-#define FFT_H 150
+#define FFT_H 118
+#define LEARN_H 54
 #define WAVE_TOP 8
+#define LEARN_HP_HZ 2.f
+#define LEARN_LP_HZ 40.f
+#define OPEN_UV 3000.f
 #define QMAX 48
 #define CMD_CHON 1
 #define CMD_CHOFF 2
@@ -79,9 +85,13 @@ struct np_app {
     struct timespec sps_t;
     struct np_hp hp[NP_NCHAN];
     struct np_notch notch[NP_NCHAN];
+    struct np_learn learn;
+    int typing;
+    char namebuf[NP_LEARN_NAME];
 };
 
 static struct np_app g;
+static void set_status(int ok, const char *fmt, ...);
 static const int SCALE_UV[] = {50, 100, 200, 500, 1000, 5000};
 #define NSCALE 6
 static const int WIN_S[] = {1, 2, 4, 8};
@@ -104,6 +114,175 @@ static void cfg_path(char *out, size_t n)
         snprintf(out, n, "%s/.config/exg-c.conf", h);
     } else {
         snprintf(out, n, "exg-c.conf");
+    }
+}
+
+static void learn_path(char *out, size_t n)
+{
+    const char *h = getenv("HOME");
+    if (h && h[0]) {
+        char dir[NP_MAX_PATH];
+        snprintf(dir, sizeof(dir), "%s/.config", h);
+        mkdir(dir, 0755);
+        snprintf(out, n, "%s/.config/exg-c.learn", h);
+    } else {
+        snprintf(out, n, "exg-c.learn");
+    }
+}
+
+static void learn_persist(void)
+{
+    char path[NP_MAX_PATH];
+    learn_path(path, sizeof(path));
+    np_learn_save(&g.learn, path);
+}
+
+struct np_lp {
+    float a, y;
+};
+
+static void lp_init(struct np_lp *f, float hz, float sps)
+{
+    float rc, dt;
+    memset(f, 0, sizeof(*f));
+    if (hz <= 0.f || sps <= 0.f) {
+        f->a = 1.f;
+        return;
+    }
+    rc = 1.f / (2.f * (float)M_PI * hz);
+    dt = 1.f / sps;
+    f->a = dt / (rc + dt);
+}
+
+static float lp_step(struct np_lp *f, float x)
+{
+    f->y += f->a * (x - f->y);
+    return f->y;
+}
+
+/* Band-limit for learn/match: drop DC/drift, mains, and hash above ~40 Hz. */
+static void learn_filter(float *buf, int n)
+{
+    struct np_hp hp;
+    struct np_notch nt;
+    struct np_lp lp;
+    float sps = g.sps > 1.f ? g.sps : (float)NP_DEFAULT_SPS;
+    float notch = g.notch_hz > 0 ? (float)g.notch_hz : 50.f;
+    int i;
+    np_hp_init(&hp, LEARN_HP_HZ, sps);
+    np_notch_init(&nt, notch, sps, 30.f);
+    lp_init(&lp, LEARN_LP_HZ, sps);
+    for (i = 0; i < n; i++) {
+        float v = np_hp_step(&hp, buf[i]);
+        v = np_notch_step(&nt, v);
+        buf[i] = lp_step(&lp, v);
+    }
+    np_detrend(buf, n);
+}
+
+static int learn_capture(float wave[NP_NCHAN][NP_LEARN_LEN], float rms[NP_NCHAN], uint8_t *mask)
+{
+    int c;
+    uint32_t want = (uint32_t)(g.window_s * (g.sps > 1.f ? g.sps : NP_DEFAULT_SPS));
+    *mask = 0;
+    memset(wave, 0, (size_t)NP_NCHAN * NP_LEARN_LEN * sizeof(float));
+    memset(rms, 0, NP_NCHAN * sizeof(float));
+    if (want < 32) {
+        want = 32;
+    }
+    if (want > NP_RING) {
+        want = NP_RING;
+    }
+    for (c = 0; c < NP_NCHAN; c++) {
+        float buf[NP_RING];
+        uint32_t n, i;
+        float peak = 0.f;
+        double e = 0;
+        if (!g.active[c]) {
+            continue;
+        }
+        n = np_ring_copy(&g.ring, c, buf, want);
+        if (n < 32) {
+            continue;
+        }
+        learn_filter(buf, (int)n);
+        for (i = 0; i < n; i++) {
+            float a = fabsf(buf[i]);
+            if (a > peak) {
+                peak = a;
+            }
+            e += (double)buf[i] * (double)buf[i];
+        }
+        if (peak > OPEN_UV) {
+            continue;
+        }
+        rms[c] = sqrtf((float)(e / (double)n));
+        if (rms[c] < 0.5f) {
+            continue;
+        }
+        np_learn_pack(wave[c], buf, (int)n);
+        *mask |= (uint8_t)(1u << c);
+    }
+    return *mask ? 0 : -1;
+}
+
+static void learn_tick(void)
+{
+    float wave[NP_NCHAN][NP_LEARN_LEN], rms[NP_NCHAN];
+    uint8_t mask;
+    if (!g.learn.match || g.learn.n <= 0 || !g.connected) {
+        g.learn.best = -1;
+        return;
+    }
+    if (learn_capture(wave, rms, &mask) != 0) {
+        g.learn.best = -1;
+        return;
+    }
+    np_learn_score(&g.learn, wave, rms, mask);
+}
+
+static void learn_save_named(void)
+{
+    float wave[NP_NCHAN][NP_LEARN_LEN], rms[NP_NCHAN];
+    uint8_t mask;
+    int r;
+    if (!g.namebuf[0]) {
+        set_status(0, "type a name, then Save");
+        return;
+    }
+    if (learn_capture(wave, rms, &mask) != 0) {
+        set_status(0, "nothing to learn (need signal, not rail/zero)");
+        return;
+    }
+    r = np_learn_add(&g.learn, g.namebuf, wave, rms, mask);
+    if (r == -2) {
+        set_status(0, "learn full (%d)", NP_LEARN_MAX);
+        return;
+    }
+    if (r < 0) {
+        set_status(0, "learn add failed");
+        return;
+    }
+    learn_persist();
+    {
+        int nc = 0, b;
+        for (b = 0; b < NP_NCHAN; b++) {
+            if (mask & (uint8_t)(1u << b)) {
+                nc++;
+            }
+        }
+        set_status(1, "saved '%s'  %d ch  filt hp%.0f/lp%.0f/notch%.0f", g.namebuf, nc,
+                   LEARN_HP_HZ, LEARN_LP_HZ, g.notch_hz > 0 ? (float)g.notch_hz : 50.f);
+    }
+}
+
+static void typing_set(int on)
+{
+    g.typing = on;
+    if (on) {
+        SDL_StartTextInput();
+    } else {
+        SDL_StopTextInput();
     }
 }
 
@@ -520,12 +699,12 @@ struct hit {
     int ch;
 };
 
-static struct hit hits[64];
+static struct hit hits[80];
 int nhits;
 
 static void add_hit(int x, int y, int w, int h, int kind, int ch)
 {
-    if (nhits >= 64) {
+    if (nhits >= 80) {
         return;
     }
     hits[nhits].r.x = x;
@@ -562,7 +741,6 @@ static const int CHCOL[NP_NCHAN][3] = {
 #define Q_LEADOFF 2
 #define Q_OPEN 3
 #define Q_LIVE 4
-#define OPEN_UV 3000.f
 
 static int ch_quality(int c, const float *buf, uint32_t n, uint8_t lp, uint8_t ln)
 {
@@ -893,6 +1071,65 @@ static void draw_side(int x)
     }
 }
 
+static void draw_learn(int x, int y, int w, int h)
+{
+    char lab[48];
+    int i, bx, bw;
+    int notch = g.notch_hz > 0 ? g.notch_hz : 50;
+    fill(x, y, w, h, 10, 12, 16);
+    text(x + 4, y + 4, "Learn", 160, 168, 180, 1);
+    snprintf(lab, sizeof(lab), "hp%.0f lp%.0f n%d", LEARN_HP_HZ, LEARN_LP_HZ, notch);
+    text(x + 46, y + 4, lab, 100, 108, 118, 1);
+
+    fill(x + 160, y + 2, 150, 16, g.typing ? 40 : 28, g.typing ? 48 : 32, g.typing ? 58 : 40);
+    {
+        char shown[NP_LEARN_NAME + 2];
+        snprintf(shown, sizeof(shown), "%s%s", g.namebuf[0] ? g.namebuf : "name",
+                 g.typing ? "_" : "");
+        text(x + 164, y + 5, shown, g.namebuf[0] ? 230 : 120, 230, 236, 1);
+    }
+    add_hit(x + 160, y + 2, 150, 16, 16, 0);
+    btn(x + 314, y + 1, 50, 18, "Save", 1, 17, 0, 30, 90, 70);
+    btn(x + 368, y + 1, 58, 18, g.learn.match ? "MATCH" : "match", g.learn.match, 18, 0,
+        g.learn.match ? 30 : 40, g.learn.match ? 80 : 42, g.learn.match ? 70 : 50);
+    btn(x + 430, y + 1, 36, 18, "del", 0, 19, 0, 90, 40, 44);
+
+    if (g.learn.best >= 0 && g.learn.match && g.learn.n) {
+        snprintf(lab, sizeof(lab), "now %s %.0f%%", g.learn.t[g.learn.best].name,
+                 g.learn.score[g.learn.best] * 100.f);
+        text(x + 474, y + 5, lab,
+             g.learn.score[g.learn.best] > 0.55f ? 80 : 200,
+             g.learn.score[g.learn.best] > 0.55f ? 220 : 160,
+             g.learn.score[g.learn.best] > 0.55f ? 120 : 80, 1);
+    }
+
+    if (g.learn.n <= 0) {
+        text(x + 6, y + 24, "type a name, hold the pose, Save. match scores live.", 110, 116,
+             124, 1);
+        return;
+    }
+    bw = (w - 8) / (g.learn.n > 8 ? 8 : g.learn.n);
+    if (bw < 70) {
+        bw = 70;
+    }
+    for (i = 0; i < g.learn.n && i < 8; i++) {
+        int on = (i == g.learn.sel);
+        int hit = (g.learn.match && i == g.learn.best && g.learn.score[i] > 0.55f);
+        int bar;
+        bx = x + 4 + i * bw;
+        fill(bx, y + 20, bw - 4, 30, on ? 40 : 24, on ? 48 : 28, hit ? 50 : 34);
+        text(bx + 3, y + 22, g.learn.t[i].name, 220, 222, 228, 1);
+        snprintf(lab, sizeof(lab), "%3.0f", g.learn.score[i] * 100.f);
+        text(bx + 3, y + 32, lab, 140, 180, 160, 1);
+        bar = (int)(g.learn.score[i] * (bw - 10));
+        if (bar < 1) {
+            bar = 1;
+        }
+        fill(bx + 3, y + 44, bar, 4, hit ? 70 : 50, hit ? 180 : 90, 90);
+        add_hit(bx, y + 20, bw - 4, 30, 20, i);
+    }
+}
+
 static void draw_status(void)
 {
     char st[320];
@@ -1030,17 +1267,44 @@ static void click(int x, int y)
             g.show_uv = !g.show_uv;
             cfg_save();
             break;
+        case 16:
+            typing_set(1);
+            return;
+        case 17:
+            typing_set(0);
+            learn_save_named();
+            break;
+        case 18:
+            g.learn.match = !g.learn.match;
+            if (!g.learn.match) {
+                g.learn.best = -1;
+            }
+            break;
+        case 19:
+            if (g.learn.sel >= 0) {
+                char gone[NP_LEARN_NAME];
+                snprintf(gone, sizeof(gone), "%s", g.learn.t[g.learn.sel].name);
+                np_learn_del(&g.learn, g.learn.sel);
+                learn_persist();
+                set_status(1, "deleted '%s'", gone);
+            }
+            break;
+        case 20:
+            g.learn.sel = hits[i].ch;
+            snprintf(g.namebuf, sizeof(g.namebuf), "%s", g.learn.t[g.learn.sel].name);
+            break;
         default:
             break;
         }
         return;
     }
+    typing_set(0);
 }
 
 static void frame(void)
 {
     int plot_w = win_w - SIDE_W - 24;
-    int wave_h = win_h - WAVE_TOP - FFT_H - 8 - STATUS_H;
+    int wave_h = win_h - WAVE_TOP - LEARN_H - FFT_H - 10 - STATUS_H;
     if (wave_h < NP_NCHAN * 36) {
         wave_h = NP_NCHAN * 36;
     }
@@ -1048,7 +1312,8 @@ static void frame(void)
     fill(0, 0, win_w, win_h, 22, 24, 30);
     fill(win_w - SIDE_W, 0, SIDE_W, win_h, 26, 28, 34);
     draw_waves(12, WAVE_TOP, plot_w, wave_h);
-    draw_fft(12, WAVE_TOP + wave_h + 6, plot_w, FFT_H);
+    draw_learn(12, WAVE_TOP + wave_h + 4, plot_w, LEARN_H);
+    draw_fft(12, WAVE_TOP + wave_h + LEARN_H + 8, plot_w, FFT_H);
     draw_side(win_w - SIDE_W);
     draw_status();
 }
@@ -1094,9 +1359,31 @@ static int run_gui(void)
         while (SDL_PollEvent(&ev)) {
             if (ev.type == SDL_QUIT) {
                 live = 0;
+            } else if (ev.type == SDL_TEXTINPUT && g.typing) {
+                const char *s = ev.text.text;
+                int n = (int)strlen(g.namebuf);
+                while (*s && n < NP_LEARN_NAME - 1) {
+                    unsigned char c = (unsigned char)*s++;
+                    if (c >= 32 && c < 127 && c != '/' && c != '\\') {
+                        g.namebuf[n++] = (char)c;
+                    }
+                }
+                g.namebuf[n] = 0;
             } else if (ev.type == SDL_KEYDOWN) {
                 int k = ev.key.keysym.sym;
-                if (k == SDLK_ESCAPE || k == SDLK_q) {
+                if (g.typing) {
+                    if (k == SDLK_ESCAPE) {
+                        typing_set(0);
+                    } else if (k == SDLK_RETURN) {
+                        typing_set(0);
+                        learn_save_named();
+                    } else if (k == SDLK_BACKSPACE) {
+                        int n = (int)strlen(g.namebuf);
+                        if (n > 0) {
+                            g.namebuf[n - 1] = 0;
+                        }
+                    }
+                } else if (k == SDLK_ESCAPE || k == SDLK_q) {
                     live = 0;
                 } else if (k == SDLK_c) {
                     do_connect();
@@ -1123,6 +1410,7 @@ static int run_gui(void)
                 click(ev.button.x, ev.button.y);
             }
         }
+        learn_tick();
         SDL_GetWindowSize(win, &win_w, &win_h);
         if (win_w < 800) {
             win_w = 800;
@@ -1192,7 +1480,8 @@ static void usage(const char *a0)
     fprintf(stderr,
             "usage: %s [--cli] [--port PATH] [--imu] [--seconds N]\n"
             "  GUI: click Connect, toggle channels / RLD / gain, Record CSV\n"
-            "  keys: c connect  d disconnect  r record  space pause  1-8 channel  Tab port  q quit\n",
+            "  keys: c connect  d disconnect  r record  space pause  1-8 channel  Tab port  q quit\n"
+            "  learn: click name, type, Enter/Save. MATCH scores live vs saved samples.\n",
             a0);
 }
 
@@ -1220,6 +1509,12 @@ int main(int argc, char **argv)
     pthread_mutex_init(&g.qmu, NULL);
     pthread_cond_init(&g.qcv, NULL);
     np_ring_init(&g.ring);
+    np_learn_init(&g.learn);
+    {
+        char lp[NP_MAX_PATH];
+        learn_path(lp, sizeof(lp));
+        np_learn_load(&g.learn, lp);
+    }
     if (pthread_create(&g.cmd_thr, NULL, cmd_thread, NULL) != 0) {
         fprintf(stderr, "cmd thread failed\n");
         return 1;

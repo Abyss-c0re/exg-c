@@ -25,12 +25,15 @@ typedef struct SDL_Rect {
 
 #define SDL_QUIT 0x100
 #define SDL_KEYDOWN 0x300
+#define SDL_TEXTINPUT 0x303
 #define SDL_MOUSEMOTION 0x400
 #define SDL_MOUSEBUTTONDOWN 0x401
 #define SDL_MOUSEBUTTONUP 0x402
 
 #define SDL_BUTTON_LEFT 1
 #define SDLK_ESCAPE 27
+#define SDLK_BACKSPACE 8
+#define SDLK_RETURN 13
 #define SDLK_c 99
 #define SDLK_d 100
 #define SDLK_r 114
@@ -70,11 +73,17 @@ typedef struct SDL_MouseMotionEvent {
     Sint32 x, y, xrel, yrel;
 } SDL_MouseMotionEvent;
 
+typedef struct SDL_TextInputEvent {
+    Uint32 type, timestamp, windowID;
+    char text[32];
+} SDL_TextInputEvent;
+
 typedef union SDL_Event {
     Uint32 type;
     SDL_KeyboardEvent key;
     SDL_MouseButtonEvent button;
     SDL_MouseMotionEvent motion;
+    SDL_TextInputEvent text;
     Uint8 pad[64];
 } SDL_Event;
 
@@ -97,6 +106,8 @@ const char *SDL_GetError(void);
 int SDL_SetHint(const char *name, const char *value);
 int SDL_SetRenderDrawBlendMode(SDL_Renderer *r, int mode);
 void SDL_GetWindowSize(SDL_Window *w, int *wi, int *he);
+void SDL_StartTextInput(void);
+void SDL_StopTextInput(void);
 
 #define SDL_BLENDMODE_BLEND 0x00000001
 
