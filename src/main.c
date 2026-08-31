@@ -93,6 +93,9 @@ struct np_app {
         float dc[NP_NCHAN], rms[NP_NCHAN], pk[NP_NCHAN];
     } off, on, cal;
     int cal_arm;
+    uint64_t stall_tot;
+    int stall_n;
+    int recover_n;
 };
 
 static struct np_app g;
@@ -491,33 +494,54 @@ static void *reader_thread(void *arg)
 }
 
 /* Official host: sleep 2s after start_stream, then chon_1..8 with ~1s gaps.
- * After a DTR reset the board prints "Scanning for IMU..." and emits no
- * A0 frames until that finishes. Wait for a locked frame, not a wall clock.
- * Do not send chon_0: official never does, and it is not a documented cmd. */
+ * After a DTR reset the board prints "Scanning for IMU..." and may emit a
+ * few A0 frames then stop. Do not send commands on the first lock — wait
+ * until a real run of frames is in the ring, then chon, then rldadd. */
 static void *enable_thread(void *arg)
 {
     int c, waits;
+    uint64_t tot = 0, before;
     (void)arg;
-    set_status(1, "board reset, waiting for frames...");
-    for (waits = 0; waits < 80 && g.connected; waits++) {
-        if (g.parser.locked) {
+    set_status(1, "waiting for a live stream...");
+    for (waits = 0; waits < 150 && g.connected; waits++) {
+        np_ring_stats(&g.ring, &tot, NULL, NULL);
+        if (g.parser.locked && tot >= 50) {
             break;
         }
         usleep(100000);
     }
     if (!g.connected || g.fd < 0) {
+        g.en_running = 0;
         return NULL;
     }
-    if (!g.parser.locked) {
-        set_status(0, "no frames after reset (IMU scan stuck?)");
+    if (!g.parser.locked || tot < 20) {
+        set_status(0, "no live stream after reset (frames %llu)", (unsigned long long)tot);
+        g.en_running = 0;
+        return NULL;
     }
+    before = tot;
     for (c = 0; c < NP_NCHAN && g.connected; c++) {
         if (!g.active[c]) {
             continue;
         }
         set_status(1, "enable ch%d gain %d", c + 1, g.gain[c]);
         cmd_push(CMD_CHON, c + 1, g.gain[c]);
-        if (g.rld[c]) {
+    }
+    for (waits = 0; waits < 200 && g.connected; waits++) {
+        np_ring_stats(&g.ring, &tot, NULL, NULL);
+        if (tot >= before + 40) {
+            break;
+        }
+        usleep(100000);
+    }
+    if (tot < before + 10) {
+        set_status(0, "stream died during chon (frames %llu)", (unsigned long long)tot);
+        g.en_running = 0;
+        return NULL;
+    }
+    for (c = 0; c < NP_NCHAN && g.connected; c++) {
+        if (g.active[c] && g.rld[c]) {
+            set_status(1, "rld ch%d", c + 1);
             cmd_push(CMD_RLDADD, c + 1, 0);
         }
     }
@@ -527,6 +551,28 @@ static void *enable_thread(void *arg)
     }
     g.en_running = 0;
     return NULL;
+}
+
+static void stream_recover(void)
+{
+    if (!g.connected || g.fd < 0 || g.en_running) {
+        return;
+    }
+    if (g.recover_n >= 3) {
+        set_status(0, "stream dead (3 resets) - click Disconnect/Connect");
+        return;
+    }
+    g.recover_n++;
+    set_status(0, "stream stalled - board reset %d/3", g.recover_n);
+    np_parser_init(&g.parser, g.board);
+    np_serial_pulse_dtr(g.fd);
+    np_serial_flush(g.fd);
+    g.en_running = 1;
+    if (pthread_create(&g.en_thr, NULL, enable_thread, NULL) == 0) {
+        pthread_detach(g.en_thr);
+    } else {
+        g.en_running = 0;
+    }
 }
 
 static void do_connect(void)
@@ -562,6 +608,9 @@ static void do_connect(void)
         return;
     }
     g.en_running = 1;
+    g.recover_n = 0;
+    g.stall_n = 0;
+    g.stall_tot = 0;
     if (pthread_create(&g.en_thr, NULL, enable_thread, NULL) != 0) {
         g.en_running = 0;
         set_status(0, "connected, but enable thread failed");
@@ -1664,6 +1713,26 @@ static int run_gui(void)
             }
         }
         learn_tick();
+        if (g.connected && !g.en_running) {
+            uint64_t tot = 0;
+            np_ring_stats(&g.ring, &tot, NULL, NULL);
+            if (tot == g.stall_tot) {
+                g.stall_n++;
+                if (g.stall_n == 90) {
+                    set_status(0, "stream stalled at %llu frames", (unsigned long long)tot);
+                }
+                if (g.stall_n > 180) {
+                    g.stall_n = 0;
+                    stream_recover();
+                }
+            } else {
+                g.stall_tot = tot;
+                g.stall_n = 0;
+                if (g.recover_n && tot > 50) {
+                    g.recover_n = 0;
+                }
+            }
+        }
         SDL_GetWindowSize(win, &win_w, &win_h);
         if (win_w < 800) {
             win_w = 800;
