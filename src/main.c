@@ -1056,7 +1056,7 @@ static void draw_waves(int x, int y, int w, int h)
         {
             float dc = 0, rms = 0, pk = 0, r = 0.f;
             ch_stats(buf, n, &dc, &rms, &pk);
-            if (!g.og && g.cal.have && g.cal_cut && n >= 4) {
+            if (g.cal.have && g.cal_cut && n >= 4) {
                 for (i = 0; i < n; i++) {
                     buf[i] -= g.cal.dc[c];
                 }
@@ -1118,6 +1118,11 @@ static void draw_waves(int x, int y, int w, int h)
                 SDL_RenderDrawLine(R, xx, y0 + 1, xx, y1b - 2);
             }
         }
+        if (gated) {
+            SDL_SetRenderDrawColor(R, 50, 46, 40, 255);
+            SDL_RenderDrawLine(R, x, mid, x + w, mid);
+            continue;
+        }
         peak = (float)g.scale_uv;
         if (peak < 20.f) {
             peak = 200.f;
@@ -1150,11 +1155,7 @@ static void draw_waves(int x, int y, int w, int h)
                     peak = 2000.f;
                 }
             }
-            if (g.og) {
-                dim = 0;
-            } else {
-                dim = (q == Q_OPEN || q == Q_LEADOFF || gated);
-            }
+            dim = (!g.og && (q == Q_OPEN || q == Q_LEADOFF));
             cr = dim ? CHCOL[c][0] / 3 : CHCOL[c][0];
             cg = dim ? CHCOL[c][1] / 3 : CHCOL[c][1];
             cb = dim ? CHCOL[c][2] / 3 : CHCOL[c][2];
@@ -1213,6 +1214,14 @@ static void draw_fft(int x, int y, int w, int h)
             continue;
         }
         q = ch_quality(c, buf, n, lp, ln);
+        if (g.cal.have && g.cal_cut && g.cal.rms[c] > 1.f) {
+            float dc, rms, pk;
+            ch_stats(buf, n, &dc, &rms, &pk);
+            if (rms / g.cal.rms[c] > 0.70f && rms / g.cal.rms[c] < 1.40f) {
+                open_n++;
+                continue;
+            }
+        }
         if (q != Q_LIVE) {
             open_n++;
         }

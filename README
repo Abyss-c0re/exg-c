@@ -14,8 +14,10 @@ Settings persist in ~/.config/exg-c.conf
 
 Keys: c connect  d disconnect  r record  space pause  1-8 toggle  q quit
 Click View buttons for window, scale, 50/60 Hz notch, high-pass, grid.
-Default scale is OG: each row fits min..max like the official plotter.
-RMS in the label stays in real µV/mV. Cycle scale to lock ±µV or AUTO.
+Default scale is OG: each row fits min..max like the official plotter,
+but only when the channel has left the calibration baseline. With CUT
+on, a no-headset window matching cal is drawn flat (static cut). RMS
+in the label stays in real µV/mV.
 Learn: click 1. type a name, hold the pose, click Record 2s and stay still.
 It captures at the end of the countdown. MATCH scores live vs saved samples.
 Same name overwrites. del removes the selected chip.
