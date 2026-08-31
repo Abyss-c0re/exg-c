@@ -293,6 +293,12 @@ static void cfg_save(void)
     fprintf(f, "detrend=%d\n", g.detrend);
     fprintf(f, "cal_cut=%d\n", g.cal_cut);
     fprintf(f, "board=%d\n", (int)g.board);
+    {
+        int i;
+        for (i = 0; i < NP_NCHAN; i++) {
+            fprintf(f, "gain%d=%d\n", i + 1, g.gain[i]);
+        }
+    }
     fclose(f);
 }
 
@@ -329,6 +335,12 @@ static void cfg_load(void)
             g.cal_cut = v;
         } else if (sscanf(line, "board=%d", &v) == 1) {
             g.board = v ? NP_BOARD_KNIGHT_IMU : NP_BOARD_KNIGHT;
+        } else {
+            int ch, gn;
+            if (sscanf(line, "gain%d=%d", &ch, &gn) == 2 && ch >= 1 && ch <= NP_NCHAN &&
+                gn >= 1) {
+                g.gain[ch - 1] = gn;
+            }
         }
     }
     fclose(f);
@@ -1664,6 +1676,7 @@ static void click(int x, int y)
             if (g.connected && g.active[hits[i].ch]) {
                 cmd_push(CMD_CHON, hits[i].ch + 1, g.gain[hits[i].ch]);
             }
+            cfg_save();
             break;
         case 9:
             {
@@ -2029,6 +2042,9 @@ int main(int argc, char **argv)
     g.cal_cut = 1;
     g.grid = 1;
     g.show_uv = 1;
+    for (i = 0; i < NP_NCHAN; i++) {
+        g.gain[i] = 12;
+    }
     cfg_load();
     filt_reset();
     pthread_mutex_init(&g.mu, NULL);
@@ -2049,7 +2065,9 @@ int main(int argc, char **argv)
     for (i = 0; i < NP_NCHAN; i++) {
         g.active[i] = 1;
         g.rld[i] = 1;
-        g.gain[i] = 12;
+        if (g.gain[i] < 1) {
+            g.gain[i] = 12;
+        }
     }
     g.nports = np_list_ports(g.ports, NP_MAX_PORTS);
 
