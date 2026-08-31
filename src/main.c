@@ -1023,7 +1023,7 @@ static void draw_waves(int x, int y, int w, int h)
         static uint32_t snapn[NP_NCHAN];
         uint32_t want = (uint32_t)(g.window_s * (g.sps > 1.f ? g.sps : NP_DEFAULT_SPS));
         uint32_t n;
-        int y0, y1b, row_h, mid, q;
+        int y0, y1b, row_h, mid, q, gated = 0;
         uint32_t i;
         char lab[36];
         float last, peak;
@@ -1051,7 +1051,6 @@ static void draw_waves(int x, int y, int w, int h)
         q = ch_quality(c, buf, n, lp, ln);
         {
             float dc = 0, rms = 0, pk = 0, r = 0.f;
-            int gated = 0;
             ch_stats(buf, n, &dc, &rms, &pk);
             if (g.cal.have && g.cal_cut && n >= 4) {
                 for (i = 0; i < n; i++) {
@@ -1096,9 +1095,15 @@ static void draw_waves(int x, int y, int w, int h)
         if (q == Q_OFF || n < 4) {
             continue;
         }
-        apply_filt(c, buf, n);
-        if (g.detrend) {
-            np_detrend(buf, (int)n);
+        if (!gated) {
+            apply_filt(c, buf, n);
+            if (g.detrend) {
+                np_detrend(buf, (int)n);
+            }
+        } else {
+            np_hp_init(&g.hp[c], (float)g.hp_hz, g.sps > 1.f ? g.sps : (float)NP_DEFAULT_SPS);
+            np_notch_init(&g.notch[c], (float)g.notch_hz, g.sps > 1.f ? g.sps : (float)NP_DEFAULT_SPS,
+                          30.f);
         }
         if (g.grid) {
             int gx;
