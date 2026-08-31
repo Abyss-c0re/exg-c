@@ -1093,36 +1093,39 @@ static void draw_waves(int x, int y, int w, int h)
         if (want > NP_RING) {
             want = NP_RING;
         }
-        if (!g.paused) {
-            n = np_ring_copy(&g.ring, c, buf, want);
-            snapn[c] = n;
-            memcpy(snap[c], buf, n * sizeof(float));
-        } else {
-            n = snapn[c];
-            memcpy(buf, snap[c], n * sizeof(float));
-        }
         y0 = y + (c * h) / NP_NCHAN;
         y1b = y + ((c + 1) * h) / NP_NCHAN;
         row_h = y1b - y0;
         mid = (y0 + y1b) / 2;
-        last = n ? buf[n - 1] : 0.f;
-        q = ch_quality(c, buf, n, lp, ln);
         {
             float dc = 0, rms = 0, pk = 0, r = 0.f;
-            ch_stats(buf, n, &dc, &rms, &pk);
-            if (g.cal.have && g.cal_cut && n >= 4) {
-                for (i = 0; i < n; i++) {
-                    buf[i] -= g.cal.dc[c];
-                }
-                if (g.cal.rms[c] > 1.f) {
+            if (!g.paused) {
+                n = np_ring_copy(&g.ring, c, buf, want);
+                ch_stats(buf, n, &dc, &rms, &pk);
+                if (g.cal.have && g.cal_cut && g.cal.rms[c] > 1.f && n >= 4) {
                     r = rms / g.cal.rms[c];
-                    /* Same energy as the open-input snapshot: that is the static. */
-                    if (r > 0.70f && r < 1.40f) {
+                    /* Official: take the headset off and the strip stops.
+                     * Same energy as the off-head cal → freeze, do not keep
+                     * painting a new rail hash every frame. */
+                    if (r > 0.85f && r < 1.18f) {
                         gated = 1;
-                        memset(buf, 0, n * sizeof(float));
                     }
                 }
+                if (!gated) {
+                    snapn[c] = n;
+                    memcpy(snap[c], buf, n * sizeof(float));
+                } else if (snapn[c] < 4 && n >= 4) {
+                    snapn[c] = n;
+                    memcpy(snap[c], buf, n * sizeof(float));
+                }
             }
+            if ((gated || g.paused) && snapn[c] >= 4) {
+                n = snapn[c];
+                memcpy(buf, snap[c], n * sizeof(float));
+                ch_stats(buf, n, &dc, &rms, &pk);
+            }
+            last = n ? buf[n - 1] : 0.f;
+            q = ch_quality(c, buf, n, lp, ln);
             fill(x, y1b - 1, w, 1, 32, 36, 44);
             snprintf(lab, sizeof(lab), "ch%d", c + 1);
             text(x + 4, y0 + 4, lab, CHCOL[c][0], CHCOL[c][1], CHCOL[c][2], 1);
@@ -1141,7 +1144,7 @@ static void draw_waves(int x, int y, int w, int h)
                          (ln & (1u << c)) ? "N" : "");
                 text(x + 220, y0 + 4, lab, 200, 90, 80, 1);
             } else if (gated) {
-                text(x + 220, y0 + 4, "static cut", 180, 150, 70, 1);
+                text(x + 220, y0 + 4, "FROZEN", 200, 140, 70, 1);
             } else if (g.cal.have && g.cal.rms[c] > 1.f) {
                 snprintf(lab, sizeof(lab), "vs cal %.2fx", r > 0.f ? r : rms / g.cal.rms[c]);
                 text(x + 220, y0 + 4, lab, 80, 210, 140, 1);
@@ -1171,11 +1174,6 @@ static void draw_waves(int x, int y, int w, int h)
                 int xx = x + gx * w / 4;
                 SDL_RenderDrawLine(R, xx, y0 + 1, xx, y1b - 2);
             }
-        }
-        if (gated) {
-            SDL_SetRenderDrawColor(R, 50, 46, 40, 255);
-            SDL_RenderDrawLine(R, x, mid, x + w, mid);
-            continue;
         }
         peak = (float)g.scale_uv;
         if (peak < 20.f) {
@@ -2020,7 +2018,7 @@ int main(int argc, char **argv)
     g.board = NP_BOARD_KNIGHT_IMU;
     g.window_s = 2;
     g.autoscale = 0;
-    g.og = 1;
+    g.og = 0;
     g.scale_uv = 200;
     g.notch_hz = 50;
     g.hp_hz = 1;
