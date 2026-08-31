@@ -16,9 +16,11 @@ Sidebar Settings tab: UI 1.0x / 1.5x / 2.0x (whole layout), window size,
 per-channel colors. Scale multiplies every control the same amount.
 
 Keys: c connect  d disconnect  r record  space pause  1-8 toggle  q quit
-Click View buttons for window, scale, 50/60 Hz notch, high-pass, grid.
+Click View buttons for window, scale, 50/60/AUTO notch, high-pass, grid.
 60 Hz at 125 SPS is 2 samples/cycle, so that notch is a wide digital
 zero at 60 Hz (not the sharp Q=30 used at 50 Hz). It still cuts line.
+AUTO measures the line tone from the CAL (headset-off) spectrum and
+subtracts that sinusoid — the opposite wave. CAL first, then AUTO.
 Default plot is ±200 µV. After CAL (headset off), a channel still at
 that baseline FROZEN — the strip stops scrolling, like the official
 host when you take the headset off. Live update resumes when RMS

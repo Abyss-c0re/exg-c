@@ -19,4 +19,9 @@ float np_hp_step(struct np_hp *f, float x);
 void np_notch_init(struct np_notch *f, float hz, float sps, float q);
 float np_notch_step(struct np_notch *f, float x);
 
+/* Dominant tone in [40 Hz, 0.47·fs]. 0 = found. */
+int np_tone_hz(const float *x, int n, float sps, float *hz_out);
+/* Subtract the LS sinusoid at hz (the opposite wave). */
+void np_tone_cancel(float *x, int n, float hz, float sps);
+
 #endif

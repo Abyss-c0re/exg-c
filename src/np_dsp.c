@@ -166,3 +166,79 @@ float np_notch_step(struct np_notch *f, float x)
     f->y1 = y;
     return y;
 }
+
+int np_tone_hz(const float *x, int n, float sps, float *hz_out)
+{
+    float tmp[NP_FFT_N], mag[NP_FFT_N / 2];
+    int N = NP_FFT_N, i, lo, hi, peak_i = 0, cnt = 0;
+    float best = 0.f, acc = 0.f, shift, d, hz;
+    if (!x || n < 32 || sps < 1.f || !hz_out) {
+        return -1;
+    }
+    memset(tmp, 0, sizeof(tmp));
+    if (n > N) {
+        n = N;
+    }
+    memcpy(tmp, x, (size_t)n * sizeof(float));
+    np_detrend(tmp, n);
+    for (i = 0; i < n; i++) {
+        float win = 0.5f - 0.5f * cosf(2.f * (float)M_PI * (float)i / (float)(n - 1));
+        tmp[i] *= win;
+    }
+    np_fft_mag(tmp, N, mag);
+    lo = (int)(40.f * (float)N / sps);
+    hi = (int)(0.47f * (float)N);
+    if (lo < 2) {
+        lo = 2;
+    }
+    if (hi > N / 2 - 2) {
+        hi = N / 2 - 2;
+    }
+    if (hi <= lo) {
+        return -1;
+    }
+    for (i = lo; i <= hi; i++) {
+        acc += mag[i];
+        cnt++;
+        if (mag[i] > best) {
+            best = mag[i];
+            peak_i = i;
+        }
+    }
+    if (cnt < 3 || best < 4.f * (acc / (float)cnt)) {
+        return -1;
+    }
+    d = mag[peak_i - 1] - 2.f * mag[peak_i] + mag[peak_i + 1];
+    shift = 0.f;
+    if (d < -1e-12f || d > 1e-12f) {
+        shift = 0.5f * (mag[peak_i - 1] - mag[peak_i + 1]) / d;
+    }
+    hz = ((float)peak_i + shift) * sps / (float)N;
+    if (hz < 40.f || hz >= sps * 0.47f) {
+        return -1;
+    }
+    *hz_out = hz;
+    return 0;
+}
+
+void np_tone_cancel(float *x, int n, float hz, float sps)
+{
+    int i;
+    float w, re = 0.f, im = 0.f, scale;
+    if (!x || n < 8 || hz <= 0.f || sps < 1.f || hz >= sps * 0.47f) {
+        return;
+    }
+    w = 2.f * (float)M_PI * hz / sps;
+    for (i = 0; i < n; i++) {
+        float t = w * (float)i;
+        re += x[i] * cosf(t);
+        im += x[i] * sinf(t);
+    }
+    scale = 2.f / (float)n;
+    re *= scale;
+    im *= scale;
+    for (i = 0; i < n; i++) {
+        float t = w * (float)i;
+        x[i] -= re * cosf(t) + im * sinf(t);
+    }
+}

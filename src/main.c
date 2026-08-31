@@ -97,6 +97,7 @@ struct np_app {
     } off, on, cal;
     int cal_arm;
     int cal_cut;
+    float cal_hz; /* line tone from cal spectrum; 0 = none */
     uint32_t rec_t0;
     uint32_t saved_t0;
     uint64_t stall_tot;
@@ -164,13 +165,22 @@ static float design_sps(void)
     return (float)NP_DEFAULT_SPS;
 }
 
+static float notch_hz_eff(void)
+{
+    if (g.notch_hz < 0) {
+        return g.cal_hz;
+    }
+    return (float)g.notch_hz;
+}
+
 static void filt_reset(void)
 {
     int i;
     float sps = design_sps();
+    float nh = notch_hz_eff();
     for (i = 0; i < NP_NCHAN; i++) {
         np_hp_init(&g.hp[i], (float)g.hp_hz, sps);
-        np_notch_init(&g.notch[i], (float)g.notch_hz, sps, 30.f);
+        np_notch_init(&g.notch[i], nh > 0.f && g.notch_hz > 0 ? nh : 0.f, sps, 30.f);
     }
 }
 
@@ -211,7 +221,7 @@ static int learn_capture(float wave[NPL_NCHAN][NPL_LEN], float rms[NPL_NCHAN], u
     int c, have = 0;
     uint32_t want = (uint32_t)(g.window_s * (g.sps > 1.f ? g.sps : NP_DEFAULT_SPS));
     float sps = g.sps > 1.f ? g.sps : (float)NP_DEFAULT_SPS;
-    float notch = g.notch_hz > 0 ? (float)g.notch_hz : 50.f;
+    float notch = notch_hz_eff() > 1.f ? notch_hz_eff() : 50.f;
     *mask = 0;
     memset(wave, 0, (size_t)NPL_NCHAN * NPL_LEN * sizeof(float));
     memset(rms, 0, NPL_NCHAN * sizeof(float));
@@ -458,14 +468,17 @@ static void cfg_load(void)
 static void apply_filt(int ch, float *buf, uint32_t n)
 {
     uint32_t i;
-    if (g.hp_hz <= 0 && g.notch_hz <= 0) {
+    float sps = design_sps();
+    if (g.hp_hz <= 0 && g.notch_hz == 0) {
         return;
     }
     /* Restart IIR on this copy. Carrying state across overlapping
      * windows feeds newest-state then oldest-sample — the 60 Hz
      * notch never sits on the tone. */
-    np_hp_init(&g.hp[ch], (float)g.hp_hz, design_sps());
-    np_notch_init(&g.notch[ch], (float)g.notch_hz, design_sps(), 30.f);
+    np_hp_init(&g.hp[ch], (float)g.hp_hz, sps);
+    if (g.notch_hz > 0) {
+        np_notch_init(&g.notch[ch], (float)g.notch_hz, sps, 30.f);
+    }
     for (i = 0; i < n; i++) {
         float v = buf[i];
         if (g.hp_hz > 0) {
@@ -475,6 +488,9 @@ static void apply_filt(int ch, float *buf, uint32_t n)
             v = np_notch_step(&g.notch[ch], v);
         }
         buf[i] = v;
+    }
+    if (g.notch_hz < 0 && g.cal_hz > 1.f) {
+        np_tone_cancel(buf, (int)n, g.cal_hz, sps);
     }
 }
 
@@ -1134,6 +1150,7 @@ static int cal_save(void)
     fprintf(f, "# exg-c open-input baseline (headset OFF)\n");
     fprintf(f, "# overwritten by Calibrate -> OK\n");
     fprintf(f, "# time %ld  samples %u\n", (long)t, g.cal.n);
+    fprintf(f, "tone_hz=%.3f\n", g.cal_hz);
     fprintf(f, "ch,dc_uV,rms_uV,pk_uV\n");
     for (c = 0; c < NP_NCHAN; c++) {
         fprintf(f, "%d,%.3f,%.3f,%.3f\n", c + 1, g.cal.dc[c], g.cal.rms[c], g.cal.pk[c]);
@@ -1157,6 +1174,10 @@ static int cal_load(void)
         int ch;
         float dc, rms, pk;
         if (line[0] == '#' || line[0] == 'c') {
+            continue;
+        }
+        if (sscanf(line, "tone_hz=%f", &dc) == 1) {
+            g.cal_hz = dc;
             continue;
         }
         if (sscanf(line, "%d,%f,%f,%f", &ch, &dc, &rms, &pk) == 4 && ch >= 1 && ch <= NP_NCHAN) {
@@ -1185,12 +1206,36 @@ static void cal_capture(void)
         want = NP_RING;
     }
     memset(&g.cal, 0, sizeof(g.cal));
-    for (c = 0; c < NP_NCHAN; c++) {
-        float buf[NP_RING];
-        uint32_t n = np_ring_copy(&g.ring, c, buf, want);
-        ch_stats(buf, n, &g.cal.dc[c], &g.cal.rms[c], &g.cal.pk[c]);
-        if (n > g.cal.n) {
-            g.cal.n = n;
+    g.cal_hz = 0.f;
+    {
+        float acc[NP_FFT_N];
+        int accn = 0, used = 0;
+        memset(acc, 0, sizeof(acc));
+        for (c = 0; c < NP_NCHAN; c++) {
+            float buf[NP_RING];
+            uint32_t n = np_ring_copy(&g.ring, c, buf, want);
+            uint32_t i, take;
+            ch_stats(buf, n, &g.cal.dc[c], &g.cal.rms[c], &g.cal.pk[c]);
+            if (n > g.cal.n) {
+                g.cal.n = n;
+            }
+            take = n > (uint32_t)NP_FFT_N ? (uint32_t)NP_FFT_N : n;
+            if (take < 32) {
+                continue;
+            }
+            if (accn < (int)take) {
+                accn = (int)take;
+            }
+            for (i = 0; i < take; i++) {
+                acc[i] += buf[i];
+            }
+            used++;
+        }
+        if (used > 0) {
+            float hz = 0.f;
+            if (np_tone_hz(acc, accn, design_sps(), &hz) == 0) {
+                g.cal_hz = hz;
+            }
         }
     }
     g.cal.have = 1;
@@ -1199,7 +1244,11 @@ static void cal_capture(void)
         set_status(0, "calibrate captured but could not write exg-c.cal");
         return;
     }
-    set_status(1, "calibrated (headset OFF)  ch1 rms %.0f uV  saved exg-c.cal", g.cal.rms[0]);
+    if (g.cal_hz > 1.f) {
+        set_status(1, "calibrated  ch1 rms %.0f uV  line %.1f Hz", g.cal.rms[0], g.cal_hz);
+    } else {
+        set_status(1, "calibrated  ch1 rms %.0f uV  no line tone", g.cal.rms[0]);
+    }
 }
 
 static int live_vs_cal(float *ratio_out)
@@ -1382,7 +1431,7 @@ static void draw_waves(int x, int y, int w, int h)
                 /* Keep the pre-notch span so cutting 60 Hz shrinks the
                  * strip. Post-filter min-max restretches leftovers to
                  * the same pixels and looks like off. */
-                if (g.notch_hz > 0) {
+                if (g.notch_hz != 0) {
                     omin = pre_min;
                     omax = pre_max;
                 } else {
@@ -1664,7 +1713,13 @@ static void draw_side(int x)
         }
         btn(x + 152, y, 136, 22, b, 1, 10, 0, 36, 40, 48);
         y += 26;
-        if (g.notch_hz) {
+        if (g.notch_hz < 0) {
+            if (g.cal_hz > 1.f) {
+                snprintf(b, sizeof(b), "notch AUTO %.0f", (double)g.cal_hz);
+            } else {
+                snprintf(b, sizeof(b), "notch AUTO");
+            }
+        } else if (g.notch_hz) {
             snprintf(b, sizeof(b), (float)g.notch_hz > design_sps() * 0.42f
                                        ? "notch %d wide"
                                        : "notch %dHz",
@@ -1975,7 +2030,7 @@ static void click(int x, int y)
             cfg_save();
             break;
         case 11:
-            g.notch_hz = g.notch_hz == 0 ? 50 : (g.notch_hz == 50 ? 60 : 0);
+            g.notch_hz = g.notch_hz == 0 ? 50 : (g.notch_hz == 50 ? 60 : (g.notch_hz == 60 ? -1 : 0));
             filt_reset();
             cfg_save();
             break;
