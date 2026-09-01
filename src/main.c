@@ -5049,6 +5049,142 @@ void np_host_cycle_hp(void)
     g.hp_hz = 1;
 }
 
+int np_host_cube_view(void)
+{
+    return g.cube_view ? 1 : 0;
+}
+void np_host_set_cube_view(int map)
+{
+    g.cube_view = map ? 1 : 0;
+    cfg_save();
+    set_status(1, g.cube_view ? "map  assign 10-10 sites" : "viz  crimson sample cube");
+}
+void np_host_cube_spin(float dyaw, float dpitch)
+{
+    g.cube_yaw += dyaw;
+    g.cube_pitch += dpitch;
+    if (g.cube_pitch > 1.20f) {
+        g.cube_pitch = 1.20f;
+    }
+    if (g.cube_pitch < -0.35f) {
+        g.cube_pitch = -0.35f;
+    }
+}
+void np_host_cube_zoom(int dir)
+{
+    cube_zoom_by(dir);
+    cfg_save();
+}
+void np_host_cube_front(void)
+{
+    g.cube_yaw = 0.55f;
+    g.cube_pitch = 0.40f;
+    g.cube_zoom = 1.0f;
+    cfg_save();
+    set_status(1, "front");
+}
+int np_host_elec_sel(void)
+{
+    return g.elec_sel;
+}
+void np_host_set_elec_sel(int ch)
+{
+    if (ch < 0 || ch >= NP_NCHAN) {
+        return;
+    }
+    g.elec_sel = ch;
+    if (g.elec[ch].site >= 0) {
+        g.site_focus = g.elec[ch].site;
+    }
+    set_status(1, "ch%d %s", ch + 1, g.elec[ch].name[0] ? g.elec[ch].name : "?");
+}
+void np_host_elec_label(int ch, char *out, int n)
+{
+    if (ch < 0 || ch >= NP_NCHAN) {
+        out[0] = 0;
+        return;
+    }
+    snprintf(out, (size_t)n, "%d %s", ch + 1, g.elec[ch].name[0] ? g.elec[ch].name : "?");
+}
+int np_host_elec_site(int ch)
+{
+    return (ch >= 0 && ch < NP_NCHAN) ? g.elec[ch].site : -1;
+}
+void np_host_elec_xyz(int ch, float *x, float *y, float *z)
+{
+    if (ch < 0 || ch >= NP_NCHAN) {
+        return;
+    }
+    np_elec_cube_xyz(&g.elec[ch], x, y, z);
+}
+int np_host_site_focus(void)
+{
+    return g.site_focus;
+}
+void np_host_site_step(int dir)
+{
+    cube_site_by(dir);
+}
+void np_host_assign_site(int site)
+{
+    if (site >= 0 && site < np_1010_count()) {
+        g.site_focus = site;
+    }
+    cube_assign_focus();
+}
+int np_host_site_n(void)
+{
+    return np_1010_count();
+}
+void np_host_site_name(int i, char *out, int n)
+{
+    const char *s = np_1010_name(i);
+    snprintf(out, (size_t)n, "%s", s ? s : "");
+}
+int np_host_site_core(int i)
+{
+    return np_1010_core(i);
+}
+int np_host_site_ch(int i)
+{
+    int c;
+    for (c = 0; c < NP_NCHAN; c++) {
+        if (g.elec[c].site == i) {
+            return c;
+        }
+    }
+    return -1;
+}
+void np_host_site_flat(int i, float *fx, float *fy)
+{
+    np_1010_flat(i, fx, fy);
+}
+void np_host_site_xyz(int i, float *x, float *y, float *z)
+{
+    np_1010_cube_xyz(i, x, y, z);
+}
+int np_host_site_ijk(int i, int *x, int *y, int *z)
+{
+    return np_1010_ijk(i, x, y, z);
+}
+int np_host_viz_cells(float *xyz, float *size, int *rgba, int cap)
+{
+    struct np_cube cells[NP_CUBE_BUDGET];
+    int n, i;
+    if (!xyz || !size || !rgba || cap < 1) {
+        return 0;
+    }
+    n = np_smx_head_cubes(&g.smx, g.elec, g.chrgb, cells, cap);
+    for (i = 0; i < n; i++) {
+        xyz[i * 3] = cells[i].x;
+        xyz[i * 3 + 1] = cells[i].y;
+        xyz[i * 3 + 2] = cells[i].z;
+        size[i] = cells[i].s;
+        rgba[i] = (cells[i].a << 24) | (cells[i].r << 16) | (cells[i].g << 8) | cells[i].b;
+    }
+    return n;
+}
+
 static void usage(const char *a0)
 {
     fprintf(stderr,

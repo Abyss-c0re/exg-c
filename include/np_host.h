@@ -63,4 +63,27 @@ int np_host_hp(void);
 void np_host_cycle_notch(void);
 void np_host_cycle_hp(void);
 
+int np_host_cube_view(void);
+void np_host_set_cube_view(int map);
+void np_host_cube_spin(float dyaw, float dpitch);
+void np_host_cube_zoom(int dir);
+void np_host_cube_front(void);
+int np_host_elec_sel(void);
+void np_host_set_elec_sel(int ch);
+void np_host_elec_label(int ch, char *out, int n);
+int np_host_elec_site(int ch);
+void np_host_elec_xyz(int ch, float *x, float *y, float *z);
+int np_host_site_focus(void);
+void np_host_site_step(int dir);
+void np_host_assign_site(int site);
+int np_host_site_n(void);
+void np_host_site_name(int i, char *out, int n);
+int np_host_site_core(int i);
+int np_host_site_ch(int i);
+void np_host_site_flat(int i, float *fx, float *fy);
+void np_host_site_xyz(int i, float *x, float *y, float *z);
+int np_host_site_ijk(int i, int *x, int *y, int *z);
+/* Packed viz cells: xyz[n*3], size[n], rgba[n]. Returns n (≤40). */
+int np_host_viz_cells(float *xyz, float *size, int *rgba, int cap);
+
 #endif

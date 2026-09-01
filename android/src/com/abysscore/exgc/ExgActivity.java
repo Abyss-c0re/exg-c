@@ -18,6 +18,11 @@ public class ExgActivity extends Activity {
     private final Handler h = new Handler(Looper.getMainLooper());
     private TraceView traces;
     private CubeView cube;
+    private View cubePane;
+    private View cubeMapTools;
+    private LinearLayout cubeChRow;
+    private Button cubeViz, cubeMap;
+    private TextView siteLabel;
     private View settings;
     private View learnBar;
     private TextView status;
@@ -66,6 +71,12 @@ public class ExgActivity extends Activity {
         setContentView(R.layout.activity_exg);
         traces = findViewById(R.id.traces);
         cube = findViewById(R.id.cube);
+        cubePane = findViewById(R.id.cubePane);
+        cubeMapTools = findViewById(R.id.cubeMapTools);
+        cubeChRow = findViewById(R.id.cubeChRow);
+        cubeViz = findViewById(R.id.cubeViz);
+        cubeMap = findViewById(R.id.cubeMap);
+        siteLabel = findViewById(R.id.siteLabel);
         settings = findViewById(R.id.settings);
         learnBar = findViewById(R.id.learnBar);
         status = findViewById(R.id.status);
@@ -99,6 +110,39 @@ public class ExgActivity extends Activity {
         tabMain.setOnClickListener(v -> showTab(0));
         tabCube.setOnClickListener(v -> showTab(1));
         tabSet.setOnClickListener(v -> showTab(2));
+        cubeViz.setOnClickListener(v -> {
+            ExgNative.setCubeView(0);
+            refreshCubeChrome();
+        });
+        cubeMap.setOnClickListener(v -> {
+            ExgNative.setCubeView(1);
+            refreshCubeChrome();
+        });
+        findViewById(R.id.cubeZoomOut).setOnClickListener(v -> {
+            ExgNative.cubeZoom(-1);
+            cube.nudgeZoom(-1);
+        });
+        findViewById(R.id.cubeZoomIn).setOnClickListener(v -> {
+            ExgNative.cubeZoom(1);
+            cube.nudgeZoom(1);
+        });
+        findViewById(R.id.cubeFront).setOnClickListener(v -> {
+            ExgNative.cubeFront();
+            cube.resetCam();
+        });
+        findViewById(R.id.sitePrev).setOnClickListener(v -> {
+            ExgNative.siteStep(-1);
+            refreshCubeChrome();
+        });
+        findViewById(R.id.siteNext).setOnClickListener(v -> {
+            ExgNative.siteStep(1);
+            refreshCubeChrome();
+        });
+        findViewById(R.id.siteAssign).setOnClickListener(v -> {
+            ExgNative.assignSite(ExgNative.siteFocus());
+            refreshCubeChrome();
+        });
+        buildCubeChannels();
         findViewById(R.id.noise).setOnClickListener(v -> ExgNative.noiseArm());
         findViewById(R.id.noiseOk).setOnClickListener(v -> ExgNative.noiseOk());
         findViewById(R.id.calm).setOnClickListener(v -> ExgNative.calm());
@@ -171,15 +215,52 @@ public class ExgActivity extends Activity {
     private void showTab(int t) {
         tab = t;
         traces.setVisibility(t == 0 ? View.VISIBLE : View.GONE);
-        cube.setVisibility(t == 1 ? View.VISIBLE : View.GONE);
+        cubePane.setVisibility(t == 1 ? View.VISIBLE : View.GONE);
         settings.setVisibility(t == 2 ? View.VISIBLE : View.GONE);
         learnBar.setVisibility(t == 0 ? View.VISIBLE : View.GONE);
         tabMain.setBackgroundTintList(android.content.res.ColorStateList.valueOf(t == 0 ? 0xFF24322C : 0xFF2A3038));
         tabCube.setBackgroundTintList(android.content.res.ColorStateList.valueOf(t == 1 ? 0xFF3A1820 : 0xFF2A3038));
         tabSet.setBackgroundTintList(android.content.res.ColorStateList.valueOf(t == 2 ? 0xFF243044 : 0xFF2A3038));
+        if (t == 1) {
+            refreshCubeChrome();
+        }
         if (t == 2) {
             refreshChannels();
             refreshProfiles();
+        }
+    }
+
+    private void buildCubeChannels() {
+        cubeChRow.removeAllViews();
+        for (int c = 0; c < 8; c++) {
+            final int ch = c;
+            Button b = new Button(this);
+            b.setOnClickListener(v -> {
+                ExgNative.setElecSel(ch);
+                refreshCubeChrome();
+            });
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0,
+                    LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+            cubeChRow.addView(b, lp);
+        }
+        refreshCubeChrome();
+    }
+
+    private void refreshCubeChrome() {
+        int map = ExgNative.cubeView();
+        cubeViz.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
+                map == 0 ? 0xFF5A1020 : 0xFF2A3038));
+        cubeMap.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
+                map == 1 ? 0xFF5A2810 : 0xFF2A3038));
+        cubeMapTools.setVisibility(map == 1 ? View.VISIBLE : View.GONE);
+        siteLabel.setText(ExgNative.siteFocusLabel());
+        int sel = ExgNative.elecSel();
+        for (int i = 0; i < cubeChRow.getChildCount(); i++) {
+            Button b = (Button) cubeChRow.getChildAt(i);
+            b.setText(ExgNative.elecLabel(i));
+            b.setTextColor(ExgNative.color(i) | 0xFF000000);
+            b.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
+                    i == sel ? 0xFF5A1020 : 0xFF2A3038));
         }
     }
 

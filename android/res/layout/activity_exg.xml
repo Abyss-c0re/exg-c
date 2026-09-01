@@ -95,11 +95,103 @@
             android:layout_width="match_parent"
             android:layout_height="match_parent" />
 
-        <com.abysscore.exgc.CubeView
-            android:id="@+id/cube"
+        <LinearLayout
+            android:id="@+id/cubePane"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:visibility="gone" />
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@color/panel"
+                android:padding="4dp">
+
+                <Button
+                    android:id="@+id/cubeViz"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="viz" />
+
+                <Button
+                    android:id="@+id/cubeMap"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="map" />
+
+                <Button
+                    android:id="@+id/cubeZoomOut"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="−" />
+
+                <Button
+                    android:id="@+id/cubeZoomIn"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="+" />
+
+                <Button
+                    android:id="@+id/cubeFront"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="front" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/cubeChRow"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@color/panel"
+                android:padding="2dp" />
+
+            <LinearLayout
+                android:id="@+id/cubeMapTools"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@color/panel"
+                android:gravity="center_vertical"
+                android:padding="4dp"
+                android:visibility="gone">
+
+                <Button
+                    android:id="@+id/sitePrev"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="&lt;" />
+
+                <TextView
+                    android:id="@+id/siteLabel"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:gravity="center"
+                    android:text="Fp1"
+                    android:textColor="@color/crimson"
+                    android:textSize="16sp" />
+
+                <Button
+                    android:id="@+id/siteNext"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="&gt;" />
+
+                <Button
+                    android:id="@+id/siteAssign"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Assign" />
+            </LinearLayout>
+
+            <com.abysscore.exgc.CubeView
+                android:id="@+id/cube"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1" />
+        </LinearLayout>
 
         <ScrollView
             android:id="@+id/settings"

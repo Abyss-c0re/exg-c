@@ -425,4 +425,211 @@ Java_com_abysscore_exgc_ExgNative_togglePause(JNIEnv *env, jclass cls)
     (void)cls;
     np_host_toggle_pause();
 }
+
+JNIEXPORT jint JNICALL
+Java_com_abysscore_exgc_ExgNative_cubeView(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    return np_host_cube_view();
+}
+
+JNIEXPORT void JNICALL
+Java_com_abysscore_exgc_ExgNative_setCubeView(JNIEnv *env, jclass cls, jint map)
+{
+    (void)env;
+    (void)cls;
+    np_host_set_cube_view(map);
+}
+
+JNIEXPORT void JNICALL
+Java_com_abysscore_exgc_ExgNative_cubeSpin(JNIEnv *env, jclass cls, jfloat yaw, jfloat pitch)
+{
+    (void)env;
+    (void)cls;
+    np_host_cube_spin(yaw, pitch);
+}
+
+JNIEXPORT void JNICALL
+Java_com_abysscore_exgc_ExgNative_cubeZoom(JNIEnv *env, jclass cls, jint dir)
+{
+    (void)env;
+    (void)cls;
+    np_host_cube_zoom(dir);
+}
+
+JNIEXPORT void JNICALL
+Java_com_abysscore_exgc_ExgNative_cubeFront(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    np_host_cube_front();
+}
+
+JNIEXPORT jint JNICALL
+Java_com_abysscore_exgc_ExgNative_elecSel(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    return np_host_elec_sel();
+}
+
+JNIEXPORT void JNICALL
+Java_com_abysscore_exgc_ExgNative_setElecSel(JNIEnv *env, jclass cls, jint ch)
+{
+    (void)env;
+    (void)cls;
+    np_host_set_elec_sel(ch);
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_abysscore_exgc_ExgNative_elecLabel(JNIEnv *env, jclass cls, jint ch)
+{
+    char buf[16];
+    (void)cls;
+    np_host_elec_label(ch, buf, sizeof(buf));
+    return jstr_from(env, buf);
+}
+
+JNIEXPORT void JNICALL
+Java_com_abysscore_exgc_ExgNative_elecXyz(JNIEnv *env, jclass cls, jint ch, jfloatArray xyz)
+{
+    float x = 0, y = 0, z = 0;
+    jfloat v[3];
+    (void)cls;
+    if (!xyz || (*env)->GetArrayLength(env, xyz) < 3) {
+        return;
+    }
+    np_host_elec_xyz(ch, &x, &y, &z);
+    v[0] = x;
+    v[1] = y;
+    v[2] = z;
+    (*env)->SetFloatArrayRegion(env, xyz, 0, 3, v);
+}
+
+JNIEXPORT jint JNICALL
+Java_com_abysscore_exgc_ExgNative_siteFocus(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    return np_host_site_focus();
+}
+
+JNIEXPORT void JNICALL
+Java_com_abysscore_exgc_ExgNative_siteStep(JNIEnv *env, jclass cls, jint dir)
+{
+    (void)env;
+    (void)cls;
+    np_host_site_step(dir);
+}
+
+JNIEXPORT void JNICALL
+Java_com_abysscore_exgc_ExgNative_assignSite(JNIEnv *env, jclass cls, jint site)
+{
+    (void)env;
+    (void)cls;
+    np_host_assign_site(site);
+}
+
+JNIEXPORT jint JNICALL
+Java_com_abysscore_exgc_ExgNative_siteN(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    return np_host_site_n();
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_abysscore_exgc_ExgNative_siteName(JNIEnv *env, jclass cls, jint i)
+{
+    char buf[8];
+    (void)cls;
+    np_host_site_name(i, buf, sizeof(buf));
+    return jstr_from(env, buf);
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_abysscore_exgc_ExgNative_siteCore(JNIEnv *env, jclass cls, jint i)
+{
+    (void)env;
+    (void)cls;
+    return np_host_site_core(i) ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jint JNICALL
+Java_com_abysscore_exgc_ExgNative_siteCh(JNIEnv *env, jclass cls, jint i)
+{
+    (void)env;
+    (void)cls;
+    return np_host_site_ch(i);
+}
+
+JNIEXPORT void JNICALL
+Java_com_abysscore_exgc_ExgNative_siteFlat(JNIEnv *env, jclass cls, jint i, jfloatArray xy)
+{
+    float fx = 0, fy = 0;
+    jfloat v[2];
+    (void)cls;
+    if (!xy || (*env)->GetArrayLength(env, xy) < 2) {
+        return;
+    }
+    np_host_site_flat(i, &fx, &fy);
+    v[0] = fx;
+    v[1] = fy;
+    (*env)->SetFloatArrayRegion(env, xy, 0, 2, v);
+}
+
+JNIEXPORT void JNICALL
+Java_com_abysscore_exgc_ExgNative_siteXyz(JNIEnv *env, jclass cls, jint i, jfloatArray xyz)
+{
+    float x = 0, y = 0, z = 0;
+    jfloat v[3];
+    (void)cls;
+    if (!xyz || (*env)->GetArrayLength(env, xyz) < 3) {
+        return;
+    }
+    np_host_site_xyz(i, &x, &y, &z);
+    v[0] = x;
+    v[1] = y;
+    v[2] = z;
+    (*env)->SetFloatArrayRegion(env, xyz, 0, 3, v);
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_abysscore_exgc_ExgNative_siteFocusLabel(JNIEnv *env, jclass cls)
+{
+    char name[8], buf[48];
+    int x = 0, y = 0, z = 0;
+    (void)cls;
+    np_host_site_name(np_host_site_focus(), name, sizeof(name));
+    np_host_site_ijk(np_host_site_focus(), &x, &y, &z);
+    snprintf(buf, sizeof(buf), "%s  %d,%d,%d", name, x, y, z);
+    return jstr_from(env, buf);
+}
+
+JNIEXPORT jint JNICALL
+Java_com_abysscore_exgc_ExgNative_vizCells(JNIEnv *env, jclass cls, jfloatArray xyz,
+                                           jfloatArray size, jintArray rgba)
+{
+    float xyzb[40 * 3], sz[40];
+    int col[40], n, cap;
+    (void)cls;
+    if (!xyz || !size || !rgba) {
+        return 0;
+    }
+    cap = (*env)->GetArrayLength(env, size);
+    if (cap > 40) {
+        cap = 40;
+    }
+    if ((*env)->GetArrayLength(env, xyz) < cap * 3 || (*env)->GetArrayLength(env, rgba) < cap) {
+        return 0;
+    }
+    n = np_host_viz_cells(xyzb, sz, col, cap);
+    if (n > 0) {
+        (*env)->SetFloatArrayRegion(env, xyz, 0, n * 3, xyzb);
+        (*env)->SetFloatArrayRegion(env, size, 0, n, sz);
+        (*env)->SetIntArrayRegion(env, rgba, 0, n, col);
+    }
+    return n;
+}
 #endif

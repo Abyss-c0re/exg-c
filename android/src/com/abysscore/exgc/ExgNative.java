@@ -52,4 +52,25 @@ public final class ExgNative {
     public static native int notch();
     public static native int hp();
     public static native void togglePause();
+
+    public static native int cubeView();
+    public static native void setCubeView(int map);
+    public static native void cubeSpin(float yaw, float pitch);
+    public static native void cubeZoom(int dir);
+    public static native void cubeFront();
+    public static native int elecSel();
+    public static native void setElecSel(int ch);
+    public static native String elecLabel(int ch);
+    public static native void elecXyz(int ch, float[] xyz);
+    public static native int siteFocus();
+    public static native void siteStep(int dir);
+    public static native void assignSite(int site);
+    public static native int siteN();
+    public static native String siteName(int i);
+    public static native boolean siteCore(int i);
+    public static native int siteCh(int i);
+    public static native void siteFlat(int i, float[] xy);
+    public static native void siteXyz(int i, float[] xyz);
+    public static native String siteFocusLabel();
+    public static native int vizCells(float[] xyz, float[] size, int[] rgba);
 }

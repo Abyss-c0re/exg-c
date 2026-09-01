@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.abysscore.exgc"
-    android:versionCode="4"
-    android:versionName="2.0-ui">
+    android:versionCode="5"
+    android:versionName="2.1-cube">
 
     <uses-sdk android:minSdkVersion="28" android:targetSdkVersion="34" />
     <uses-feature android:name="android.hardware.usb.host" android:required="false" />
