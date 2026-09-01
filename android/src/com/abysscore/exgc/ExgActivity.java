@@ -359,6 +359,7 @@ public class ExgActivity extends Activity {
             cubeChRow.addView(b, lp);
         }
         refreshCubeChrome();
+        applyUiScale();
     }
 
     private void refreshCubeChrome() {
@@ -458,11 +459,45 @@ public class ExgActivity extends Activity {
 
     private void applyUiScale() {
         float f = ExgNative.uiScale() / 10f;
-        status.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f * f);
-        imuLine.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f * f);
-        idLine.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f * f);
+        View root = findViewById(android.R.id.content);
+        if (root != null) {
+            scaleTree(root, f);
+        }
         traces.setLabelScale(f);
         cube.setLabelScale(f);
+    }
+
+    private void scaleTree(View v, float f) {
+        if (v instanceof android.view.ViewGroup) {
+            android.view.ViewGroup vg = (android.view.ViewGroup) v;
+            for (int i = 0; i < vg.getChildCount(); i++) {
+                scaleTree(vg.getChildAt(i), f);
+            }
+        }
+        if (!(v instanceof TextView)) {
+            return;
+        }
+        TextView tv = (TextView) v;
+        Float base = (Float) tv.getTag(R.id.base_sp);
+        if (base == null) {
+            base = tv.getTextSize() / getResources().getDisplayMetrics().scaledDensity;
+            tv.setTag(R.id.base_sp, base);
+        }
+        tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, base * f);
+        if (tv instanceof Button) {
+            Integer mh = (Integer) tv.getTag(R.id.base_min_h);
+            if (mh == null) {
+                int h = tv.getMinHeight();
+                if (h < 8) {
+                    h = (int) (48f * getResources().getDisplayMetrics().density);
+                }
+                mh = h;
+                tv.setTag(R.id.base_min_h, mh);
+            }
+            int nh = Math.max(8, (int) (mh * f));
+            tv.setMinHeight(nh);
+            tv.setMinimumHeight(nh);
+        }
     }
 
     @Override
@@ -548,6 +583,7 @@ public class ExgActivity extends Activity {
             });
             profChips.addView(b);
         }
+        applyUiScale();
     }
 
     private void buildChannels() {
@@ -583,6 +619,7 @@ public class ExgActivity extends Activity {
             chGrid.addView(row);
         }
         refreshChannels();
+        applyUiScale();
     }
 
     private void refreshChannels() {
@@ -608,6 +645,7 @@ public class ExgActivity extends Activity {
             empty.setTextColor(0xFF8B93A0);
             empty.setPadding(8, 16, 8, 8);
             learnChips.addView(empty);
+            applyUiScale();
             return;
         }
         for (int i = 0; i < n; i++) {
@@ -622,6 +660,7 @@ public class ExgActivity extends Activity {
             learnChips.addView(b);
         }
         refreshLearnChips();
+        applyUiScale();
     }
 
     private void refreshLearnChips() {
@@ -667,7 +706,7 @@ public class ExgActivity extends Activity {
             lab.setLayoutParams(new LinearLayout.LayoutParams(0,
                     LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
             lab.setTextColor(0xFFE8EAF0);
-            lab.setTextSize(18f);
+            lab.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f);
             lab.setPadding(8, 20, 8, 20);
             lab.setOnClickListener(v -> {
                 ExgNative.learnSelect(idx);
@@ -687,6 +726,7 @@ public class ExgActivity extends Activity {
             poseList.addView(row);
         }
         refreshPoseList();
+        applyUiScale();
     }
 
     private void refreshPoseList() {
