@@ -2933,18 +2933,37 @@ static void draw_fft(int x, int y, int w, int h)
         if (bar_w < 1) {
             bar_w = 1;
         }
-        for (i = 1; i < bins; i++) {
-            int bh = (int)(fft_hold[i] / peak * (plot_h - 2));
-            int bx = x + (i - 1) * (w - 1) / (bins - 1);
-            if (bh < 1) {
-                bh = 1;
+        {
+            int mark_hz = g.notch_hz == 60 ? 60 : 50;
+            int sps = g.sps > 1.f ? (int)(g.sps + 0.5f) : NP_DEFAULT_SPS;
+            int mark = (mark_hz * FFT_STRIP_N) / sps;
+            if (mark < 1) {
+                mark = 1;
             }
-            fill(bx, plot_y + plot_h - bh, bar_w, bh, 70, 170, 230);
+            if (mark > bins - 1) {
+                mark = bins - 1;
+            }
+            for (i = 1; i < bins; i++) {
+                int bh = (int)(fft_hold[i] / peak * (plot_h - 2));
+                int bx = x + (i - 1) * (w - 1) / (bins - 1);
+                if (bh < 1) {
+                    bh = 1;
+                }
+                if (i == mark) {
+                    fill(bx, plot_y, bar_w < 2 ? 2 : bar_w, plot_h, 80, 16, 18);
+                    fill(bx, plot_y + plot_h - bh, bar_w, bh, 224, 80, 80);
+                } else {
+                    fill(bx, plot_y + plot_h - bh, bar_w, bh, 70, 170, 230);
+                }
+            }
         }
         {
             char hz[24];
+            int mark_hz = g.notch_hz == 60 ? 60 : 50;
             snprintf(hz, sizeof(hz), "%d Hz", fft_peak_hz);
             text(x + w - 52, y + 4, hz, 180, 200, 210, 1);
+            snprintf(hz, sizeof(hz), "%d Hz", mark_hz);
+            text(x + w / 2 - 16, y + 4, hz, 224, 80, 80, 1);
         }
     }
 }
@@ -3115,10 +3134,48 @@ static void cube_assign_focus(void)
     }
 }
 
+static float viz_auto_yaw;
+static uint32_t viz_t0, viz_last;
+static uint8_t viz_prev[NP_CUBE3_N];
+static float viz_imp[NP_CUBE3_N];
+
+static float viz_t(void)
+{
+    if (!viz_t0) {
+        viz_t0 = SDL_GetTicks();
+    }
+    return (SDL_GetTicks() - viz_t0) / 1000.f;
+}
+
+static void viz_tick(void)
+{
+    uint32_t now = SDL_GetTicks();
+    float dt = viz_last ? (now - viz_last) / 1000.f : 0.016f;
+    if (dt > 0.08f) {
+        dt = 0.016f;
+    }
+    viz_last = now;
+    if (!viz_t0) {
+        viz_t0 = now;
+    }
+    if (s_cube_drag != 1) {
+        viz_auto_yaw += 0.148f * dt;
+    }
+}
+
 static void cam_pt(float x, float y, float z, int *sx, int *sy, float *depth)
 {
-    float vx, vy, vz;
-    np_view_apply(g.cube_yaw, g.cube_pitch, x, y, z, &vx, &vy, &vz);
+    float vx, vy, vz, yaw = g.cube_yaw, yy = y;
+    if (g.cube_view == 0) {
+        yaw += viz_auto_yaw;
+        yy += 0.06f * sinf(viz_t() * 1.4f);
+    }
+    np_view_apply(yaw, g.cube_pitch, x, yy, z, &vx, &vy, &vz);
+    if (g.cube_view == 0) {
+        float f = 3.6f / (3.6f + vz + 2.2f);
+        vx *= f;
+        vy *= f;
+    }
     if (sx) {
         *sx = s_cube_ox + (int)(vx * s_cube_k);
     }
@@ -3127,6 +3184,18 @@ static void cam_pt(float x, float y, float z, int *sx, int *sy, float *depth)
     }
     if (depth) {
         *depth = vz;
+    }
+}
+
+static void fill_disk(int cx, int cy, int r, int cr, int cg, int cb)
+{
+    int y;
+    if (r < 1) {
+        r = 1;
+    }
+    for (y = -r; y <= r; y++) {
+        int xw = (int)sqrtf((float)(r * r - y * y));
+        fill(cx - xw, cy + y, xw * 2 + 1, 1, cr, cg, cb);
     }
 }
 
@@ -3336,12 +3405,102 @@ static void draw_cube_wire(void)
     const int e[12][2] = {{0, 1}, {1, 3}, {3, 2}, {2, 0}, {4, 5}, {5, 7},
                           {7, 6}, {6, 4}, {0, 4}, {1, 5}, {2, 6}, {3, 7}};
     int i;
-    SDL_SetRenderDrawColor(R, 90, 18, 28, 255);
+    if (g.cube_view == 0) {
+        SDL_SetRenderDrawColor(R, 140, 5, 13, 200);
+    } else {
+        SDL_SetRenderDrawColor(R, 90, 18, 28, 255);
+    }
     for (i = 0; i < 12; i++) {
         int x0, y0, x1, y1;
         cam_pt(p[e[i][0]][0], p[e[i][0]][1], p[e[i][0]][2], &x0, &y0, NULL);
         cam_pt(p[e[i][1]][0], p[e[i][1]][1], p[e[i][1]][2], &x1, &y1, NULL);
         SDL_RenderDrawLine(R, x0, y0, x1, y1);
+    }
+}
+
+struct viz_dot {
+    float depth;
+    int sx, sy, r, on, imp;
+};
+
+static int viz_dot_farther(const void *a, const void *b)
+{
+    const struct viz_dot *da = a, *db = b;
+    if (da->depth < db->depth) {
+        return -1;
+    }
+    if (da->depth > db->depth) {
+        return 1;
+    }
+    return 0;
+}
+
+static void draw_cube_lattice(void)
+{
+    struct viz_dot dots[NP_CUBE3_N];
+    int ix, iy, iz, n = 0, i, on_n = 0;
+    float pulse = 0.5f + 0.5f * sinf(viz_t() * 3.2f);
+
+    for (i = 0; i < NP_CUBE3_N; i++) {
+        int on = g.smx.cube[i] ? 1 : 0;
+        if (on) {
+            on_n++;
+        }
+        if (on && !viz_prev[i]) {
+            viz_imp[i] = 1.f;
+        } else {
+            viz_imp[i] *= 0.88f;
+            if (viz_imp[i] < 0.02f) {
+                viz_imp[i] = 0.f;
+            }
+        }
+        viz_prev[i] = (uint8_t)on;
+    }
+    for (iz = 0; iz < 8; iz++) {
+        for (iy = 0; iy < 8; iy++) {
+            for (ix = 0; ix < 8; ix++) {
+                int idx = np_cube_idx(ix, iy, iz);
+                int shell = np_cube_shell(ix, iy, iz);
+                int on = g.smx.cube[idx] ? 1 : 0;
+                float wx, wy, wz, depth = 0.f;
+                int sx, sy, edge;
+                if (!shell && !on && viz_imp[idx] < 0.08f) {
+                    continue;
+                }
+                np_ijk_world(ix, iy, iz, &wx, &wy, &wz);
+                cam_pt(wx, wy, wz, &sx, &sy, &depth);
+                edge = (ix == 0 || ix == 7) + (iy == 0 || iy == 7) + (iz == 0 || iz == 7);
+                dots[n].depth = depth;
+                dots[n].sx = sx;
+                dots[n].sy = sy;
+                dots[n].on = on || viz_imp[idx] > 0.08f;
+                dots[n].imp = viz_imp[idx] > 0.08f;
+                if (dots[n].on) {
+                    dots[n].r = 3 + (int)(g.cube_zoom * 3.f) + (dots[n].imp ? 2 : 0);
+                } else {
+                    dots[n].r = (edge >= 2 ? 2 : 1) + (pulse > 0.7f && edge >= 2 ? 1 : 0);
+                }
+                n++;
+            }
+        }
+    }
+    if (n > 1) {
+        qsort(dots, (size_t)n, sizeof(dots[0]), viz_dot_farther);
+    }
+    (void)on_n;
+    for (i = 0; i < n; i++) {
+        if (dots[i].on) {
+            fill_disk(dots[i].sx, dots[i].sy, dots[i].r, 255, 20, 26);
+            if (dots[i].imp) {
+                float ang = viz_t() * 40.f + (float)i;
+                int jx = (int)(sinf(ang) * 10.f);
+                int jy = (int)(cosf(ang * 1.3f) * 10.f);
+                SDL_SetRenderDrawColor(R, 255, 13, 20, 255);
+                SDL_RenderDrawLine(R, dots[i].sx, dots[i].sy, dots[i].sx + jx, dots[i].sy + jy);
+            }
+        } else {
+            fill_disk(dots[i].sx, dots[i].sy, dots[i].r, 180, 12, 16);
+        }
     }
 }
 
@@ -3353,7 +3512,7 @@ static void draw_cube(int x, int y, int w, int h)
 
     int map_h = (g.cube_view == 1 && h > 300) ? 148 : (g.cube_view == 1 ? 118 : 0);
     int sot_h = 18;
-    fill(x, y, w, h, 4, 2, 6);
+    fill(x, y, w, h, g.cube_view == 0 ? 6 : 4, 0, g.cube_view == 0 ? 1 : 6);
     nid = np_smx_ch_ids(&g.smx, ids);
     cube_zoom_clamp();
     if (g.site_focus < 0 || g.site_focus >= np_1010_count()) {
@@ -3373,33 +3532,17 @@ static void draw_cube(int x, int y, int w, int h)
     if (s_cube_k < 50.f) {
         s_cube_k = 50.f;
     }
-    /* Sample SoT only — no per-refresh pulse. Glow is last SMX second. */
-    draw_cube_wire();
-    /* Same 8^3 sites as map. Viz paints only ON cells (sample bits). */
-    n = np_smx_head_cubes(&g.smx, g.elec, g.chrgb, cells, NP_CUBE_BUDGET);
-    if (n > 1) {
-        qsort(cells, (size_t)n, sizeof(cells[0]), cube_farther);
-    }
-    for (i = 0; i < n; i++) {
-        if (g.cube_view == 0 && cells[i].a < 120) {
-            continue;
-        }
-        draw_iso_cube(&cells[i]);
-    }
-
     if (g.cube_view == 0) {
-        struct np_cube core;
-        core.x = core.y = core.z = 0.f;
-        core.s = 0.28f;
-        core.r = NP_CUBE_CR;
-        core.g = NP_CUBE_CG;
-        core.b = NP_CUBE_CB;
-        core.a = 220;
-        core.role = 1;
-        draw_iso_cube(&core);
-        snprintf(lab, sizeof(lab), "viz  seq %u  %s  same sites as map", g.smx.seq,
-                 np_algo_name(g.algo));
-        text(x + 8, y + 6, lab, NP_CUBE_CR, NP_CUBE_CG, NP_CUBE_CB, 1);
+        viz_tick();
+    }
+    draw_cube_wire();
+    if (g.cube_view == 0) {
+        int csx, csy;
+        draw_cube_lattice();
+        cam_pt(0.f, 0.f, 0.f, &csx, &csy, NULL);
+        fill_disk(csx, csy, 4 + (int)(g.cube_zoom * 3.f), 255, 20, 26);
+        snprintf(lab, sizeof(lab), "viz  seq %u  %s  drag", g.smx.seq, np_algo_name(g.algo));
+        text(x + 8, y + 6, lab, 255, 20, 26, 1);
         s_map_x = s_map_y = s_map_w = s_map_h = 0;
         for (i = 0; i < NP_1010_N; i++) {
             s_node_sx[i] = s_node_sy[i] = -20000;
@@ -3418,6 +3561,15 @@ static void draw_cube(int x, int y, int w, int h)
                  g.chrgb[c][2], 1);
         }
         goto cube_sot;
+    }
+
+    /* map — same 10-10 cells as before. Viz is the lattice above. */
+    n = np_smx_head_cubes(&g.smx, g.elec, g.chrgb, cells, NP_CUBE_BUDGET);
+    if (n > 1) {
+        qsort(cells, (size_t)n, sizeof(cells[0]), cube_farther);
+    }
+    for (i = 0; i < n; i++) {
+        draw_iso_cube(&cells[i]);
     }
 
     /* Highlight the focused 10-10 cell — SoT is the name, not the blob. */
@@ -3603,14 +3755,14 @@ static int draw_channels(int x, int y)
         int row = c % 4;
         int bx = x + 10 + col * 145;
         int by = y + row * rh;
-        snprintf(line, sizeof(line), "%d", c + 1);
+        snprintf(line, sizeof(line), "%s", g.elec[c].name[0] ? g.elec[c].name : "?");
         text(bx, by + (bh - 7) / 2, line, g.chrgb[c][0], g.chrgb[c][1], g.chrgb[c][2], 1);
-        btn(bx + 14, by, 36, bh, g.active[c] ? "ON" : "off", g.active[c], 6, c,
+        btn(bx + 26, by, 36, bh, g.active[c] ? "ON" : "off", g.active[c], 6, c,
             g.active[c] ? 28 : 40, g.active[c] ? 90 : 42, g.active[c] ? 60 : 50);
-        btn(bx + 52, by, 36, bh, g.rld[c] ? "RLD" : "rld", g.rld[c], 7, c,
+        btn(bx + 64, by, 36, bh, g.rld[c] ? "RLD" : "rld", g.rld[c], 7, c,
             g.rld[c] ? 50 : 40, g.rld[c] ? 70 : 42, g.rld[c] ? 110 : 50);
         snprintf(gn, sizeof(gn), "g%d", g.gain[c]);
-        btn(bx + 90, by, 40, bh, gn, 1, 8, c, 40, 42, 52);
+        btn(bx + 102, by, 40, bh, gn, 1, 8, c, 40, 42, 52);
     }
     return y + 4 * rh + 8;
 }
@@ -3878,7 +4030,7 @@ static void draw_side(int x)
             int col = c / 4, row = c % 4;
             int bx = x + 12 + col * 140;
             int by = y + row * rh;
-            snprintf(b, sizeof(b), "ch%d", c + 1);
+            snprintf(b, sizeof(b), "%s", g.elec[c].name[0] ? g.elec[c].name : "?");
             btn(bx, by, 128, bh, b, 1, 34, c, g.chrgb[c][0] / 3, g.chrgb[c][1] / 3,
                 g.chrgb[c][2] / 3);
         }
@@ -3973,7 +4125,8 @@ static void draw_learn(int x, int y, int w, int h)
                      hit ? 42 : 32);
                 text(bx + 4, y + 88, g.learn.s[i].name, 230, 232, 236, 1);
                 pct = (int)(g.learn.score[i] * 100.f);
-                snprintf(lab, sizeof(lab), "%d%%", pct);
+                snprintf(lab, sizeof(lab), "%d%%  c%d", pct,
+                         (int)(g.learn.score_cube[i] * 100.f));
                 text(bx + 4, y + 100, lab, hit ? 80 : 160, hit ? 230 : 180, hit ? 140 : 150, 1);
                 bar = (int)(g.learn.score[i] * (bw - 14));
                 if (bar < 2) {
@@ -4071,7 +4224,7 @@ static void draw_learn(int x, int y, int w, int h)
                  hit ? 42 : 32);
             text(bx + 4, y + 31, g.learn.s[i].name, 230, 232, 236, 1);
             pct = (int)(g.learn.score[i] * 100.f);
-            snprintf(lab, sizeof(lab), "%d%%", pct);
+            snprintf(lab, sizeof(lab), "%d%%  c%d", pct, (int)(g.learn.score_cube[i] * 100.f));
             text(bx + 4, y + 42, lab, hit ? 80 : 160, hit ? 230 : 180, hit ? 140 : 150, 1);
             bar = (int)(g.learn.score[i] * (bw - 14));
             if (bar < 2) {
@@ -4426,7 +4579,7 @@ static void click(int x, int y)
         case 55:
             g.cube_view = 0;
             cfg_save();
-            set_status(1, "viz  crimson sample cube");
+            set_status(1, "viz  crimson lattice");
             break;
         case 56:
             g.cube_view = 1;
@@ -4560,6 +4713,13 @@ static void cube_remember(int w, int h)
 static void present_cube(int x, int y, int w, int h)
 {
     if (w < 8 || h < 8) {
+        return;
+    }
+    /* Viz levitates — draw live. Map stays a baked texture. */
+    if (g.cube_view == 0) {
+        s_cube_px = 0;
+        s_cube_py = 0;
+        draw_cube(x, y, w, h);
         return;
     }
     if (cube_need_bake(w, h)) {
@@ -4766,7 +4926,7 @@ static int run_gui(void)
                     g.cube_view = g.cube_view ? 0 : 1;
                     cfg_save();
                     set_status(1, g.cube_view ? "map  assign 10-10 sites"
-                                              : "viz  crimson sample cube");
+                                              : "viz  crimson lattice");
                 } else if (k == SDLK_UP || k == SDLK_PAGEUP) {
                     g.side_scroll -= 48;
                     side_clamp();
@@ -5762,7 +5922,7 @@ void np_host_set_cube_view(int map)
 {
     g.cube_view = map ? 1 : 0;
     cfg_save();
-    set_status(1, g.cube_view ? "map  assign 10-10 sites" : "viz  crimson sample cube");
+    set_status(1, g.cube_view ? "map  assign 10-10 sites" : "viz  crimson lattice");
 }
 void np_host_cube_spin(float dyaw, float dpitch)
 {
