@@ -19,6 +19,8 @@ unsigned int np_host_frames(void);
 int np_host_copy_wave(int ch, float *dst, int max);
 int np_host_scale_uv(void);
 void np_host_cycle_scale(void);
+int np_host_window_s(void);
+void np_host_cycle_window(void);
 int np_host_paused(void);
 void np_host_toggle_pause(void);
 

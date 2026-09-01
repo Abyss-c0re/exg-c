@@ -4782,10 +4782,18 @@ unsigned int np_host_frames(void)
 }
 int np_host_copy_wave(int ch, float *dst, int max)
 {
+    uint32_t want;
     if (ch < 0 || ch >= NP_NCHAN || !dst || max < 8) {
         return 0;
     }
-    return (int)view_copy(ch, dst, (uint32_t)max);
+    want = (uint32_t)(g.window_s * design_sps());
+    if (want < 32) {
+        want = 32;
+    }
+    if (want > (uint32_t)max) {
+        want = (uint32_t)max;
+    }
+    return (int)view_copy(ch, dst, want);
 }
 int np_host_scale_uv(void)
 {
@@ -4802,6 +4810,23 @@ void np_host_cycle_scale(void)
         }
     }
     g.scale_uv = 200;
+}
+int np_host_window_s(void)
+{
+    return g.window_s < 1 ? 2 : g.window_s;
+}
+void np_host_cycle_window(void)
+{
+    int k;
+    for (k = 0; k < NWINS; k++) {
+        if (WIN_S[k] == g.window_s) {
+            g.window_s = WIN_S[(k + 1) % NWINS];
+            cfg_save();
+            return;
+        }
+    }
+    g.window_s = 2;
+    cfg_save();
 }
 int np_host_paused(void)
 {

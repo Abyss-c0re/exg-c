@@ -9,7 +9,8 @@ import android.view.View;
 
 public class TraceView extends View {
     private static final int NCHAN = 8;
-    private static final int NSAMP = 256;
+    /* 8 s at 125 SPS, same cap as the desktop window cycle. */
+    private static final int NSAMP = 1024;
     private final float[][] wave = new float[NCHAN][NSAMP];
     private final int[] got = new int[NCHAN];
     private final int[] col = new int[NCHAN];

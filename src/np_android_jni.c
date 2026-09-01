@@ -150,6 +150,22 @@ Java_com_abysscore_exgc_ExgNative_cycleScale(JNIEnv *env, jclass cls)
     np_host_cycle_scale();
 }
 
+JNIEXPORT jint JNICALL
+Java_com_abysscore_exgc_ExgNative_windowS(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    return np_host_window_s();
+}
+
+JNIEXPORT void JNICALL
+Java_com_abysscore_exgc_ExgNative_cycleWindow(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    np_host_cycle_window();
+}
+
 JNIEXPORT void JNICALL
 Java_com_abysscore_exgc_ExgNative_setActive(JNIEnv *env, jclass cls, jint ch, jboolean on)
 {

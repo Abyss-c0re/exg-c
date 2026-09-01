@@ -20,6 +20,8 @@ public final class ExgNative {
     public static native int copyWave(int ch, float[] dst);
     public static native int scaleUv();
     public static native void cycleScale();
+    public static native int windowS();
+    public static native void cycleWindow();
     public static native void setActive(int ch, boolean on);
     public static native void setRld(int ch, boolean on);
     public static native void cycleGain(int ch);

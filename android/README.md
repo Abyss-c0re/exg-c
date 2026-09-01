@@ -46,6 +46,9 @@ USB again, tap **Connect** once.
 **Export…** / **Import…** use the system document picker so you can put a
 profile on Downloads, Drive, or a USB stick — still no storage permission.
 
+**win** cycles the plot window (1 / 2 / 4 / 8 s), same as the Linux
+Settings **win Ns** button. Scale, notch, and high-pass sit next to it.
+
 Names: letters, digits, `-`, `_`.
 
 ## Storage

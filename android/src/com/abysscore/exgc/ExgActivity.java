@@ -41,6 +41,7 @@ public class ExgActivity extends Activity {
     private Button notch;
     private Button hp;
     private Button scale;
+    private Button win;
     private EditText profName;
     private EditText learnName;
     private LinearLayout chGrid;
@@ -99,6 +100,7 @@ public class ExgActivity extends Activity {
         notch = findViewById(R.id.notch);
         hp = findViewById(R.id.hp);
         scale = findViewById(R.id.scale);
+        win = findViewById(R.id.win);
         profName = findViewById(R.id.profName);
         learnName = findViewById(R.id.learnName);
         chGrid = findViewById(R.id.chGrid);
@@ -213,6 +215,10 @@ public class ExgActivity extends Activity {
             ExgNative.cycleScale();
             refreshChrome();
         });
+        win.setOnClickListener(v -> {
+            ExgNative.cycleWindow();
+            refreshChrome();
+        });
         buildChannels();
         profName.setText(ExgNative.getProfile());
         refreshProfiles();
@@ -301,6 +307,7 @@ public class ExgActivity extends Activity {
         notch.setText(nh < 0 ? "notch AUTO" : (nh == 0 ? "notch off" : "notch " + nh));
         hp.setText(ExgNative.hp() == 0 ? "hp off" : "hp " + ExgNative.hp() + "Hz");
         scale.setText("±" + ExgNative.scaleUv() + " µV");
+        win.setText("win " + ExgNative.windowS() + "s");
     }
 
     @Override

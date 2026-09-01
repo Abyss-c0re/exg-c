@@ -273,10 +273,35 @@
                     android:textColor="@color/muted"
                     android:visibility="gone" />
 
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:paddingTop="12dp"
+                    android:text="View — time window is how much of the plot you see"
+                    android:textColor="@color/muted" />
+
                 <LinearLayout
                     android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:paddingTop="12dp">
+                    android:layout_height="wrap_content">
+
+                    <Button
+                        android:id="@+id/win"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="win 2s" />
+
+                    <Button
+                        android:id="@+id/scale"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="scale" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content">
 
                     <Button
                         android:id="@+id/notch"
@@ -291,13 +316,6 @@
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:text="hp" />
-
-                    <Button
-                        android:id="@+id/scale"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="scale" />
                 </LinearLayout>
 
                 <LinearLayout
