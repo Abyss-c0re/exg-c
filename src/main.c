@@ -129,6 +129,7 @@ struct np_app {
     int cube_ok;
     float cube_yaw, cube_pitch;
     float cube_zoom;
+    int cube_view; /* 0 viz (crimson lattice)  1 map (10-10 assign) */
     int site_focus; /* 10-10 index */
     int virt_focus; /* IMU / plugin slot */
     struct np_elec elec[NP_NCHAN];
@@ -514,6 +515,7 @@ static int cfg_write(const char *path)
     fprintf(f, "yaw=%.4f\n", (double)g.cube_yaw);
     fprintf(f, "pitch=%.4f\n", (double)g.cube_pitch);
     fprintf(f, "zoom=%.2f\n", (double)g.cube_zoom);
+    fprintf(f, "view=%d\n", g.cube_view ? 1 : 0);
     for (i = 0; i < NP_NCHAN; i++) {
         if (g.elec[i].name[0]) {
             fprintf(f, "elec%d=%s\n", i + 1, g.elec[i].name);
@@ -591,6 +593,8 @@ static int cfg_read(const char *path)
             g.cube_yaw = fa;
         } else if (sscanf(line, "zoom=%f", &fa) == 1 && fa >= 0.7f && fa <= 2.8f) {
             g.cube_zoom = fa;
+        } else if (sscanf(line, "view=%d", &v) == 1 && (v == 0 || v == 1)) {
+            g.cube_view = v;
         } else if (sscanf(line, "pitch=%f", &fa) == 1) {
             g.cube_pitch = fa;
         } else if (sscanf(line, "elec%d=%f,%f", &v, &fa, &fb) == 3 && v >= 1 && v <= NP_NCHAN) {
@@ -910,7 +914,7 @@ static uint32_t view_copy(int ch, float *dst, uint32_t n)
     now = SDL_GetTicks();
     if (clean_t == 0 || now - clean_t >= 80 || tot != clean_seen) {
         for (c = 0; c < NP_NCHAN; c++) {
-            uint32_t m = live_copy(c, clean_ch[c], n > 512 ? 512 : n);
+            uint32_t m = live_copy(c, clean_ch[c], n);
             if (m >= (uint32_t)NP_FFT_N) {
                 np_plate_destroy(clean_ch[c], (int)m, g.noise_psd);
             }
@@ -2188,7 +2192,7 @@ static void draw_waves(int x, int y, int w, int h)
         float buf[NP_RING];
         static float snap[NP_NCHAN][NP_RING];
         static uint32_t snapn[NP_NCHAN];
-        uint32_t want = (uint32_t)(g.window_s * (g.sps > 1.f ? g.sps : NP_DEFAULT_SPS));
+        uint32_t want = (uint32_t)(g.window_s * design_sps());
         int y0, y1b, row_h, mid, q, gated = 0;
         uint32_t i;
         uint32_t n = 0;
@@ -2340,8 +2344,9 @@ static void draw_waves(int x, int y, int w, int h)
                         peak = a;
                     }
                 }
-                if (peak > 2000.f) {
-                    peak = 2000.f;
+                /* Do not cap at 2 mV — a 4 s AUTO window is often mV EMG. */
+                if (peak > 200000.f) {
+                    peak = 200000.f;
                 }
             }
             dim = (!g.og && (q == Q_OPEN || q == Q_LEADOFF));
@@ -2541,8 +2546,9 @@ static SDL_Texture *cube_tex;
 static int cube_tw, cube_th;
 static uint32_t cube_baked_seq;
 static float cube_baked_yaw, cube_baked_pitch, cube_baked_zoom;
-static int cube_baked_site, cube_baked_virt, cube_baked_sel;
+static int cube_baked_site, cube_baked_virt, cube_baked_sel, cube_baked_view;
 static int cube_baked_sites[NP_NCHAN];
+static uint32_t cube_bake_t;
 static void present_cube(int x, int y, int w, int h);
 static int s_elec_sx[NP_NCHAN], s_elec_sy[NP_NCHAN];
 static int s_node_sx[NP_1010_N], s_node_sy[NP_1010_N];
@@ -2886,9 +2892,9 @@ static void draw_cube(int x, int y, int w, int h)
     int n, i, c, ids[NP_NCHAN], nid;
     char lab[96];
 
-    int map_h = h > 300 ? 148 : 118;
+    int map_h = (g.cube_view == 1 && h > 300) ? 148 : (g.cube_view == 1 ? 118 : 0);
     int sot_h = 18;
-    fill(x, y, w, h, 6, 4, 8);
+    fill(x, y, w, h, 4, 2, 6);
     nid = np_smx_ch_ids(&g.smx, ids);
     cube_zoom_clamp();
     if (g.site_focus < 0 || g.site_focus >= np_1010_count()) {
@@ -2910,12 +2916,49 @@ static void draw_cube(int x, int y, int w, int h)
     }
     /* Sample SoT only — no per-refresh pulse. Glow is last SMX second. */
     draw_cube_wire();
+    /* Same 8^3 sites as map. Viz paints only ON cells (sample bits). */
     n = np_smx_head_cubes(&g.smx, g.elec, g.chrgb, cells, NP_CUBE_BUDGET);
     if (n > 1) {
         qsort(cells, (size_t)n, sizeof(cells[0]), cube_farther);
     }
     for (i = 0; i < n; i++) {
+        if (g.cube_view == 0 && cells[i].a < 120) {
+            continue;
+        }
         draw_iso_cube(&cells[i]);
+    }
+
+    if (g.cube_view == 0) {
+        struct np_cube core;
+        core.x = core.y = core.z = 0.f;
+        core.s = 0.28f;
+        core.r = NP_CUBE_CR;
+        core.g = NP_CUBE_CG;
+        core.b = NP_CUBE_CB;
+        core.a = 220;
+        core.role = 1;
+        draw_iso_cube(&core);
+        snprintf(lab, sizeof(lab), "viz  seq %u  %s  same sites as map", g.smx.seq,
+                 np_algo_name(g.algo));
+        text(x + 8, y + 6, lab, NP_CUBE_CR, NP_CUBE_CG, NP_CUBE_CB, 1);
+        s_map_x = s_map_y = s_map_w = s_map_h = 0;
+        for (i = 0; i < NP_1010_N; i++) {
+            s_node_sx[i] = s_node_sy[i] = -20000;
+        }
+        for (c = 0; c < NP_NCHAN; c++) {
+            float cx, cy, cz;
+            int sx, sy;
+            char nlab[12];
+            np_elec_cube_xyz(&g.elec[c], &cx, &cy, &cz);
+            cam_pt(cx, cy, cz, &sx, &sy, NULL);
+            s_elec_sx[c] = sx;
+            s_elec_sy[c] = sy;
+            snprintf(nlab, sizeof(nlab), "%d %s", c + 1,
+                     g.elec[c].name[0] ? g.elec[c].name : "?");
+            text(sx - (int)strlen(nlab) * 3, sy - 18, nlab, g.chrgb[c][0], g.chrgb[c][1],
+                 g.chrgb[c][2], 1);
+        }
+        goto cube_sot;
     }
 
     /* Highlight the focused 10-10 cell — SoT is the name, not the blob. */
@@ -3039,6 +3082,7 @@ static void draw_cube(int x, int y, int w, int h)
         }
     }
 
+cube_sot:
     /* Current second — SoT strip. */
     {
         int cell = (w - 16) / 8, gy = y + h - 18;
@@ -3060,12 +3104,19 @@ static void draw_cube(int x, int y, int w, int h)
                     }
                 }
             }
-            fill(x + 8 + c * cell, gy + 5, cell - 3, 10,
-                 on ? g.chrgb[c][0] : g.chrgb[c][0] / 4,
-                 on ? g.chrgb[c][1] : g.chrgb[c][1] / 4,
-                 on ? g.chrgb[c][2] : g.chrgb[c][2] / 4);
-            text(x + 8 + c * cell, gy + 6, g.elec[c].name[0] ? g.elec[c].name : "?",
-                 on ? 255 : 160, on ? 240 : 90, on ? 240 : 100, 1);
+            if (g.cube_view == 0) {
+                fill(x + 8 + c * cell, gy + 5, cell - 3, 10,
+                     on ? NP_CUBE_CR : 40, on ? NP_CUBE_CG : 8, on ? NP_CUBE_CB : 14);
+                text(x + 8 + c * cell, gy + 6, g.elec[c].name[0] ? g.elec[c].name : "?",
+                     on ? 255 : 120, on ? 80 : 40, on ? 100 : 50, 1);
+            } else {
+                fill(x + 8 + c * cell, gy + 5, cell - 3, 10,
+                     on ? g.chrgb[c][0] : g.chrgb[c][0] / 4,
+                     on ? g.chrgb[c][1] : g.chrgb[c][1] / 4,
+                     on ? g.chrgb[c][2] : g.chrgb[c][2] / 4);
+                text(x + 8 + c * cell, gy + 6, g.elec[c].name[0] ? g.elec[c].name : "?",
+                     on ? 255 : 160, on ? 240 : 90, on ? 240 : 100, 1);
+            }
         }
     }
 }
@@ -3228,6 +3279,31 @@ static void draw_side(int x)
         pthread_mutex_unlock(&g.mu);
         text(x + 12, y, b, g.cube_ok ? 80 : 160, g.cube_ok ? 200 : 120, g.cube_ok ? 120 : 80, 1);
         y += 16;
+        btn(x + 12, y, 130, 22, "viz", g.cube_view == 0, 55, 0,
+            g.cube_view == 0 ? 90 : 28, g.cube_view == 0 ? 16 : 32, g.cube_view == 0 ? 24 : 42);
+        btn(x + 146, y, 130, 22, "map", g.cube_view == 1, 56, 0,
+            g.cube_view == 1 ? 70 : 28, g.cube_view == 1 ? 28 : 32, g.cube_view == 1 ? 20 : 42);
+        y += 26;
+        if (g.cube_view == 0) {
+            text(x + 12, y, "crimson  last sample  spin / +/-", 100, 108, 116, 1);
+            y += 16;
+            {
+                char zb[24];
+                snprintf(zb, sizeof(zb), "zoom %.1fx", (double)g.cube_zoom);
+                btn(x + 12, y, 88, 20, "-", 0, 47, 0, 36, 40, 48);
+                btn(x + 104, y, 80, 20, zb, 0, 0, 0, 28, 32, 40);
+                btn(x + 188, y, 88, 20, "+", 0, 48, 0, 36, 40, 48);
+            }
+            y += 24;
+            btn(x + 12, y, 130, 20, "front", 0, 38, 0, 32, 36, 44);
+            btn(x + 146, y, 130, 20, "default 8", 0, 39, 0, 32, 36, 44);
+            y += 26;
+            snprintf(b, sizeof(b), "algo %s", np_algo_name(g.algo));
+            btn(x + 12, y, sidew() - 24, 22, b, g.algo != 0, 44, 0, 36, 40, 48);
+            y += 26;
+            side_end(x, y);
+            return;
+        }
         text(x + 12, y, "ch, find site, Assign", 100, 108, 116, 1);
         y += 14;
         for (c = 0; c < NP_NCHAN; c++) {
@@ -3243,7 +3319,7 @@ static void draw_side(int x)
         {
             char zb[24];
             snprintf(zb, sizeof(zb), "zoom %.1fx", (double)g.cube_zoom);
-            btn(x + 12, y, 88, 20, "−", 0, 47, 0, 36, 40, 48);
+            btn(x + 12, y, 88, 20, "-", 0, 47, 0, 36, 40, 48);
             btn(x + 104, y, 80, 20, zb, 0, 0, 0, 28, 32, 40);
             btn(x + 188, y, 88, 20, "+", 0, 48, 0, 36, 40, 48);
         }
@@ -3802,6 +3878,16 @@ static void click(int x, int y)
         case 52:
             cube_virt_by(-1);
             break;
+        case 55:
+            g.cube_view = 0;
+            cfg_save();
+            set_status(1, "viz  crimson sample cube");
+            break;
+        case 56:
+            g.cube_view = 1;
+            cfg_save();
+            set_status(1, "map  assign 10-10 sites");
+            break;
         case 53:
             cube_virt_by(1);
             {
@@ -3890,10 +3976,13 @@ static int cube_need_bake(int w, int h)
     }
     if (cube_baked_yaw != g.cube_yaw || cube_baked_pitch != g.cube_pitch ||
         cube_baked_zoom != g.cube_zoom) {
+        if (s_cube_drag == 1 && cube_bake_t && SDL_GetTicks() - cube_bake_t < 80) {
+            return 0;
+        }
         return 1;
     }
     if (cube_baked_site != g.site_focus || cube_baked_virt != g.virt_focus ||
-        cube_baked_sel != g.elec_sel) {
+        cube_baked_sel != g.elec_sel || cube_baked_view != g.cube_view) {
         return 1;
     }
     for (c = 0; c < NP_NCHAN; c++) {
@@ -3916,6 +4005,7 @@ static void cube_remember(int w, int h)
     cube_baked_site = g.site_focus;
     cube_baked_virt = g.virt_focus;
     cube_baked_sel = g.elec_sel;
+    cube_baked_view = g.cube_view;
     for (c = 0; c < NP_NCHAN; c++) {
         cube_baked_sites[c] = g.elec[c].site;
     }
@@ -3936,10 +4026,13 @@ static void present_cube(int x, int y, int w, int h)
             cube_tex = SDL_CreateTexture(R, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET,
                                          w, h);
         }
+        if (cube_tex && SDL_SetRenderTarget(R, cube_tex) != 0) {
+            SDL_DestroyTexture(cube_tex);
+            cube_tex = NULL;
+        }
         if (cube_tex) {
             float s = ui_f();
             SDL_RenderSetScale(R, 1.f, 1.f);
-            SDL_SetRenderTarget(R, cube_tex);
             SDL_RenderSetClipRect(R, NULL);
             draw_cube(0, 0, w, h);
             SDL_SetRenderTarget(R, NULL);
@@ -3947,6 +4040,7 @@ static void present_cube(int x, int y, int w, int h)
             s_cube_px = x;
             s_cube_py = y;
             cube_remember(w, h);
+            cube_bake_t = SDL_GetTicks();
         } else {
             s_cube_px = 0;
             s_cube_py = 0;
@@ -4069,6 +4163,11 @@ static int run_gui(void)
                 } else if (k == SDLK_b) {
                     g.tab = 2;
                     g.side_scroll = 0;
+                } else if (g.tab == 2 && k == SDLK_v) {
+                    g.cube_view = g.cube_view ? 0 : 1;
+                    cfg_save();
+                    set_status(1, g.cube_view ? "map  assign 10-10 sites"
+                                              : "viz  crimson sample cube");
                 } else if (k == SDLK_UP || k == SDLK_PAGEUP) {
                     g.side_scroll -= 48;
                     side_clamp();
@@ -4285,6 +4384,7 @@ int main(int argc, char **argv)
     g.cube_yaw = 0.55f;
     g.cube_pitch = 0.40f;
     g.cube_zoom = 1.0f;
+    g.cube_view = 0;
     g.site_focus = 0;
     g.virt_focus = 0;
     g.elec_sel = 0;

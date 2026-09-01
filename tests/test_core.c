@@ -306,6 +306,20 @@ static void test_plate_destroy(void)
         spout += sig[i] * sig[i];
     }
     expect(spout > 0.35f * spin, "plate destroy keeps 8 Hz");
+    {
+        float win4[500], mid = 0.f, tail = 0.f;
+        synth(win4, 500, 125.f, 50.f, 10.f, 8.f, 4.f);
+        np_plate_destroy(win4, 500, psd);
+        for (i = 200; i < 300; i++) {
+            mid += win4[i] * win4[i];
+        }
+        for (i = 450; i < 500; i++) {
+            tail += win4[i] * win4[i];
+        }
+        mid /= 100.f;
+        tail /= 50.f;
+        expect(tail < 4.f * mid + 8.f, "4s destroy has no raw tail");
+    }
 }
 
 static void test_nplearn(void)

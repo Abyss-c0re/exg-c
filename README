@@ -29,8 +29,9 @@ Or `./np-exg --cli --port /dev/ttyUSB1 --seconds 8` with no window.
    That is the desk / open-input plate, not EEG.
 3. Put the headset on. Sit still. Click **CALM**.
 4. Leave **CLN** on. The plot is leftover after that plate + calm DC.
-5. Open **Cube** (`b`). The flat 10-10 map is the headset. `1`–`8` pick a
-   channel, `[` `]` (arrows) find a site, Enter **Assign**. `+` / `-` zoom.
+5. Open **Cube** (`b`). **viz** is the crimson sample cube (crimson look).
+   **map** assigns 10-10 sites. `v` toggles. In map: `1`–`8` pick a channel,
+   arrows find a site, Enter **Assign**. `+` / `-` zoom.
 6. Open **Settings**. Type a profile name (for example `motor`) and
    click **Save**. **Load** brings it back later.
 7. On Cube or Settings, click **algo …** to pick how each cell becomes

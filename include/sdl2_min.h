@@ -62,6 +62,7 @@ typedef struct SDL_Rect {
 #define SDLK_m 109
 #define SDLK_s 115
 #define SDLK_b 98
+#define SDLK_v 118
 #define SDLK_1 49
 #define SDLK_2 50
 #define SDLK_3 51

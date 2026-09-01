@@ -134,60 +134,72 @@ void np_welch_psd(const float *x, int n, float *psd)
     }
 }
 
-/* Destroy live bins that match the noise plate (Wiener gain). */
+/* Destroy live bins that match the noise plate (Wiener gain).
+ * Covers the whole window (pads the last hop) and divides by the
+ * window sum so a 4 s plot does not keep a raw-amplitude tail. */
 void np_plate_destroy(float *x, int n, const float *noise_psd)
 {
     float ola[NP_RING];
+    float wsum[NP_RING];
     float re[NP_FFT_N], im[NP_FFT_N];
-    int hop = NP_FFT_N / 2, start, i, k, covered;
+    float win[NP_FFT_N];
+    int hop = NP_FFT_N / 2, start, i, k;
+    float mean = 0.f;
     if (!x || !noise_psd || n < NP_FFT_N || n > NP_RING) {
         return;
     }
     memset(ola, 0, (size_t)n * sizeof(float));
-    covered = 0;
-    {
-        float mean = 0.f;
-        for (k = 2; k < NP_PSD_BINS; k++) {
-            mean += noise_psd[k];
+    memset(wsum, 0, (size_t)n * sizeof(float));
+    for (i = 0; i < NP_FFT_N; i++) {
+        win[i] = 0.5f - 0.5f * cosf(2.f * (float)M_PI * (float)i / (float)(NP_FFT_N - 1));
+    }
+    for (k = 2; k < NP_PSD_BINS; k++) {
+        mean += noise_psd[k];
+    }
+    mean /= (float)(NP_PSD_BINS - 2);
+    for (start = 0; start < n; start += hop) {
+        for (i = 0; i < NP_FFT_N; i++) {
+            int t = start + i;
+            re[i] = (t < n) ? x[t] * win[i] : 0.f;
+            im[i] = 0.f;
         }
-        mean /= (float)(NP_PSD_BINS - 2);
-        for (start = 0; start + NP_FFT_N <= n; start += hop) {
-            for (i = 0; i < NP_FFT_N; i++) {
-                float win = 0.5f - 0.5f * cosf(2.f * (float)M_PI * (float)i / (float)(NP_FFT_N - 1));
-                re[i] = x[start + i] * win;
-                im[i] = 0.f;
-            }
-            fft_inplace(re, im, NP_FFT_N, 0);
-            for (k = 0; k < NP_PSD_BINS; k++) {
-                float p = re[k] * re[k] + im[k] * im[k];
-                float npw = noise_psd[k];
-                float g = 1.f;
-                /* Destroy only plate peaks, not the whole floor. */
-                if (k >= 2 && npw > 4.f * mean) {
-                    g = p / (p + 2.f * npw + 1e-12f);
-                    if (g < 0.05f) {
-                        g = 0.05f;
-                    }
-                }
-                re[k] *= g;
-                im[k] *= g;
-                if (k > 0 && k < NP_FFT_N - k) {
-                    re[NP_FFT_N - k] *= g;
-                    im[NP_FFT_N - k] *= g;
+        fft_inplace(re, im, NP_FFT_N, 0);
+        for (k = 0; k < NP_PSD_BINS; k++) {
+            float p = re[k] * re[k] + im[k] * im[k];
+            float npw = noise_psd[k];
+            float g = 1.f;
+            if (k >= 2 && npw > 4.f * mean) {
+                g = p / (p + 2.f * npw + 1e-12f);
+                if (g < 0.05f) {
+                    g = 0.05f;
                 }
             }
-            fft_inplace(re, im, NP_FFT_N, 1);
-            for (i = 0; i < NP_FFT_N; i++) {
-                ola[start + i] += re[i];
+            re[k] *= g;
+            im[k] *= g;
+            if (k > 0 && k < NP_FFT_N - k) {
+                re[NP_FFT_N - k] *= g;
+                im[NP_FFT_N - k] *= g;
             }
-            covered = start + NP_FFT_N;
+        }
+        fft_inplace(re, im, NP_FFT_N, 1);
+        for (i = 0; i < NP_FFT_N; i++) {
+            int t = start + i;
+            if (t >= n) {
+                break;
+            }
+            ola[t] += re[i];
+            wsum[t] += win[i];
+        }
+        if (start + hop >= n) {
+            break;
         }
     }
-    if (covered > n) {
-        covered = n;
-    }
-    for (i = 0; i < covered; i++) {
-        x[i] = ola[i];
+    for (i = 0; i < n; i++) {
+        float d = wsum[i];
+        if (d < 0.30f) {
+            d = 0.30f;
+        }
+        x[i] = ola[i] / d;
     }
 }
 
