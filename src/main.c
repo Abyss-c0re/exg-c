@@ -8,7 +8,15 @@
 #include "np_algo.h"
 #include "np_cube.h"
 #include "np_smx.h"
+#ifdef __ANDROID__
+#include "SDL.h"
+#include "SDL_system.h"
+#include <android/log.h>
+#define NP_ALOG(...) __android_log_print(ANDROID_LOG_INFO, "exg-c", __VA_ARGS__)
+#else
 #include "sdl2_min.h"
+#define NP_ALOG(...) ((void)0)
+#endif
 
 #include <arpa/inet.h>
 #include <ctype.h>
@@ -16,7 +24,9 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <stdarg.h>
+#ifndef __ANDROID__
 #include <grp.h>
+#endif
 #include <netdb.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
@@ -40,6 +50,11 @@
 #define STATUS_H 28
 #define FFT_H 96
 #define LEARN_H 108
+#ifdef __ANDROID__
+#define NP_TOUCH 1
+#else
+#define NP_TOUCH 0
+#endif
 #define REC_MS 2000
 #define WAVE_TOP 8
 #define OPEN_UV 3000.f
@@ -147,14 +162,38 @@ static SDL_Window *Win;
 static SDL_Renderer *R;
 static int sidew(void)
 {
+    if (NP_TOUCH) {
+        int w = win_w * 36 / 100;
+        if (w < 300) {
+            w = 300;
+        }
+        if (w > 380) {
+            w = 380;
+        }
+        if (w > win_w / 2) {
+            w = win_w / 2;
+        }
+        return w;
+    }
     return SIDE_W;
 }
 static int statush(void)
 {
-    return STATUS_H;
+    return NP_TOUCH ? 42 : STATUS_H;
+}
+static int btnh(void)
+{
+    return NP_TOUCH ? 40 : 22;
+}
+static int rowh(void)
+{
+    return NP_TOUCH ? 48 : 26;
 }
 static int learnh(void)
 {
+    if (NP_TOUCH) {
+        return win_h < 560 ? 150 : 168;
+    }
     if (win_h < 520) {
         return 88;
     }
@@ -253,27 +292,38 @@ static void filt_reset(void)
     clean_seen = 0;
 }
 
+static void np_cfg_root(char *out, size_t n)
+{
+#ifdef __ANDROID__
+    const char *p = SDL_AndroidGetInternalStoragePath();
+    if (p && p[0]) {
+        snprintf(out, n, "%s", p);
+        return;
+    }
+#endif
+    {
+        const char *h = getenv("HOME");
+        if (h && h[0]) {
+            snprintf(out, n, "%s/.config", h);
+            return;
+        }
+    }
+    snprintf(out, n, ".");
+}
+
 static void cfg_path(char *out, size_t n)
 {
-    const char *h = getenv("HOME");
-    if (h && h[0]) {
-        snprintf(out, n, "%s/.config/exg-c.ini", h);
-    } else {
-        snprintf(out, n, "exg-c.ini");
-    }
+    char root[NP_MAX_PATH];
+    np_cfg_root(root, sizeof(root));
+    snprintf(out, n, "%s/exg-c.ini", root);
 }
 
 static void learn_path(char *out, size_t n)
 {
-    const char *h = getenv("HOME");
-    if (h && h[0]) {
-        char dir[NP_MAX_PATH];
-        snprintf(dir, sizeof(dir), "%s/.config", h);
-        mkdir(dir, 0755);
-        snprintf(out, n, "%s/.config/exg-c.learn", h);
-    } else {
-        snprintf(out, n, "exg-c.learn");
-    }
+    char root[NP_MAX_PATH];
+    np_cfg_root(root, sizeof(root));
+    mkdir(root, 0755);
+    snprintf(out, n, "%s/exg-c.learn", root);
 }
 
 static void learn_persist(void)
@@ -534,12 +584,9 @@ static void prof_apply(void);
 
 static void prof_dir(char *out, size_t n)
 {
-    const char *h = getenv("HOME");
-    if (h && h[0]) {
-        snprintf(out, n, "%s/.config/exg-c/profiles", h);
-    } else {
-        snprintf(out, n, "exg-c-profiles");
-    }
+    char root[NP_MAX_PATH];
+    np_cfg_root(root, sizeof(root));
+    snprintf(out, n, "%s/exg-c/profiles", root);
 }
 
 static int prof_ok_name(const char *s)
@@ -731,13 +778,9 @@ static int cfg_read(const char *path)
 
 static void cfg_save(void)
 {
-    char path[NP_MAX_PATH];
-    const char *h = getenv("HOME");
-    if (h && h[0]) {
-        char dir[NP_MAX_PATH];
-        snprintf(dir, sizeof(dir), "%s/.config", h);
-        mkdir(dir, 0755);
-    }
+    char path[NP_MAX_PATH], root[NP_MAX_PATH];
+    np_cfg_root(root, sizeof(root));
+    mkdir(root, 0755);
     cfg_path(path, sizeof(path));
     cfg_write(path);
 }
@@ -817,13 +860,11 @@ static void prof_save(void)
         return;
     }
     {
-        const char *h = getenv("HOME");
-        if (h && h[0]) {
-            snprintf(parent, sizeof(parent), "%s/.config", h);
-            mkdir(parent, 0755);
-            snprintf(parent, sizeof(parent), "%s/.config/exg-c", h);
-            mkdir(parent, 0755);
-        }
+        char root[NP_MAX_PATH];
+        np_cfg_root(root, sizeof(root));
+        mkdir(root, 0755);
+        snprintf(parent, sizeof(parent), "%s/exg-c", root);
+        mkdir(parent, 0755);
     }
     prof_dir(dir, sizeof(dir));
     mkdir(dir, 0755);
@@ -1343,6 +1384,11 @@ static int in_group(gid_t gid)
 
 static void ensure_dialout(int argc, char **argv)
 {
+#ifdef __ANDROID__
+    (void)argc;
+    (void)argv;
+    return;
+#else
     struct group *gr = getgrnam("dialout");
     char cmd[2048];
     int i, off = 0;
@@ -1369,6 +1415,7 @@ static void ensure_dialout(int argc, char **argv)
     }
     setenv("NP_EXG_NOSG", "1", 1);
     execlp("sg", "sg", "dialout", "-c", cmd, (char *)NULL);
+#endif
 }
 
 static void set_status(int ok, const char *fmt, ...)
@@ -1457,12 +1504,24 @@ static void *reader_thread(void *arg)
     unsigned char buf[256];
     (void)arg;
     while (g.running && g.connected && g.fd >= 0) {
-        struct pollfd pfd = {g.fd, POLLIN, 0};
         int n, i;
-        if (poll(&pfd, 1, 8) <= 0) {
+#ifdef __ANDROID__
+        /* USB is a JNI bulk transfer, not a real fd. poll() on the dummy
+         * handle never sees Knight bytes, so the board looked dead. */
+        n = np_serial_read(g.fd, buf, (int)sizeof(buf));
+        if (n == 0) {
+            usleep(2000);
             continue;
         }
+#else
+        {
+            struct pollfd pfd = {g.fd, POLLIN, 0};
+            if (poll(&pfd, 1, 8) <= 0) {
+                continue;
+            }
+        }
         n = np_serial_read(g.fd, buf, (int)sizeof(buf));
+#endif
         if (n < 0) {
             set_status(0, "serial read failed");
             break;
@@ -1556,10 +1615,15 @@ static void *enable_thread(void *arg)
     int c;
     (void)arg;
     set_status(1, "waiting for stream...");
-    /* One DTR already happened in do_connect. Do not pulse again —
-     * a second reset during IMU scan is what kills the stream. */
-    if (!wait_live(50, 150, 100000)) {
-        set_status(0, "no live stream");
+#ifdef __ANDROID__
+    if (!wait_live(20, 40, 100000)) {
+        set_status(1, "uart idle - one board kick");
+        np_serial_pulse_dtr(g.fd);
+        np_serial_flush(g.fd);
+    }
+#endif
+    if (!wait_live(50, 120, 100000)) {
+        set_status(0, "no live stream - tap Connect again");
         g.en_running = 0;
         return NULL;
     }
@@ -1588,6 +1652,14 @@ static void stream_recover(void)
     if (!g.connected || g.fd < 0 || g.en_running) {
         return;
     }
+#ifdef __ANDROID__
+    /* DTR reset loops keep the Nano in the bootloader. Never pulse
+     * unless we already had frames (a real stall, not "never started"). */
+    if (g.stall_tot < 10) {
+        set_status(0, "usb open, waiting for Knight frames...");
+        return;
+    }
+#endif
     if (g.recover_n >= 3) {
         set_status(0, "stream dead (3 resets) - click Disconnect/Connect");
         return;
@@ -1595,8 +1667,10 @@ static void stream_recover(void)
     g.recover_n++;
     set_status(0, "stream stalled - board reset %d/3", g.recover_n);
     parser_rearm();
+#ifndef __ANDROID__
     np_serial_pulse_dtr(g.fd);
     np_serial_flush(g.fd);
+#endif
     g.en_running = 1;
     if (pthread_create(&g.en_thr, NULL, enable_thread, NULL) == 0) {
         pthread_detach(g.en_thr);
@@ -1613,7 +1687,8 @@ static void do_connect(void)
     }
     g.nports = np_list_ports(g.ports, NP_MAX_PORTS);
     if (g.nports <= 0) {
-        set_status(0, "no /dev/ttyUSB* or /dev/ttyACM*");
+        set_status(0, NP_TOUCH ? "no USB serial (plug Knight / grant USB)"
+                               : "no /dev/ttyUSB* or /dev/ttyACM*");
         return;
     }
     if (g.port_i >= g.nports) {
@@ -1628,8 +1703,12 @@ static void do_connect(void)
     np_parser_init(&g.parser, g.board);
     np_parser_set_gains(&g.parser, g.gain);
     filt_reset();
+#ifndef __ANDROID__
+    /* Android: do not DTR-reset on the UI thread. The Knight is already
+     * running; a pulse blacks the GL surface and reboots the Nano. */
     np_serial_pulse_dtr(g.fd);
     np_serial_flush(g.fd);
+#endif
     g.connected = 1;
     g.stall_t = SDL_GetTicks();
     g.stall_n = 0;
@@ -1695,7 +1774,13 @@ static void toggle_record(void)
         struct tm tm;
         FILE *f;
         localtime_r(&t, &tm);
-        strftime(g.csv_path, sizeof(g.csv_path), "knight-%Y%m%d-%H%M%S.csv", &tm);
+        {
+            char stamp[40], root[NP_MAX_PATH];
+            strftime(stamp, sizeof(stamp), "knight-%Y%m%d-%H%M%S.csv", &tm);
+            np_cfg_root(root, sizeof(root));
+            mkdir(root, 0755);
+            snprintf(g.csv_path, sizeof(g.csv_path), "%s/%s", root, stamp);
+        }
         f = fopen(g.csv_path, "w");
         if (!f) {
             set_status(0, "cannot write %s", g.csv_path);
@@ -1805,8 +1890,11 @@ static void side_end(int x, int y)
         }
         by = 2 + (span > 0 ? g.side_scroll * (track - bh) / span : 0);
         fill(x + sidew() - 5, by, 3, bh, 200, 40, 56);
-        btn(x + 12, view - 24, 130, 20, "up", 0, 45, 0, 36, 40, 48);
-        btn(x + 146, view - 24, 130, 20, "down", 0, 46, 0, 36, 40, 48);
+        {
+            int th = NP_TOUCH ? 36 : 20;
+            btn(x + 12, view - th - 4, 130, th, "up", 0, 45, 0, 36, 40, 48);
+            btn(x + 146, view - th - 4, 130, th, "down", 0, 46, 0, 36, 40, 48);
+        }
     }
 }
 
@@ -3163,34 +3251,35 @@ static const char *port_short(void)
 
 static int draw_channels(int x, int y)
 {
-    int c;
+    int c, bh = btnh(), rh = rowh();
     char line[8], gn[8];
     text(x + 12, y, "Channels 1-8", 140, 148, 160, 1);
-    y += 14;
+    y += NP_TOUCH ? 18 : 14;
     for (c = 0; c < NP_NCHAN; c++) {
         int col = c / 4;
         int row = c % 4;
         int bx = x + 10 + col * 145;
-        int by = y + row * 26;
+        int by = y + row * rh;
         snprintf(line, sizeof(line), "%d", c + 1);
-        text(bx, by + 6, line, g.chrgb[c][0], g.chrgb[c][1], g.chrgb[c][2], 1);
-        btn(bx + 14, by, 36, 20, g.active[c] ? "ON" : "off", g.active[c], 6, c,
+        text(bx, by + (bh - 7) / 2, line, g.chrgb[c][0], g.chrgb[c][1], g.chrgb[c][2], 1);
+        btn(bx + 14, by, 36, bh, g.active[c] ? "ON" : "off", g.active[c], 6, c,
             g.active[c] ? 28 : 40, g.active[c] ? 90 : 42, g.active[c] ? 60 : 50);
-        btn(bx + 52, by, 36, 20, g.rld[c] ? "RLD" : "rld", g.rld[c], 7, c,
+        btn(bx + 52, by, 36, bh, g.rld[c] ? "RLD" : "rld", g.rld[c], 7, c,
             g.rld[c] ? 50 : 40, g.rld[c] ? 70 : 42, g.rld[c] ? 110 : 50);
         snprintf(gn, sizeof(gn), "g%d", g.gain[c]);
-        btn(bx + 90, by, 40, 20, gn, 1, 8, c, 40, 42, 52);
+        btn(bx + 90, by, 40, bh, gn, 1, 8, c, 40, 42, 52);
     }
-    return y + 4 * 26 + 8;
+    return y + 4 * rh + 8;
 }
 
 static int draw_view_block(int x, int y)
 {
     char b[40];
+    int bh = btnh(), rh = rowh();
     text(x + 12, y, "View", 140, 148, 160, 1);
-    y += 13;
+    y += NP_TOUCH ? 16 : 13;
     snprintf(b, sizeof(b), "win %ds", g.window_s);
-    btn(x + 12, y, 136, 22, b, 1, 9, 0, 36, 40, 48);
+    btn(x + 12, y, 136, bh, b, 1, 9, 0, 36, 40, 48);
     if (g.og) {
         snprintf(b, sizeof(b), "scale fit");
     } else if (g.autoscale) {
@@ -3198,8 +3287,8 @@ static int draw_view_block(int x, int y)
     } else {
         snprintf(b, sizeof(b), "scale +-%duV", g.scale_uv);
     }
-    btn(x + 152, y, 136, 22, b, 1, 10, 0, 36, 40, 48);
-    y += 26;
+    btn(x + 152, y, 136, bh, b, 1, 10, 0, 36, 40, 48);
+    y += rh;
     if (g.notch_hz < 0) {
         if (g.cal_hz > 1.f) {
             snprintf(b, sizeof(b), "notch AUTO %.1f", (double)g.cal_hz);
@@ -3214,27 +3303,28 @@ static int draw_view_block(int x, int y)
     } else {
         snprintf(b, sizeof(b), "notch off");
     }
-    btn(x + 12, y, 136, 22, b, g.notch_hz != 0, 11, 0, 36, 40, 48);
+    btn(x + 12, y, 136, bh, b, g.notch_hz != 0, 11, 0, 36, 40, 48);
     if (g.hp_hz) {
         snprintf(b, sizeof(b), "hp %dHz", g.hp_hz);
     } else {
         snprintf(b, sizeof(b), "hp off");
     }
-    btn(x + 152, y, 136, 22, b, g.hp_hz != 0, 12, 0, 36, 40, 48);
-    y += 26;
-    btn(x + 12, y, 136, 22, g.grid ? "grid on" : "grid off", g.grid, 13, 0, 36, 40, 48);
-    btn(x + 152, y, 136, 22, g.paused ? "PAUSED" : "live", !g.paused, 14, 0,
+    btn(x + 152, y, 136, bh, b, g.hp_hz != 0, 12, 0, 36, 40, 48);
+    y += rh;
+    btn(x + 12, y, 136, bh, g.grid ? "grid on" : "grid off", g.grid, 13, 0, 36, 40, 48);
+    btn(x + 152, y, 136, bh, g.paused ? "PAUSED" : "live", !g.paused, 14, 0,
         g.paused ? 110 : 36, g.paused ? 50 : 40, g.paused ? 40 : 48);
-    y += 26;
-    btn(x + 12, y, 136, 22, g.show_uv ? "uV on" : "uV off", g.show_uv, 15, 0, 36, 40, 48);
-    btn(x + 152, y, 136, 22, g.detrend ? "detrend" : "raw DC", g.detrend, 21, 0, 36, 40, 48);
-    return y + 26;
+    y += rh;
+    btn(x + 12, y, 136, bh, g.show_uv ? "uV on" : "uV off", g.show_uv, 15, 0, 36, 40, 48);
+    btn(x + 152, y, 136, bh, g.detrend ? "detrend" : "raw DC", g.detrend, 21, 0, 36, 40, 48);
+    return y + rh;
 }
 
 static void draw_side(int x)
 {
     int y = 8;
     int c;
+    int bh = btnh(), rh = rowh();
     char live[48];
     const char *port = port_short();
     const char *bname = g.board == NP_BOARD_KNIGHT_IMU ? "8-ch + IMU" : "8-ch EXG";
@@ -3264,25 +3354,25 @@ static void draw_side(int x)
     } else {
         text(x + 90, y + 4, "offline", 120, 128, 140, 1);
     }
-    y += 20;
-    btn(x + 12, y, 84, 22, "Main", g.tab == 0, 30, 0, g.tab == 0 ? 36 : 28, g.tab == 0 ? 50 : 32,
+    y += NP_TOUCH ? 24 : 20;
+    btn(x + 12, y, 84, bh, "Main", g.tab == 0, 30, 0, g.tab == 0 ? 36 : 28, g.tab == 0 ? 50 : 32,
         44);
-    btn(x + 100, y, 84, 22, "Cube", g.tab == 2, 36, 0, g.tab == 2 ? 70 : 28, g.tab == 2 ? 22 : 32,
+    btn(x + 100, y, 84, bh, "Cube", g.tab == 2, 36, 0, g.tab == 2 ? 70 : 28, g.tab == 2 ? 22 : 32,
         g.tab == 2 ? 32 : 44);
-    btn(x + 188, y, 88, 22, "Settings", g.tab == 1, 31, 0, g.tab == 1 ? 36 : 28,
+    btn(x + 188, y, 88, bh, "Settings", g.tab == 1, 31, 0, g.tab == 1 ? 36 : 28,
         g.tab == 1 ? 50 : 32, 44);
-    y += 26;
-    btn(x + 12, y, 168, 22, port, 1, 4, 0, 32, 36, 44);
+    y += rh;
+    btn(x + 12, y, 168, bh, port, 1, 4, 0, 32, 36, 44);
     if (!g.connected) {
-        btn(x + 184, y, 92, 22, "Connect", 1, 1, 0, 30, 110, 80);
+        btn(x + 184, y, 92, bh, "Connect", 1, 1, 0, 30, 110, 80);
     } else {
-        btn(x + 184, y, 92, 22, "Disconnect", 1, 2, 0, 120, 40, 48);
+        btn(x + 184, y, 92, bh, "Disconnect", 1, 2, 0, 120, 40, 48);
     }
-    y += 26;
-    btn(x + 12, y, 168, 22, bname, 1, 5, 0, 32, 36, 44);
-    btn(x + 184, y, 92, 22, g.recording ? "Stop CSV" : "CSV", g.recording, 3, 0,
+    y += rh;
+    btn(x + 12, y, 168, bh, bname, 1, 5, 0, 32, 36, 44);
+    btn(x + 184, y, 92, bh, g.recording ? "Stop CSV" : "CSV", g.recording, 3, 0,
         g.recording ? 110 : 36, g.recording ? 50 : 40, g.recording ? 40 : 52);
-    y += 28;
+    y += rh + 2;
     side_pin_h = y;
     {
         SDL_Rect clip;
@@ -3307,28 +3397,28 @@ static void draw_side(int x)
         pthread_mutex_unlock(&g.mu);
         text(x + 12, y, b, g.cube_ok ? 80 : 160, g.cube_ok ? 200 : 120, g.cube_ok ? 120 : 80, 1);
         y += 16;
-        btn(x + 12, y, 130, 22, "viz", g.cube_view == 0, 55, 0,
+        btn(x + 12, y, 130, bh, "viz", g.cube_view == 0, 55, 0,
             g.cube_view == 0 ? 90 : 28, g.cube_view == 0 ? 16 : 32, g.cube_view == 0 ? 24 : 42);
-        btn(x + 146, y, 130, 22, "map", g.cube_view == 1, 56, 0,
+        btn(x + 146, y, 130, bh, "map", g.cube_view == 1, 56, 0,
             g.cube_view == 1 ? 70 : 28, g.cube_view == 1 ? 28 : 32, g.cube_view == 1 ? 20 : 42);
-        y += 26;
+        y += rh;
         if (g.cube_view == 0) {
             text(x + 12, y, "crimson  last sample  spin / +/-", 100, 108, 116, 1);
             y += 16;
             {
                 char zb[24];
                 snprintf(zb, sizeof(zb), "zoom %.1fx", (double)g.cube_zoom);
-                btn(x + 12, y, 88, 20, "-", 0, 47, 0, 36, 40, 48);
-                btn(x + 104, y, 80, 20, zb, 0, 0, 0, 28, 32, 40);
-                btn(x + 188, y, 88, 20, "+", 0, 48, 0, 36, 40, 48);
+                btn(x + 12, y, 88, bh, "-", 0, 47, 0, 36, 40, 48);
+                btn(x + 104, y, 80, bh, zb, 0, 0, 0, 28, 32, 40);
+                btn(x + 188, y, 88, bh, "+", 0, 48, 0, 36, 40, 48);
             }
-            y += 24;
-            btn(x + 12, y, 130, 20, "front", 0, 38, 0, 32, 36, 44);
-            btn(x + 146, y, 130, 20, "default 8", 0, 39, 0, 32, 36, 44);
-            y += 26;
+            y += rh;
+            btn(x + 12, y, 130, bh, "front", 0, 38, 0, 32, 36, 44);
+            btn(x + 146, y, 130, bh, "default 8", 0, 39, 0, 32, 36, 44);
+            y += rh;
             snprintf(b, sizeof(b), "algo %s", np_algo_name(g.algo));
-            btn(x + 12, y, sidew() - 24, 22, b, g.algo != 0, 44, 0, 36, 40, 48);
-            y += 26;
+            btn(x + 12, y, sidew() - 24, bh, b, g.algo != 0, 44, 0, 36, 40, 48);
+            y += rh;
             side_end(x, y);
             return;
         }
@@ -3337,33 +3427,33 @@ static void draw_side(int x)
         for (c = 0; c < NP_NCHAN; c++) {
             int col = c / 4, row = c % 4;
             int bx = x + 12 + col * 140;
-            int by = y + row * 22;
+            int by = y + row * rh;
             snprintf(b, sizeof(b), "%d %s", c + 1, g.elec[c].name[0] ? g.elec[c].name : "?");
-            btn(bx, by, 132, 20, b, g.elec_sel == c, 37, c,
+            btn(bx, by, 132, bh, b, g.elec_sel == c, 37, c,
                 g.elec_sel == c ? 80 : 28, g.elec_sel == c ? 20 : 32,
                 g.elec_sel == c ? 34 : 42);
         }
-        y += 4 * 22 + 8;
+        y += 4 * rh + 8;
         {
             char zb[24];
             snprintf(zb, sizeof(zb), "zoom %.1fx", (double)g.cube_zoom);
-            btn(x + 12, y, 88, 20, "-", 0, 47, 0, 36, 40, 48);
-            btn(x + 104, y, 80, 20, zb, 0, 0, 0, 28, 32, 40);
-            btn(x + 188, y, 88, 20, "+", 0, 48, 0, 36, 40, 48);
+            btn(x + 12, y, 88, bh, "-", 0, 47, 0, 36, 40, 48);
+            btn(x + 104, y, 80, bh, zb, 0, 0, 0, 28, 32, 40);
+            btn(x + 188, y, 88, bh, "+", 0, 48, 0, 36, 40, 48);
         }
-        y += 24;
+        y += rh;
         {
             int ix = 0, iy = 0, iz = 0;
             char sb[40];
             np_1010_ijk(g.site_focus, &ix, &iy, &iz);
             snprintf(sb, sizeof(sb), "%s  %d,%d,%d", np_1010_name(g.site_focus), ix, iy, iz);
-            btn(x + 12, y, 44, 22, "<", 0, 49, 0, 36, 40, 48);
-            btn(x + 60, y, 156, 22, sb, 1, 51, 0, 70, 28, 32);
-            btn(x + 220, y, 56, 22, ">", 0, 50, 0, 36, 40, 48);
+            btn(x + 12, y, 44, bh, "<", 0, 49, 0, 36, 40, 48);
+            btn(x + 60, y, 156, bh, sb, 1, 51, 0, 70, 28, 32);
+            btn(x + 220, y, 56, bh, ">", 0, 50, 0, 36, 40, 48);
         }
-        y += 26;
-        btn(x + 12, y, sidew() - 24, 22, "Assign to selected ch", 0, 51, 0, 28, 80, 48);
-        y += 26;
+        y += rh;
+        btn(x + 12, y, sidew() - 24, bh, "Assign to selected ch", 0, 51, 0, 28, 80, 48);
+        y += rh;
         {
             int vs = cube_virt_slot(g.virt_focus);
             char vb[40];
@@ -3373,20 +3463,20 @@ static void draw_side(int x)
             } else {
                 snprintf(vb, sizeof(vb), "sensor  (none)");
             }
-            btn(x + 12, y, 44, 20, "<", 0, 52, 0, 36, 40, 48);
-            btn(x + 60, y, 156, 20, vb, 0, 0, 0, 28, 36, 42);
-            btn(x + 220, y, 56, 20, ">", 0, 53, 0, 36, 40, 48);
+            btn(x + 12, y, 44, bh, "<", 0, 52, 0, 36, 40, 48);
+            btn(x + 60, y, 156, bh, vb, 0, 0, 0, 28, 36, 42);
+            btn(x + 220, y, 56, bh, ">", 0, 53, 0, 36, 40, 48);
         }
-        y += 24;
-        btn(x + 12, y, 130, 20, "front", 0, 38, 0, 32, 36, 44);
-        btn(x + 146, y, 130, 20, "default 8", 0, 39, 0, 32, 36, 44);
-        y += 26;
-        btn(x + 12, y, 130, 22, "Save profile", 0, 41, 0, 28, 80, 48);
-        btn(x + 146, y, 130, 22, "Load profile", 0, 42, 0, 28, 80, 48);
-        y += 26;
+        y += rh;
+        btn(x + 12, y, 130, bh, "front", 0, 38, 0, 32, 36, 44);
+        btn(x + 146, y, 130, bh, "default 8", 0, 39, 0, 32, 36, 44);
+        y += rh;
+        btn(x + 12, y, 130, bh, "Save profile", 0, 41, 0, 28, 80, 48);
+        btn(x + 146, y, 130, bh, "Load profile", 0, 42, 0, 28, 80, 48);
+        y += rh;
         snprintf(b, sizeof(b), "algo %s", np_algo_name(g.algo));
-        btn(x + 12, y, sidew() - 24, 22, b, g.algo != 0, 44, 0, 36, 40, 48);
-        y += 26;
+        btn(x + 12, y, sidew() - 24, bh, b, g.algo != 0, 44, 0, 36, 40, 48);
+        y += rh;
         side_end(x, y);
         return;
     }
@@ -3394,7 +3484,7 @@ static void draw_side(int x)
         char b[48];
         text(x + 12, y, "Profile  (name, then Save)", 140, 148, 160, 1);
         y += 14;
-        fill(x + 12, y, sidew() - 24, 22, g.typing_prof ? 46 : 28, g.typing_prof ? 56 : 32,
+        fill(x + 12, y, sidew() - 24, bh, g.typing_prof ? 46 : 28, g.typing_prof ? 56 : 32,
              g.typing_prof ? 70 : 42);
         {
             char shown[NP_PROF_NAME + 2];
@@ -3403,38 +3493,43 @@ static void draw_side(int x)
             } else {
                 snprintf(shown, sizeof(shown), "%s", g.typing_prof ? "_" : "e.g. motor");
             }
-            text(x + 18, y + 6, shown, g.prof[0] ? 240 : 130, 240, 246, 1);
+            text(x + 18, y + (bh - 7) / 2, shown, g.prof[0] ? 240 : 130, 240, 246, 1);
         }
-        add_hit(x + 12, y, sidew() - 24, 22, 40, 0);
-        y += 28;
-        btn(x + 12, y, 88, 22, "Save", 0, 41, 0, 28, 90, 52);
-        btn(x + 104, y, 88, 22, "Load", 0, 42, 0, 28, 90, 52);
-        btn(x + 196, y, 80, 22, g.nprof ? "next" : "none", 0, 43, 0, 36, 40, 48);
-        y += 28;
+        add_hit(x + 12, y, sidew() - 24, bh, 40, 0);
+        y += rh + 2;
+        btn(x + 12, y, 88, bh, "Save", 0, 41, 0, 28, 90, 52);
+        btn(x + 104, y, 88, bh, "Load", 0, 42, 0, 28, 90, 52);
+        btn(x + 196, y, 80, bh, g.nprof ? "next" : "none", 0, 43, 0, 36, 40, 48);
+        y += rh + 2;
         text(x + 12, y, "keeps UI, gain, filters, sites", 100, 108, 116, 1);
         y += 16;
         snprintf(b, sizeof(b), "algo %s", np_algo_name(g.algo));
-        btn(x + 12, y, sidew() - 24, 22, b, g.algo != 0, 44, 0, 36, 40, 48);
-        y += 28;
+        btn(x + 12, y, sidew() - 24, bh, b, g.algo != 0, 44, 0, 36, 40, 48);
+        y += rh + 2;
         text(x + 12, y, "UI", 140, 148, 160, 1);
         y += 14;
         snprintf(b, sizeof(b), "UI %.1fx", (double)ui_f());
-        btn(x + 12, y, 136, 22, b, 1, 32, 0, 36, 40, 48);
-        snprintf(b, sizeof(b), "%dx%d", g.pref_w, g.pref_h);
-        btn(x + 152, y, 136, 22, b, 1, 33, 0, 36, 40, 48);
-        y += 28;
+        btn(x + 12, y, 136, bh, b, 1, 32, 0, 36, 40, 48);
+        if (NP_TOUCH) {
+            btn(x + 152, y, 136, bh, "fullscreen", 1, 0, 0, 36, 40, 48);
+        } else {
+            snprintf(b, sizeof(b), "%dx%d", g.pref_w, g.pref_h);
+            btn(x + 152, y, 136, bh, b, 1, 33, 0, 36, 40, 48);
+        }
+        y += rh + 2;
         text(x + 12, y, "Channel colors (click)", 140, 148, 160, 1);
         y += 14;
         for (c = 0; c < NP_NCHAN; c++) {
             int col = c / 4, row = c % 4;
             int bx = x + 12 + col * 140;
-            int by = y + row * 26;
+            int by = y + row * rh;
             snprintf(b, sizeof(b), "ch%d", c + 1);
-            btn(bx, by, 128, 22, b, 1, 34, c, g.chrgb[c][0] / 3, g.chrgb[c][1] / 3,
+            btn(bx, by, 128, bh, b, 1, 34, c, g.chrgb[c][0] / 3, g.chrgb[c][1] / 3,
                 g.chrgb[c][2] / 3);
         }
-        y += 4 * 26 + 8;
-        text(x + 12, y, "~/.config/exg-c/profiles/", 100, 108, 116, 1);
+        y += 4 * rh + 8;
+        text(x + 12, y, NP_TOUCH ? "app files / exg-c/profiles" : "~/.config/exg-c/profiles/",
+             100, 108, 116, 1);
         y += 16;
         side_end(x, y);
         return;
@@ -3466,6 +3561,82 @@ static void draw_learn(int x, int y, int w, int h)
     }
 
     fill(x, y, w, h, 12, 14, 18);
+    if (NP_TOUCH) {
+        int bh = 36;
+        text(x + 6, y + 8, "LEARN", 200, 210, 220, 1);
+        fill(x + 64, y + 4, 180, bh, g.typing ? 46 : 28, g.typing ? 56 : 32, g.typing ? 70 : 42);
+        {
+            char shown[NPL_NAME + 2];
+            if (g.namebuf[0]) {
+                snprintf(shown, sizeof(shown), "%s%s", g.namebuf, g.typing ? "_" : "");
+            } else {
+                snprintf(shown, sizeof(shown), "%s", g.typing ? "_" : "type a name");
+            }
+            text(x + 70, y + 4 + (bh - 7) / 2, shown, g.namebuf[0] ? 240 : 130, 240, 246, 1);
+        }
+        add_hit(x + 64, y + 4, 180, bh, 16, 0);
+        if (holding) {
+            snprintf(lab, sizeof(lab), "HOLD %.1fs", left_ms / 1000.f);
+            btn(x + 250, y + 4, 120, bh, lab, 1, 17, 0, 120, 70, 30);
+        } else {
+            btn(x + 250, y + 4, 120, bh, g.namebuf[0] ? "Record matrix" : "need name",
+                g.namebuf[0], 17, 0, g.namebuf[0] ? 28 : 36, g.namebuf[0] ? 100 : 42,
+                g.namebuf[0] ? 70 : 50);
+        }
+        btn(x + 376, y + 4, 70, bh, g.learn.match ? "MATCH" : "match", g.learn.match, 18, 0,
+            g.learn.match ? 28 : 40, g.learn.match ? 90 : 42, g.learn.match ? 70 : 50);
+        btn(x + 452, y + 4, 48, bh, "del", 0, 19, 0, 90, 42, 46);
+        btn(x + 6, y + 46, 56, 32, "NOISE", g.cal_arm || g.cal.have, 25, 0,
+            g.cal_arm ? 110 : 32, g.cal_arm ? 70 : 36, 40);
+        btn(x + 66, y + 46, 36, 32, "OK", g.cal_arm, 26, 0, g.cal_arm ? 28 : 36,
+            g.cal_arm ? 100 : 38, g.cal_arm ? 70 : 46);
+        btn(x + 106, y + 46, 56, 32, "CALM", g.calm.have, 35, 0, g.calm.have ? 28 : 36,
+            g.calm.have ? 80 : 38, g.calm.have ? 70 : 46);
+        btn(x + 166, y + 46, 48, 32, g.cal_cut ? "CLN" : "cln", g.cal_cut && g.cal.have, 27, 0,
+            g.cal_cut ? 28 : 36, g.cal_cut ? 80 : 38, g.cal_cut ? 70 : 46);
+        if (g.cal_arm) {
+            text(x + 222, y + 56, "desk / off, then OK", 230, 190, 90, 1);
+        } else if (g.cal.have && g.calm.have) {
+            snprintf(lab, sizeof(lab), "noise %.0fHz  calm %.0f uV%s", g.cal_hz, g.calm.rms[0],
+                     g.cal_cut ? "  CLEAN" : "");
+            text(x + 222, y + 56, lab, 140, 180, 150, 1);
+        } else if (g.cal.have) {
+            text(x + 222, y + 56, "wear headset, sit still, CALM", 100, 120, 110, 1);
+        } else {
+            text(x + 222, y + 56, "NOISE = desk plate   then CALM on head", 90, 96, 104, 1);
+        }
+        nshow = g.learn.n > 8 ? 8 : g.learn.n;
+        if (nshow > 0) {
+            bw = (w - 12) / nshow;
+            if (bw > 140) {
+                bw = 140;
+            }
+            if (bw < 72) {
+                bw = 72;
+            }
+            for (i = 0; i < nshow; i++) {
+                int on = (i == g.learn.sel);
+                int hit = (g.learn.match && i == g.learn.best && g.learn.score[i] > 0.55f);
+                int bar, pct;
+                bx = x + 6 + i * bw;
+                fill(bx, y + 84, bw - 5, 40, on ? 42 : 22, hit ? 50 : (on ? 50 : 26),
+                     hit ? 42 : 32);
+                text(bx + 4, y + 88, g.learn.s[i].name, 230, 232, 236, 1);
+                pct = (int)(g.learn.score[i] * 100.f);
+                snprintf(lab, sizeof(lab), "%d%%", pct);
+                text(bx + 4, y + 100, lab, hit ? 80 : 160, hit ? 230 : 180, hit ? 140 : 150, 1);
+                bar = (int)(g.learn.score[i] * (bw - 14));
+                if (bar < 2) {
+                    bar = 2;
+                }
+                fill(bx + 4, y + 114, bar, 6, hit ? 60 : 50, hit ? 190 : 90, 90);
+                add_hit(bx, y + 84, bw - 5, 40, 20, i);
+            }
+        } else {
+            text(x + 8, y + 90, "no samples yet", 90, 96, 104, 1);
+        }
+        return;
+    }
     text(x + 6, y + 5, "LEARN", 200, 210, 220, 1);
 
     text(x + 52, y + 6, "1.", 100, 140, 180, 1);
@@ -4070,40 +4241,86 @@ static void present_cube(int x, int y, int w, int h)
     }
 }
 
+static int gfx_make_renderer(SDL_Window *win)
+{
+    if (cube_tex) {
+        SDL_DestroyTexture(cube_tex);
+        cube_tex = NULL;
+    }
+    if (R) {
+        SDL_DestroyRenderer(R);
+        R = NULL;
+    }
+    if (!win) {
+        return -1;
+    }
+    R = SDL_CreateRenderer(win, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+    if (!R) {
+        NP_ALOG("accel renderer failed: %s", SDL_GetError());
+        R = SDL_CreateRenderer(win, -1, SDL_RENDERER_SOFTWARE);
+    }
+    if (!R) {
+        NP_ALOG("software renderer failed: %s", SDL_GetError());
+        return -1;
+    }
+    SDL_SetRenderDrawBlendMode(R, SDL_BLENDMODE_BLEND);
+    NP_ALOG("renderer ok");
+    return 0;
+}
+
 static int run_gui(void)
 {
     SDL_Window *win;
     SDL_Event ev;
     int live = 1;
 
+#ifdef __ANDROID__
+    setenv("SDL_AUDIODRIVER", "dummy", 1);
+    SDL_SetHint(SDL_HINT_RENDER_DRIVER, "opengles2");
+    SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "0");
+    SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, "1");
+    SDL_SetHint(SDL_HINT_VIDEO_MINIMIZE_ON_FOCUS_LOSS, "0");
+#else
     setenv("SDL_VIDEODRIVER", "x11", 0);
     setenv("SDL_AUDIODRIVER", "dummy", 1);
     SDL_SetHint("SDL_RENDER_SCALE_QUALITY", "0");
+#endif
     if (SDL_Init(SDL_INIT_VIDEO) != 0) {
         fprintf(stderr, "SDL_Init: %s\n", SDL_GetError());
         return 1;
     }
+#ifdef __ANDROID__
+    win = SDL_CreateWindow("exg-c", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 0, 0,
+                           SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE |
+                               SDL_WINDOW_FULLSCREEN_DESKTOP);
+    {
+        int pw = 1280, ph = 720;
+        if (win) {
+            SDL_GetWindowSize(win, &pw, &ph);
+        }
+        win_w = pw;
+        win_h = ph;
+        g.pref_w = pw;
+        g.pref_h = ph;
+    }
+#else
     win = SDL_CreateWindow("exg-c", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
                            g.pref_w, g.pref_h, SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE);
-    Win = win;
     win_w = g.pref_w;
     win_h = g.pref_h;
+#endif
+    Win = win;
     if (!win) {
         fprintf(stderr, "SDL_CreateWindow: %s\n", SDL_GetError());
         SDL_Quit();
         return 1;
     }
-    R = SDL_CreateRenderer(win, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
-    if (!R) {
-        R = SDL_CreateRenderer(win, -1, SDL_RENDERER_SOFTWARE);
-    }
-    if (!R) {
+    if (gfx_make_renderer(win) != 0) {
         fprintf(stderr, "SDL_CreateRenderer: %s\n", SDL_GetError());
         SDL_DestroyWindow(win);
         SDL_Quit();
         return 1;
     }
-    SDL_SetRenderDrawBlendMode(R, SDL_BLENDMODE_BLEND);
     g.nports = np_list_ports(g.ports, NP_MAX_PORTS);
     if (g.nports > 0) {
         do_connect();
@@ -4115,6 +4332,13 @@ static int run_gui(void)
         while (SDL_PollEvent(&ev)) {
             if (ev.type == SDL_QUIT) {
                 live = 0;
+#ifdef __ANDROID__
+            } else if (ev.type == SDL_RENDER_DEVICE_RESET) {
+                /* Only a lost GL context needs a new renderer.
+                 * SIZE_CHANGED/FOCUS during USB connect was wiping the
+                 * surface and leaving a black screen. */
+                gfx_make_renderer(win);
+#endif
             } else if (ev.type == SDL_TEXTINPUT && g.typing) {
                 const char *s = ev.text.text;
                 char *dst = g.typing_prof ? g.prof : g.namebuf;
@@ -4279,10 +4503,21 @@ static int run_gui(void)
                 }
             }
         }
+        if (!R) {
+            gfx_make_renderer(win);
+            if (!R) {
+                SDL_Delay(16);
+                continue;
+            }
+        }
         {
             int pw, ph;
             float s = ui_f();
             SDL_GetWindowSize(win, &pw, &ph);
+            if (pw < 2 || ph < 2) {
+                SDL_Delay(16);
+                continue;
+            }
             /* Clear the real backbuffer first so a previous scale cannot
              * leave a second copy in the margin. */
             SDL_RenderSetScale(R, 1.f, 1.f);
@@ -4291,11 +4526,11 @@ static int run_gui(void)
             SDL_RenderSetScale(R, s, s);
             win_w = (int)(pw / s);
             win_h = (int)(ph / s);
-            if (win_w < 640) {
-                win_w = 640;
+            if (win_w < (NP_TOUCH ? 480 : 640)) {
+                win_w = NP_TOUCH ? 480 : 640;
             }
-            if (win_h < 400) {
-                win_h = 400;
+            if (win_h < (NP_TOUCH ? 300 : 400)) {
+                win_h = NP_TOUCH ? 300 : 400;
             }
         }
         frame();
@@ -4390,9 +4625,15 @@ int main(int argc, char **argv)
     g.cal_cut = 1;
     g.grid = 1;
     g.show_uv = 1;
+#ifdef __ANDROID__
+    g.ui_scale = 15;
+    g.pref_w = 1280;
+    g.pref_h = 720;
+#else
     g.ui_scale = 15;
     g.pref_w = 1920;
     g.pref_h = 1080;
+#endif
     g.cube_yaw = 0.55f;
     g.cube_pitch = 0.40f;
     g.cube_zoom = 1.0f;

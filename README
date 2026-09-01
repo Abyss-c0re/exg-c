@@ -1,26 +1,86 @@
 # exg-c
 
-A local 8-channel EXG host written in C. Plug in a Knight-class board,
-watch the traces, clean the line noise, map channels on a cube, save a
-profile. Not a medical device. Not affiliated with NeuroPawn.
+A local 8-channel EXG host written in C. One tree, three places it runs:
 
-## Install (once)
+| Where | What you get |
+|-------|----------------|
+| **Linux** | `./np-exg` — SDL2 window, `/dev/ttyUSB*` / `/dev/ttyACM*` |
+| **Android** | `exg-c.apk` — same host, touch UI, USB Host (FTDI Knight) |
+| **Embedded** | `nplearn/` — no-heap matcher for the MCU next to the ADS1299 |
+
+Plug in a Knight-class board, watch the traces, clean the line noise, map
+channels on a cube, save a profile. Not a medical device. Not affiliated
+with NeuroPawn.
+
+## Linux
+
+Needs libSDL2 and membership in `dialout` (or equivalent).
 
 ```
-sudo ./install-usb-permissions.sh
-```
-
-Needs libSDL2. The host re-runs itself via `sg dialout` if your user is
-not yet in that group.
-
-## Run
-
-```
+sudo apt install build-essential libsdl2-dev pkg-config
+sudo ./install-usb-permissions.sh   # udev rule for FTDI 0403:6001
 make
 ./np-exg
 ```
 
-Or `./np-exg --cli --port /dev/ttyUSB1 --seconds 8` with no window.
+Headless:
+
+```
+./np-exg --cli --port /dev/ttyUSB0 --seconds 8
+```
+
+`make` uses `pkg-config --libs sdl2` when it is installed, otherwise the
+Debian amd64 SDL2 soname. Tests: `make test` (mock) and `make test-live`
+(5 s on `/dev/ttyUSB1`, desk, not cortex).
+
+Profiles: `~/.config/exg-c.ini` and `~/.config/exg-c/profiles/<name>.ini`.
+Learn blobs: `~/.config/exg-c.learn`.
+
+Desktop entry: `np-exg.desktop` (put `np-exg` on `$PATH`, or edit `Exec=`).
+
+## Android
+
+Same C host as Linux. UI is the same layout with larger hit targets.
+Serial is Android USB Host (Knight FTDI `0403:6001`, plus CH340 / CP210x /
+CDC ACM). Profiles and learn files live in the app files dir.
+
+```
+# Android SDK + NDK + cmake + javac on $PATH (or $ANDROID_HOME)
+./android/build.sh
+adb install -r android/exg-c.apk
+```
+
+Or `make android`. First run fetches SDL2 into `android/third_party/`
+(gitignored). Default ABI is `arm64-v8a`.
+
+On the phone: grant USB when the Knight is plugged in, tap **Connect**.
+Do not spam Disconnect/Connect — that resets the Nano. Type-C must be in
+**USB host** mode (OTG). Details: [android/README.md](android/README.md).
+
+## Embedded (MCU)
+
+`nplearn/` is a no-heap C library. No FILE, no threads. The Linux and
+Android hosts link it; a Knight firmware image compiles only the two
+core files:
+
+```
+cc -c nplearn/src/nplearn.c nplearn/src/nplearn_filt.c -Inplearn/include
+```
+
+Skip `nplearn_posix.c` on the MCU. Typical loop:
+
+```
+npl_prep(wave[ch], &rms[ch], adc_uv, n, 125.f, 50.f);
+npl_add(&L, "fist", wave, rms, mask);
+npl_set_cube(&L, slot, cube512);
+npl_score(&L, wave, rms, mask);
+n = npl_export(&L, blob, sizeof blob);   /* write to flash */
+npl_import(&L, blob, n);
+```
+
+See [nplearn/README](nplearn/README). BrainCube plugins on a host include
+`include/np_cube.h` (`np_virt_claim` / `np_virt_write`). Interior cells
+only — the headset shell is reserved.
 
 ## First session
 
@@ -53,8 +113,9 @@ Default montage: ch1–8 → Fp1 Fp2 C3 C4 P3 P4 O1 O2.
 A profile is the whole setup: UI scale, window size, notch / high-pass,
 CLEAN, gain, colors, channel on/RLD, and electrode sites.
 
-- Last session also autosaves to `~/.config/exg-c.ini`.
-- Named files live in `~/.config/exg-c/profiles/<name>.ini`.
+- Linux last session: `~/.config/exg-c.ini`.
+- Named files: `~/.config/exg-c/profiles/<name>.ini`.
+- Android: the same names, under the app files directory.
 - **next** walks saved names; then click **Load**.
 - Names: letters, digits, `-`, `_`. Enter in the name box also Saves.
 
@@ -64,6 +125,8 @@ CLEAN, gain, colors, channel on/RLD, and electrode sites.
 channel (on Cube: pick that ch) · `m` Main · `s` Settings · `b` Cube ·
 arrows scroll the sidebar / on Cube step 10-10 · `+` `-` zoom · Enter
 assign · `q` quit
+
+On Android those are also on-screen buttons. Touch-drag spins the cube.
 
 ## Cleaning the line (honest)
 
@@ -85,9 +148,9 @@ and are labeled open/rail, not EEG.
 ## Learn
 
 Type a name → **Record 2s** → hold still. MATCH scores live vs saved
-poses. Same name overwrites. `del` removes the selected chip. Samples
-stay in `~/.config/exg-c.learn`. Learn always runs hp 2 Hz, a 40 Hz
-low-pass, and the mains notch.
+poses. Same name overwrites. `del` removes the selected chip. Linux
+samples stay in `~/.config/exg-c.learn`. Learn always runs hp 2 Hz, a
+40 Hz low-pass, and the mains notch.
 
 ## Build / test
 
@@ -96,10 +159,5 @@ make            # libnplearn.a + ./np-exg
 make test       # mock parser, CAL, AUTO, cube, profiles
 make test-live  # 5 s collect on /dev/ttyUSB1 (desk, not cortex)
 make lib        # matcher only
+make android    # android/exg-c.apk (needs the Android SDK)
 ```
-
-`nplearn/` is a no-heap C library for MCU templates. The host links it.
-See `nplearn/README`.
-
-BrainCube plugins include `include/np_cube.h` (`np_virt_claim` /
-`np_virt_write`). Interior cells only — the headset shell is reserved.

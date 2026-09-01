@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Knight FTDI FT232R -->
+    <usb-device vendor-id="1027" product-id="24577" />
+    <usb-device vendor-id="1027" />
+    <!-- CH340 / CP210x / CDC -->
+    <usb-device vendor-id="6790" />
+    <usb-device vendor-id="4292" />
+    <usb-device class="2" />
+</resources>

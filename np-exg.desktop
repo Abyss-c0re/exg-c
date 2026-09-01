@@ -2,8 +2,8 @@
 Type=Application
 Name=exg-c
 Comment=Watch 8 EXG channels, map them on a cube, save profiles
-Exec=/opt/exg-c/np-exg
-Path=/opt/exg-c
-Icon=/opt/exg-c/exg-c.png
+Exec=np-exg
+Path=
+Icon=exg-c.png
 Terminal=false
 Categories=Science;

@@ -1,0 +1,7 @@
+build/
+third_party/
+*.apk
+*.apk.idsig
+debug.keystore
+titan-screen.png
+*.png.bak

@@ -1,6 +1,7 @@
-nplearn — portable EXG template matcher
+nplearn — portable EXG template matcher (the embedded half of exg-c)
 
-No heap, no FILE, no threads. Floats in, scores out.
+No heap, no FILE, no threads. Floats in, scores out. Linux and Android
+hosts link this; a Knight MCU builds only the two core files.
 
   nplearn.c       store, score, flash blob
   nplearn_filt.c  hp 2 Hz + notch + lp 40 Hz + pack

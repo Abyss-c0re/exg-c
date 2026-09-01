@@ -2,7 +2,10 @@ CC = gcc
 CFLAGS = -std=c11 -D_DEFAULT_SOURCE -DNPL_POSIX -O2 -Wall -Wextra -pthread \
 	-Iinclude -Isrc -Inplearn/include
 LDFLAGS = -pthread -lm
+SDL ?= $(shell pkg-config --libs sdl2 2>/dev/null)
+ifeq ($(SDL),)
 SDL = /usr/lib/x86_64-linux-gnu/libSDL2-2.0.so.0
+endif
 AR = ar
 
 HOST = src/main.c src/np_serial.c src/np_knight.c src/np_ring.c src/np_dsp.c src/np_font.c \
@@ -16,7 +19,7 @@ LIVE = tests/live_collect
 TEST_SRC = src/np_serial.c src/np_knight.c src/np_ring.c src/np_dsp.c src/np_smx.c src/np_algo.c
 TEST_NPL = nplearn/src/nplearn.c nplearn/src/nplearn_filt.c nplearn/src/nplearn_posix.c
 
-.PHONY: all lib clean cli test test-live deliver
+.PHONY: all lib clean cli test test-live deliver android
 
 all: $(BIN)
 
@@ -30,6 +33,9 @@ $(LIB): $(NPL) nplearn/include/nplearn.h
 
 $(BIN): $(HOST) $(LIB)
 	$(CC) $(CFLAGS) -o $@ $(HOST) $(LIB) $(SDL) $(LDFLAGS)
+
+android:
+	./android/build.sh
 
 clean:
 	rm -f $(BIN) $(LIB) nplearn/src/*.o $(TEST_CORE) $(LIVE)

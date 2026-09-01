@@ -1,3 +1,4 @@
+#ifndef __ANDROID__
 #define _GNU_SOURCE
 #include "np_serial.h"
 
@@ -130,3 +131,5 @@ int np_list_ports(char out[][NP_MAX_PATH], int max)
     closedir(d);
     return n;
 }
+
+#endif /* !__ANDROID__ */

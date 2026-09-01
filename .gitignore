@@ -1,5 +1,8 @@
 /np-exg
 /libnplearn.a
+/android/build/
+/android/third_party/
+/android/*.apk
 *.o
 *.csv
 !tests/fixtures/live-table.csv
