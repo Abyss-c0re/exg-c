@@ -38,6 +38,8 @@ public class CubeView extends View {
     private final int[] elecCol = new int[NCHAN];
     private int elecSel;
     private int siteFocus;
+    private int smxSeq;
+    private int smxFold;
     private float yaw = 0.55f, pitch = 0.40f, zoom = 1.0f;
     private float lastX, lastY;
     private boolean spinning;
@@ -94,6 +96,8 @@ public class CubeView extends View {
     public void pull() {
         mode = ExgNative.cubeView();
         ncell = ExgNative.vizCells(cellXyz, cellS, cellRgba);
+        smxSeq = ExgNative.smxSeq();
+        smxFold = ExgNative.smxFold();
         nsite = Math.min(MAX_SITE, ExgNative.siteN());
         siteFocus = ExgNative.siteFocus();
         elecSel = ExgNative.elecSel();
@@ -239,7 +243,12 @@ public class CubeView extends View {
             drawCore(c, cx, cy, k);
             ink.setColor(0xFFF22647);
             ink.setTextSize(28f);
-            c.drawText("viz  same 10-10 sites as map  ·  drag to spin", 16, 36, ink);
+            String bits = "";
+            for (int b = 0; b < 8; b++) {
+                bits += ((smxFold >> b) & 1) != 0 ? "1" : "0";
+            }
+            c.drawText("viz  seq " + smxSeq + "  " + bits + "  ·  drag", 16, 36, ink);
+            drawSot(c, w, h);
         } else {
             drawFocusCell(c, cx, cy, k);
             drawSiteLabels(c, cx, cy, k);
@@ -291,13 +300,16 @@ public class CubeView extends View {
             int i = order[oi];
             int rgba = cellRgba[i];
             int a = (rgba >>> 24) & 255;
-            if (mode == 0 && a < 120) {
-                continue;
-            }
+            int on = a >= 160 ? 1 : 0;
             project(cellXyz[i * 3], cellXyz[i * 3 + 1], cellXyz[i * 3 + 2], cx, cy, k, p);
-            float r = Math.max(8f, cellS[i] * k * 0.55f);
-            fill.setColor(rgba);
+            float r = Math.max(on != 0 ? 14f : 6f, cellS[i] * k * (on != 0 ? 0.72f : 0.35f));
+            fill.setColor(on != 0 ? rgba : 0x55F22647);
             c.drawRect(p[0] - r, p[1] - r, p[0] + r, p[1] + r, fill);
+            if (on != 0) {
+                stroke.setColor(0xFFFFFFFF);
+                stroke.setStrokeWidth(2f);
+                c.drawRect(p[0] - r, p[1] - r, p[0] + r, p[1] + r, stroke);
+            }
         }
     }
 
@@ -382,6 +394,23 @@ public class CubeView extends View {
                 ink.setTextSize(20f);
                 c.drawText(siteName[i] != null ? siteName[i] : "?", sx + 8, sy - 4, ink);
             }
+        }
+    }
+
+    private void drawSot(Canvas c, int w, int h) {
+        int cell = Math.min(48, Math.max(28, (w - 32) / 8));
+        int y = h - cell - 16;
+        ink.setColor(0xFFEEC8CE);
+        ink.setTextSize(22f);
+        c.drawText("this second", 16, y - 8, ink);
+        for (int ch = 0; ch < 8; ch++) {
+            int x = 16 + ch * (cell + 6);
+            boolean on = ((smxFold >> ch) & 1) != 0;
+            fill.setColor(on ? (elecCol[ch] | 0xFF000000) : 0xFF2A1014);
+            c.drawRect(x, y, x + cell, y + cell, fill);
+            ink.setColor(0xFFFFFFFF);
+            ink.setTextSize(20f);
+            c.drawText(String.valueOf(ch + 1), x + 8, y + cell - 8, ink);
         }
     }
 }

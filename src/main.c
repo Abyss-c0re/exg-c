@@ -4727,6 +4727,7 @@ void np_host_tick(void)
     if (!host_ready) {
         return;
     }
+    smx_tick();
     learn_tick();
     if (g.connected && !g.en_running) {
         uint64_t tot = 0;
@@ -5182,7 +5183,78 @@ int np_host_viz_cells(float *xyz, float *size, int *rgba, int cap)
         size[i] = cells[i].s;
         rgba[i] = (cells[i].a << 24) | (cells[i].r << 16) | (cells[i].g << 8) | cells[i].b;
     }
+    /* Live 8^3 ON bits — otherwise viz is eight dim electrode cells. */
+    {
+        int ix, iy, iz;
+        for (iz = 0; iz < 8 && n < cap; iz++) {
+            for (iy = 0; iy < 8 && n < cap; iy++) {
+                for (ix = 0; ix < 8 && n < cap; ix++) {
+                    float wx, wy, wz;
+                    int k, dup = 0;
+                    if (!np_cube_get(&g.smx, ix, iy, iz)) {
+                        continue;
+                    }
+                    np_ijk_world(ix, iy, iz, &wx, &wy, &wz);
+                    for (k = 0; k < n; k++) {
+                        float dx = xyz[k * 3] - wx, dy = xyz[k * 3 + 1] - wy,
+                              dz = xyz[k * 3 + 2] - wz;
+                        if (dx * dx + dy * dy + dz * dz < 0.04f) {
+                            dup = 1;
+                            break;
+                        }
+                    }
+                    if (dup) {
+                        continue;
+                    }
+                    xyz[n * 3] = wx;
+                    xyz[n * 3 + 1] = wy;
+                    xyz[n * 3 + 2] = wz;
+                    size[n] = 0.24f;
+                    rgba[n] = (230 << 24) | (242 << 16) | (38 << 8) | 71;
+                    n++;
+                }
+            }
+        }
+    }
     return n;
+}
+
+unsigned int np_host_smx_seq(void)
+{
+    return g.smx.seq;
+}
+
+unsigned int np_host_smx_fold(void)
+{
+    unsigned int f = 0;
+    int c, row;
+    if (g.smx.have < 1) {
+        return 0;
+    }
+    row = (int)((g.smx.wr - 1) % NP_SMX_SEC);
+    for (c = 0; c < NP_NCHAN; c++) {
+        if (g.smx.bit[row][c]) {
+            f |= 1u << c;
+        }
+    }
+    return f;
+}
+
+int np_host_prof_export(const char *path)
+{
+    return cfg_write(path);
+}
+
+int np_host_prof_import(const char *path)
+{
+    if (cfg_read(path) != 0) {
+        set_status(0, "cannot read profile file");
+        return -1;
+    }
+    prof_apply();
+    cfg_save();
+    set_status(1, "loaded profile file");
+    return 0;
 }
 
 static void usage(const char *a0)

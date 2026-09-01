@@ -1,6 +1,8 @@
 package com.abysscore.exgc;
 
 import android.app.Activity;
+import android.content.Intent;
+import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -13,6 +15,10 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
 
 public class ExgActivity extends Activity {
     private final Handler h = new Handler(Looper.getMainLooper());
@@ -38,9 +44,11 @@ public class ExgActivity extends Activity {
     private EditText profName;
     private EditText learnName;
     private LinearLayout chGrid;
+    private LinearLayout profChips;
     private int tab;
-    private int profI;
     private boolean running = true;
+    private static final int REQ_EXPORT = 71;
+    private static final int REQ_IMPORT = 72;
 
     private final Runnable tick = new Runnable() {
         @Override
@@ -94,6 +102,7 @@ public class ExgActivity extends Activity {
         profName = findViewById(R.id.profName);
         learnName = findViewById(R.id.learnName);
         chGrid = findViewById(R.id.chGrid);
+        profChips = findViewById(R.id.profChips);
 
         connect.setOnClickListener(v -> {
             if (ExgNative.connected()) {
@@ -175,14 +184,22 @@ public class ExgActivity extends Activity {
             refreshChannels();
             refreshChrome();
         });
-        findViewById(R.id.profNext).setOnClickListener(v -> {
-            String[] ps = ExgNative.profiles();
-            if (ps == null || ps.length == 0) {
-                return;
+        findViewById(R.id.profExport).setOnClickListener(v -> {
+            String name = profName.getText().toString().trim();
+            if (name.length() == 0) {
+                name = "exg-profile";
             }
-            profI = (profI + 1) % ps.length;
-            profName.setText(ps[profI]);
-            ExgNative.setProfile(ps[profI]);
+            Intent it = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+            it.addCategory(Intent.CATEGORY_OPENABLE);
+            it.setType("text/plain");
+            it.putExtra(Intent.EXTRA_TITLE, name + ".ini");
+            startActivityForResult(it, REQ_EXPORT);
+        });
+        findViewById(R.id.profImport).setOnClickListener(v -> {
+            Intent it = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+            it.addCategory(Intent.CATEGORY_OPENABLE);
+            it.setType("*/*");
+            startActivityForResult(it, REQ_IMPORT);
         });
         notch.setOnClickListener(v -> {
             ExgNative.cycleNotch();
@@ -286,20 +303,89 @@ public class ExgActivity extends Activity {
         scale.setText("±" + ExgNative.scaleUv() + " µV");
     }
 
-    private void refreshProfiles() {
-        String[] ps = ExgNative.profiles();
-        StringBuilder sb = new StringBuilder("saved: ");
-        if (ps == null || ps.length == 0) {
-            sb.append("(none yet)");
-        } else {
-            for (int i = 0; i < ps.length; i++) {
-                if (i > 0) {
-                    sb.append("  ·  ");
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (resultCode != RESULT_OK || data == null || data.getData() == null) {
+            return;
+        }
+        Uri uri = data.getData();
+        File tmp = new File(getCacheDir(), requestCode == REQ_EXPORT ? "export.ini" : "import.ini");
+        try {
+            if (requestCode == REQ_EXPORT) {
+                if (ExgNative.profExport(tmp.getAbsolutePath()) != 0) {
+                    status.setText("export failed");
+                    return;
                 }
-                sb.append(ps[i]);
+                copyFileToUri(tmp, uri);
+                status.setText("exported profile");
+            } else if (requestCode == REQ_IMPORT) {
+                copyUriToFile(uri, tmp);
+                if (ExgNative.profImport(tmp.getAbsolutePath()) != 0) {
+                    status.setText("import failed");
+                    return;
+                }
+                profName.setText(ExgNative.getProfile());
+                refreshChannels();
+                refreshProfiles();
+                refreshChrome();
+            }
+        } catch (Exception e) {
+            status.setText("file: " + e.getMessage());
+        }
+    }
+
+    private void copyFileToUri(File src, Uri uri) throws Exception {
+        try (InputStream in = new FileInputStream(src);
+                OutputStream out = getContentResolver().openOutputStream(uri)) {
+            if (out == null) {
+                throw new Exception("cannot write document");
+            }
+            byte[] buf = new byte[4096];
+            int n;
+            while ((n = in.read(buf)) > 0) {
+                out.write(buf, 0, n);
             }
         }
-        profList.setText(sb.toString());
+    }
+
+    private void copyUriToFile(Uri uri, File dst) throws Exception {
+        try (InputStream in = getContentResolver().openInputStream(uri);
+                OutputStream out = new FileOutputStream(dst)) {
+            if (in == null) {
+                throw new Exception("cannot read document");
+            }
+            byte[] buf = new byte[4096];
+            int n;
+            while ((n = in.read(buf)) > 0) {
+                out.write(buf, 0, n);
+            }
+        }
+    }
+
+    private void refreshProfiles() {
+        String[] ps = ExgNative.profiles();
+        profChips.removeAllViews();
+        if (ps == null || ps.length == 0) {
+            TextView empty = new TextView(this);
+            empty.setText("no local profiles yet — Export… to keep one as a file");
+            empty.setTextColor(0xFF8B93A0);
+            profChips.addView(empty);
+            return;
+        }
+        for (int i = 0; i < ps.length; i++) {
+            final String name = ps[i];
+            Button b = new Button(this);
+            b.setText(name);
+            b.setOnClickListener(v -> {
+                profName.setText(name);
+                ExgNative.setProfile(name);
+                ExgNative.profLoad();
+                refreshChannels();
+                refreshChrome();
+            });
+            profChips.addView(b);
+        }
     }
 
     private void buildChannels() {

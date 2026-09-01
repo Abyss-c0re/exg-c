@@ -73,4 +73,8 @@ public final class ExgNative {
     public static native void siteXyz(int i, float[] xyz);
     public static native String siteFocusLabel();
     public static native int vizCells(float[] xyz, float[] size, int[] rgba);
+    public static native int smxSeq();
+    public static native int smxFold();
+    public static native int profExport(String path);
+    public static native int profImport(String path);
 }

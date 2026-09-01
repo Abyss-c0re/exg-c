@@ -632,4 +632,38 @@ Java_com_abysscore_exgc_ExgNative_vizCells(JNIEnv *env, jclass cls, jfloatArray 
     }
     return n;
 }
+
+JNIEXPORT jint JNICALL
+Java_com_abysscore_exgc_ExgNative_smxSeq(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    return (jint)np_host_smx_seq();
+}
+
+JNIEXPORT jint JNICALL
+Java_com_abysscore_exgc_ExgNative_smxFold(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    return (jint)np_host_smx_fold();
+}
+
+JNIEXPORT jint JNICALL
+Java_com_abysscore_exgc_ExgNative_profExport(JNIEnv *env, jclass cls, jstring path)
+{
+    char buf[256];
+    (void)cls;
+    jstr_to(env, path, buf, sizeof(buf));
+    return np_host_prof_export(buf);
+}
+
+JNIEXPORT jint JNICALL
+Java_com_abysscore_exgc_ExgNative_profImport(JNIEnv *env, jclass cls, jstring path)
+{
+    char buf[256];
+    (void)cls;
+    jstr_to(env, path, buf, sizeof(buf));
+    return np_host_prof_import(buf);
+}
 #endif

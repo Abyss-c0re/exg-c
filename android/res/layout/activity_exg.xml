@@ -208,17 +208,36 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Profile (saved in app files, no extra permission)"
+                    android:text="Profile — export/import as a file (Files / Drive / Downloads)"
                     android:textColor="@color/muted" />
 
                 <EditText
                     android:id="@+id/profName"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:hint="e.g. motor"
+                    android:hint="name (letters, digits, - _)"
                     android:inputType="text"
                     android:textColor="@color/ink"
                     android:textColorHint="@color/muted" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content">
+
+                    <Button
+                        android:id="@+id/profExport"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="Export…" />
+
+                    <Button
+                        android:id="@+id/profImport"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="Import…" />
+                </LinearLayout>
 
                 <LinearLayout
                     android:layout_width="match_parent"
@@ -229,29 +248,30 @@
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="Save" />
+                        android:text="Save here" />
 
                     <Button
                         android:id="@+id/profLoad"
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="Load" />
-
-                    <Button
-                        android:id="@+id/profNext"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="Next" />
+                        android:text="Load here" />
                 </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/profChips"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:paddingTop="8dp" />
 
                 <TextView
                     android:id="@+id/profList"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:paddingTop="8dp"
-                    android:textColor="@color/ink" />
+                    android:paddingTop="4dp"
+                    android:textColor="@color/muted"
+                    android:visibility="gone" />
 
                 <LinearLayout
                     android:layout_width="match_parent"

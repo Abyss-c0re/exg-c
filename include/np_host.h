@@ -85,5 +85,9 @@ void np_host_site_xyz(int i, float *x, float *y, float *z);
 int np_host_site_ijk(int i, int *x, int *y, int *z);
 /* Packed viz cells: xyz[n*3], size[n], rgba[n]. Returns n (≤40). */
 int np_host_viz_cells(float *xyz, float *size, int *rgba, int cap);
+unsigned int np_host_smx_seq(void);
+unsigned int np_host_smx_fold(void);
+int np_host_prof_export(const char *path);
+int np_host_prof_import(const char *path);
 
 #endif
