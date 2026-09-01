@@ -10,6 +10,7 @@ typedef int32_t Sint32;
 
 typedef struct SDL_Window SDL_Window;
 typedef struct SDL_Renderer SDL_Renderer;
+typedef struct SDL_Texture SDL_Texture;
 
 typedef struct SDL_Rect {
     int x, y, w, h;
@@ -22,6 +23,8 @@ typedef struct SDL_Rect {
 #define SDL_RENDERER_ACCELERATED 0x00000002u
 #define SDL_RENDERER_PRESENTVSYNC 0x00000004u
 #define SDL_RENDERER_SOFTWARE 0x00000001u
+#define SDL_TEXTUREACCESS_TARGET 2
+#define SDL_PIXELFORMAT_ARGB8888 372645892u
 
 #define SDL_QUIT 0x100
 #define SDL_KEYDOWN 0x300
@@ -29,8 +32,11 @@ typedef struct SDL_Rect {
 #define SDL_MOUSEMOTION 0x400
 #define SDL_MOUSEBUTTONDOWN 0x401
 #define SDL_MOUSEBUTTONUP 0x402
+#define SDL_MOUSEWHEEL 0x403
 
 #define SDL_BUTTON_LEFT 1
+#define SDL_MOUSEWHEEL_NORMAL 0u
+#define SDL_MOUSEWHEEL_FLIPPED 1u
 #define SDLK_ESCAPE 27
 #define SDLK_BACKSPACE 8
 #define SDLK_RETURN 13
@@ -40,6 +46,22 @@ typedef struct SDL_Rect {
 #define SDLK_q 113
 #define SDLK_SPACE 32
 #define SDLK_TAB 9
+#define SDLK_PAGEUP 1073741899
+#define SDLK_PAGEDOWN 1073741902
+#define SDLK_UP 1073741906
+#define SDLK_DOWN 1073741905
+#define SDLK_RIGHT 1073741903
+#define SDLK_LEFT 1073741904
+#define SDLK_MINUS 45
+#define SDLK_EQUALS 61
+#define SDLK_PLUS 43
+#define SDLK_COMMA 44
+#define SDLK_PERIOD 46
+#define SDLK_KP_MINUS 1073741910
+#define SDLK_KP_PLUS 1073741911
+#define SDLK_m 109
+#define SDLK_s 115
+#define SDLK_b 98
 #define SDLK_1 49
 #define SDLK_2 50
 #define SDLK_3 51
@@ -78,12 +100,19 @@ typedef struct SDL_TextInputEvent {
     char text[32];
 } SDL_TextInputEvent;
 
+typedef struct SDL_MouseWheelEvent {
+    Uint32 type, timestamp, windowID, which;
+    Sint32 x, y;
+    Uint32 direction;
+} SDL_MouseWheelEvent;
+
 typedef union SDL_Event {
     Uint32 type;
     SDL_KeyboardEvent key;
     SDL_MouseButtonEvent button;
     SDL_MouseMotionEvent motion;
     SDL_TextInputEvent text;
+    SDL_MouseWheelEvent wheel;
     Uint8 pad[64];
 } SDL_Event;
 
@@ -109,6 +138,12 @@ void SDL_GetWindowSize(SDL_Window *w, int *wi, int *he);
 void SDL_SetWindowSize(SDL_Window *w, int wi, int he);
 void SDL_SetWindowTitle(SDL_Window *w, const char *title);
 int SDL_RenderSetScale(SDL_Renderer *r, float sx, float sy);
+int SDL_RenderSetClipRect(SDL_Renderer *r, const SDL_Rect *rect);
+SDL_Texture *SDL_CreateTexture(SDL_Renderer *r, Uint32 format, int access, int w, int h);
+int SDL_SetRenderTarget(SDL_Renderer *r, SDL_Texture *t);
+int SDL_RenderCopy(SDL_Renderer *r, SDL_Texture *t, const SDL_Rect *src, const SDL_Rect *dst);
+void SDL_DestroyTexture(SDL_Texture *t);
+Uint32 SDL_GetMouseState(int *x, int *y);
 void SDL_StartTextInput(void);
 void SDL_StopTextInput(void);
 

@@ -7,6 +7,14 @@
 #define M_PI 3.14159265358979323846
 #endif
 
+static float npl_flush(float y)
+{
+    if (y < 1e-18f && y > -1e-18f) {
+        return 0.f;
+    }
+    return y;
+}
+
 struct npl_hp {
     float a, x1, y1;
 };
@@ -38,7 +46,7 @@ static float hp_step(struct npl_hp *f, float x)
     if (f->a <= 0.f) {
         return x;
     }
-    y = f->a * (f->y1 + x - f->x1);
+    y = npl_flush(f->a * (f->y1 + x - f->x1));
     f->x1 = x;
     f->y1 = y;
     return y;
@@ -92,7 +100,7 @@ static float notch_step(struct npl_notch *f, float x)
     if (f->b0 == 1.f && f->b1 == 0.f) {
         return x;
     }
-    y = f->b0 * x + f->b1 * f->x1 + f->b2 * f->x2 - f->a1 * f->y1 - f->a2 * f->y2;
+    y = npl_flush(f->b0 * x + f->b1 * f->x1 + f->b2 * f->x2 - f->a1 * f->y1 - f->a2 * f->y2);
     f->x2 = f->x1;
     f->x1 = x;
     f->y2 = f->y1;

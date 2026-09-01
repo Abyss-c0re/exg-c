@@ -116,6 +116,7 @@ struct np_app {
     uint32_t saved_t0;
     uint64_t stall_tot;
     int stall_n;
+    uint32_t stall_t;
     int recover_n;
     int tab;
     int ui_scale; /* tenths: 10, 15, 20 → 1.0x 1.5x 2.0x */
@@ -127,6 +128,9 @@ struct np_app {
     char cube_ack[48];
     int cube_ok;
     float cube_yaw, cube_pitch;
+    float cube_zoom;
+    int site_focus; /* 10-10 index */
+    int virt_focus; /* IMU / plugin slot */
     struct np_elec elec[NP_NCHAN];
     int elec_sel; /* 0..7 or -1 */
     int algo;     /* NP_ALGO_* 0/1 fold for cube + learn */
@@ -134,6 +138,7 @@ struct np_app {
     char profiles[NP_MAX_PROF][NP_PROF_NAME];
     int nprof;
     int typing_prof;
+    int side_scroll;
 };
 
 static struct np_app g;
@@ -175,6 +180,7 @@ static float ui_f(void)
 static void set_status(int ok, const char *fmt, ...);
 static void typing_set(int on);
 static void apply_filt(int ch, float *buf, uint32_t n);
+static void present_cube(int x, int y, int w, int h);
 static void ch_stats(const float *buf, uint32_t n, float *dc, float *rms, float *pk);
 static void cmd_push(int op, int ch, int gain);
 static void cfg_save(void);
@@ -215,6 +221,20 @@ static float notch_hz_eff(void)
     return (float)g.notch_hz;
 }
 
+static uint64_t live_seen;
+static int live_sig = -1;
+static uint32_t live_wr;
+static float live_ch[NP_NCHAN][NP_RING];
+static uint32_t clean_t;
+static uint64_t clean_seen;
+static uint32_t clean_n[NP_NCHAN];
+static float clean_ch[NP_NCHAN][NP_RING];
+
+static int filt_sig(void)
+{
+    return g.hp_hz + (g.notch_hz + 3) * 97 + (int)(notch_hz_eff() * 10.f) + g.cal_cut * 10007;
+}
+
 static void filt_reset(void)
 {
     int i;
@@ -225,6 +245,11 @@ static void filt_reset(void)
         /* AUTO uses the cal tone as a cheap IIR — not a per-frame LS fit. */
         np_notch_init(&g.notch[i], nh > 1.f ? nh : 0.f, sps, 30.f);
     }
+    live_seen = 0;
+    live_wr = 0;
+    live_sig = -1;
+    clean_t = 0;
+    clean_seen = 0;
 }
 
 static void cfg_path(char *out, size_t n)
@@ -298,12 +323,18 @@ static int learn_capture(float wave[NPL_NCHAN][NPL_LEN], float rms[NPL_NCHAN], u
 
 static void learn_tick(void)
 {
+    static uint32_t last;
     float wave[NPL_NCHAN][NPL_LEN], rms[NPL_NCHAN];
     uint8_t mask;
+    uint32_t now = SDL_GetTicks();
     if (!g.learn.match || g.learn.n <= 0) {
         g.learn.best = -1;
         return;
     }
+    if (last && now - last < 100) {
+        return;
+    }
+    last = now;
     if (learn_capture(wave, rms, &mask) != 0) {
         g.learn.best = -1;
         return;
@@ -482,6 +513,7 @@ static int cfg_write(const char *path)
     fprintf(f, "\n[cube]\n");
     fprintf(f, "yaw=%.4f\n", (double)g.cube_yaw);
     fprintf(f, "pitch=%.4f\n", (double)g.cube_pitch);
+    fprintf(f, "zoom=%.2f\n", (double)g.cube_zoom);
     for (i = 0; i < NP_NCHAN; i++) {
         if (g.elec[i].name[0]) {
             fprintf(f, "elec%d=%s\n", i + 1, g.elec[i].name);
@@ -557,6 +589,8 @@ static int cfg_read(const char *path)
             snprintf(g.prof, sizeof(g.prof), "%s", ename);
         } else if (sscanf(line, "yaw=%f", &fa) == 1) {
             g.cube_yaw = fa;
+        } else if (sscanf(line, "zoom=%f", &fa) == 1 && fa >= 0.7f && fa <= 2.8f) {
+            g.cube_zoom = fa;
         } else if (sscanf(line, "pitch=%f", &fa) == 1) {
             g.cube_pitch = fa;
         } else if (sscanf(line, "elec%d=%f,%f", &v, &fa, &fb) == 3 && v >= 1 && v <= NP_NCHAN) {
@@ -752,41 +786,149 @@ static void prof_cycle(void)
     set_status(1, "profile '%s'  (%d/%d)  click Load", g.prof, next + 1, g.nprof);
 }
 
+/* Snapshot path (learn / CAL). Own poles — must not smash the live IIR. */
 static void apply_filt(int ch, float *buf, uint32_t n)
 {
     uint32_t i;
     float sps = design_sps();
-    {
-        float nh = 0.f;
-        if (g.notch_hz != 0) {
-            nh = notch_hz_eff();
-        } else if (g.cal_cut && g.cal_hz > 1.f) {
-            nh = g.cal_hz;
+    float nh = 0.f;
+    struct np_hp hp;
+    struct np_notch nt;
+
+    if (g.notch_hz != 0) {
+        nh = notch_hz_eff();
+    } else if (g.cal_cut && g.cal_hz > 1.f) {
+        nh = g.cal_hz;
+    }
+    if (g.hp_hz <= 0 && nh <= 1.f && !(g.cal_cut && g.calm.have)) {
+        return;
+    }
+    np_hp_init(&hp, (float)g.hp_hz, sps);
+    np_notch_init(&nt, nh > 1.f ? nh : 0.f, sps, 30.f);
+    for (i = 0; i < n; i++) {
+        float v = buf[i];
+        if (g.hp_hz > 0) {
+            v = np_hp_step(&hp, v);
         }
-        if (g.hp_hz <= 0 && nh <= 1.f && !(g.cal_cut && g.calm.have)) {
-            return;
-        }
-        np_hp_init(&g.hp[ch], (float)g.hp_hz, sps);
         if (nh > 1.f) {
-            np_notch_init(&g.notch[ch], nh, sps, 30.f);
+            v = np_notch_step(&nt, v);
         }
-        for (i = 0; i < n; i++) {
-            float v = buf[i];
-            if (g.hp_hz > 0) {
-                v = np_hp_step(&g.hp[ch], v);
-            }
-            if (nh > 1.f) {
-                v = np_notch_step(&g.notch[ch], v);
-            }
-            buf[i] = v;
-        }
-        if (g.cal_cut && g.noise_psd_ok && n >= (uint32_t)NP_FFT_N) {
+        buf[i] = v;
+    }
+    if (g.cal_cut && g.noise_psd_ok && n >= (uint32_t)NP_FFT_N) {
+        if (n > 512) {
+            np_plate_destroy(buf + (n - 512), 512, g.noise_psd);
+        } else {
             np_plate_destroy(buf, (int)n, g.noise_psd);
         }
-        if (g.cal_cut && g.calm.have) {
-            np_sub_dc(buf, (int)n, g.calm.dc[ch]);
+    }
+    if (g.cal_cut && g.calm.have) {
+        np_sub_dc(buf, (int)n, g.calm.dc[ch]);
+    }
+}
+
+/* One IIR step per new sample. Display copies this. Never re-filter the window. */
+static void live_sync(void)
+{
+    uint64_t tot = 0;
+    uint32_t need, c, i;
+    int sig = filt_sig();
+    float nh = 0.f;
+
+    np_ring_stats(&g.ring, &tot, NULL, NULL);
+    if (sig != live_sig) {
+        filt_reset();
+        live_sig = filt_sig();
+        live_seen = tot > 16 ? tot - 16 : 0;
+    }
+    if (tot < live_seen) {
+        live_seen = 0;
+        live_wr = 0;
+    }
+    need = (uint32_t)(tot - live_seen);
+    if (need == 0) {
+        return;
+    }
+    if (need > NP_RING) {
+        need = NP_RING;
+        live_seen = tot - need;
+    }
+    if (g.notch_hz != 0) {
+        nh = notch_hz_eff();
+    } else if (g.cal_cut && g.cal_hz > 1.f) {
+        nh = g.cal_hz;
+    }
+    for (c = 0; c < NP_NCHAN; c++) {
+        float tmp[NP_RING];
+        uint32_t n = np_ring_copy(&g.ring, c, tmp, need);
+        uint32_t off = n < need ? need - n : 0;
+        for (i = 0; i < n; i++) {
+            float v = tmp[i];
+            if (g.hp_hz > 0) {
+                v = np_hp_step(&g.hp[c], v);
+            }
+            if (nh > 1.f) {
+                v = np_notch_step(&g.notch[c], v);
+            }
+            live_ch[c][(live_wr + off + i) % NP_RING] = v;
         }
     }
+    live_wr += need;
+    live_seen = tot;
+}
+
+static uint32_t live_copy(int ch, float *dst, uint32_t n)
+{
+    uint32_t have, i, start;
+    live_sync();
+    have = live_seen < NP_RING ? (uint32_t)live_seen : NP_RING;
+    if (n > have) {
+        n = have;
+    }
+    start = (live_wr + NP_RING - n) % NP_RING;
+    for (i = 0; i < n; i++) {
+        dst[i] = live_ch[ch][(start + i) % NP_RING];
+    }
+    return n;
+}
+
+/* CLEAN STFT at ~12 Hz, not 60×8. Plot uses the last cooked window. */
+static uint32_t view_copy(int ch, float *dst, uint32_t n)
+{
+    uint32_t got, c;
+    uint64_t tot = 0;
+    uint32_t now;
+
+    got = live_copy(ch, dst, n);
+    if (!(g.cal_cut && g.noise_psd_ok && got >= (uint32_t)NP_FFT_N)) {
+        if (g.cal_cut && g.calm.have && got > 0) {
+            np_sub_dc(dst, (int)got, g.calm.dc[ch]);
+        }
+        return got;
+    }
+    np_ring_stats(&g.ring, &tot, NULL, NULL);
+    now = SDL_GetTicks();
+    if (clean_t == 0 || now - clean_t >= 80 || tot != clean_seen) {
+        for (c = 0; c < NP_NCHAN; c++) {
+            uint32_t m = live_copy(c, clean_ch[c], n > 512 ? 512 : n);
+            if (m >= (uint32_t)NP_FFT_N) {
+                np_plate_destroy(clean_ch[c], (int)m, g.noise_psd);
+            }
+            if (g.calm.have && m > 0) {
+                np_sub_dc(clean_ch[c], (int)m, g.calm.dc[c]);
+            }
+            clean_n[c] = m;
+        }
+        clean_t = now;
+        clean_seen = tot;
+    }
+    if (clean_n[ch] > 0) {
+        if (got > clean_n[ch]) {
+            got = clean_n[ch];
+        }
+        memcpy(dst, clean_ch[ch], got * sizeof(float));
+    }
+    return got;
 }
 
 static volatile int cube_busy;
@@ -1036,7 +1178,7 @@ static void smx_tick(void)
         if (n >= 16) {
             ch_stats(buf, n, &dc, &rms, &pk);
             raw_rms = rms;
-            apply_filt(c, buf, n);
+            n = view_copy(c, buf, n);
             ch_stats(buf, n, &dc, &rms, &pk);
             det = np_detect(raw_rms > 1.f ? raw_rms : rms, rms,
                             g.cal.have ? g.cal.rms[c] : 0.f,
@@ -1384,6 +1526,8 @@ static void do_connect(void)
     np_serial_pulse_dtr(g.fd);
     np_serial_flush(g.fd);
     g.connected = 1;
+    g.stall_t = SDL_GetTicks();
+    g.stall_n = 0;
     if (pthread_create(&g.thr, NULL, reader_thread, NULL) != 0) {
         np_serial_close(g.fd);
         g.fd = -1;
@@ -1506,13 +1650,71 @@ struct hit {
     int ch;
 };
 
-static struct hit hits[96];
+static struct hit hits[128];
 int nhits;
+static int side_need;
+static int side_pin_h;
+static int hit_in_body;
+static void btn(int x, int y, int w, int h, const char *label, int on, int kind, int ch,
+                int r, int gcol, int b);
+
+static int side_view(void)
+{
+    int h = win_h - statush();
+    return h > 40 ? h : 40;
+}
+
+static void side_clamp(void)
+{
+    int max = side_need - side_view();
+    if (max < 0) {
+        max = 0;
+    }
+    if (g.side_scroll > max) {
+        g.side_scroll = max;
+    }
+    if (g.side_scroll < 0) {
+        g.side_scroll = 0;
+    }
+}
+
+static int in_side(int x, int y)
+{
+    return x >= win_w - sidew() && y >= 0 && y < side_view();
+}
+
+static void side_end(int x, int y)
+{
+    int view = side_view();
+    SDL_RenderSetClipRect(R, NULL);
+    /* Room for the always-visible up/down row if the pane overflows. */
+    side_need = y + g.side_scroll + 28;
+    side_clamp();
+    if (side_need > view) {
+        int track = view - 28;
+        int span = side_need - view;
+        int bh = track * view / side_need;
+        int by;
+        if (bh < 16) {
+            bh = 16;
+        }
+        by = 2 + (span > 0 ? g.side_scroll * (track - bh) / span : 0);
+        fill(x + sidew() - 5, by, 3, bh, 200, 40, 56);
+        btn(x + 12, view - 24, 130, 20, "up", 0, 45, 0, 36, 40, 48);
+        btn(x + 146, view - 24, 130, 20, "down", 0, 46, 0, 36, 40, 48);
+    }
+}
 
 static void add_hit(int x, int y, int w, int h, int kind, int ch)
 {
-    if (nhits >= 96) {
+    if (nhits >= 128) {
         return;
+    }
+    if (x >= win_w - sidew()) {
+        int top = hit_in_body ? side_pin_h : 0;
+        if (y + h <= top || y >= side_view()) {
+            return;
+        }
     }
     hits[nhits].r.x = x;
     hits[nhits].r.y = y;
@@ -1986,8 +2188,7 @@ static void draw_waves(int x, int y, int w, int h)
         float buf[NP_RING];
         static float snap[NP_NCHAN][NP_RING];
         static uint32_t snapn[NP_NCHAN];
-        uint32_t want = (g.cal_cut && g.noise_psd_ok) ? plate_want()
-                                                     : (uint32_t)(g.window_s * (g.sps > 1.f ? g.sps : NP_DEFAULT_SPS));
+        uint32_t want = (uint32_t)(g.window_s * (g.sps > 1.f ? g.sps : NP_DEFAULT_SPS));
         int y0, y1b, row_h, mid, q, gated = 0;
         uint32_t i;
         uint32_t n = 0;
@@ -2045,15 +2246,11 @@ static void draw_waves(int x, int y, int w, int h)
             }
             q = ch_quality(c, buf, n, lp, ln);
             if (q != Q_OFF && n >= 4 && !gated) {
-                apply_filt(c, buf, n);
+                n = view_copy(c, buf, n);
                 if (g.detrend) {
                     np_detrend(buf, (int)n);
                 }
                 ch_stats(buf, n, &dc, &rms, &pk);
-            } else if (gated) {
-                np_hp_init(&g.hp[c], (float)g.hp_hz, design_sps());
-                np_notch_init(&g.notch[c], notch_hz_eff() > 1.f ? notch_hz_eff() : 0.f,
-                              design_sps(), 30.f);
             }
             last = n ? buf[n - 1] : 0.f;
             fill(x, y1b - 1, w, 1, 32, 36, 44);
@@ -2186,12 +2383,23 @@ static void draw_waves(int x, int y, int w, int h)
 static void draw_fft(int x, int y, int w, int h)
 {
     enum { N = 128 };
+    static float mag_hold[N / 2];
+    static uint32_t fft_t;
+    static int fft_used, fft_open, fft_peak = 1;
     float mag[N / 2];
     float acc[N];
     int c, i, used = 0, open_n = 0, peak_i = 1;
     uint8_t lp = 0, ln = 0;
     char cap[56];
+    uint32_t now = SDL_GetTicks();
     fill(x, y, w, h, 10, 12, 16);
+    if (fft_t && now - fft_t < 80) {
+        memcpy(mag, mag_hold, sizeof(mag));
+        used = fft_used;
+        open_n = fft_open;
+        peak_i = fft_peak;
+        goto fft_draw;
+    }
     memset(mag, 0, sizeof(mag));
     np_ring_loff(&g.ring, &lp, &ln);
     for (c = 0; c < NP_NCHAN; c++) {
@@ -2201,7 +2409,7 @@ static void draw_fft(int x, int y, int w, int h)
         if (!g.active[c]) {
             continue;
         }
-        n = np_ring_copy(&g.ring, c, buf, N);
+        n = view_copy(c, buf, N);
         if (n < N) {
             continue;
         }
@@ -2217,7 +2425,6 @@ static void draw_fft(int x, int y, int w, int h)
         if (q != Q_LIVE) {
             open_n++;
         }
-        apply_filt(c, buf, n);
         np_detrend(buf, (int)n);
         for (i = 0; i < (int)n; i++) {
             float win = 0.5f - 0.5f * cosf(2.f * (float)M_PI * (float)i / (float)(n - 1));
@@ -2232,6 +2439,12 @@ static void draw_fft(int x, int y, int w, int h)
             used++;
         }
     }
+    memcpy(mag_hold, mag, sizeof(mag));
+    fft_t = now;
+    fft_used = used;
+    fft_open = open_n;
+    fft_peak = peak_i;
+fft_draw:
     if (open_n && used == open_n) {
         snprintf(cap, sizeof(cap), "FFT  open");
     } else {
@@ -2322,11 +2535,120 @@ static void fill_tri(int x0, int y0, int x1, int y1, int x2, int y2, int r, int 
 }
 
 static int s_cube_ox, s_cube_oy, s_cube_vx, s_cube_vy, s_cube_vw, s_cube_vh;
+static int s_cube_px, s_cube_py; /* screen origin of the cube panel */
 static float s_cube_k;
+static SDL_Texture *cube_tex;
+static int cube_tw, cube_th;
+static uint32_t cube_baked_seq;
+static float cube_baked_yaw, cube_baked_pitch, cube_baked_zoom;
+static int cube_baked_site, cube_baked_virt, cube_baked_sel;
+static int cube_baked_sites[NP_NCHAN];
+static void present_cube(int x, int y, int w, int h);
 static int s_elec_sx[NP_NCHAN], s_elec_sy[NP_NCHAN];
 static int s_node_sx[NP_1010_N], s_node_sy[NP_1010_N];
+static int s_map_sx[NP_1010_N], s_map_sy[NP_1010_N];
+static int s_map_x, s_map_y, s_map_w, s_map_h;
 static int s_cube_drag; /* 0 none 1 spin 2 place */
 static int s_cube_lx, s_cube_ly, s_cube_dirty;
+
+static void cube_zoom_clamp(void)
+{
+    if (g.cube_zoom < 0.70f) {
+        g.cube_zoom = 0.70f;
+    }
+    if (g.cube_zoom > 2.80f) {
+        g.cube_zoom = 2.80f;
+    }
+}
+
+static void cube_zoom_by(int dir)
+{
+    g.cube_zoom += dir > 0 ? 0.20f : -0.20f;
+    cube_zoom_clamp();
+}
+
+static void cube_site_by(int dir)
+{
+    int n = np_1010_count();
+    if (n < 1) {
+        return;
+    }
+    g.site_focus += dir;
+    while (g.site_focus < 0) {
+        g.site_focus += n;
+    }
+    g.site_focus %= n;
+}
+
+static int cube_virt_n(void)
+{
+    int i, n = 0;
+    for (i = 0; i < NP_VIRT_MAX; i++) {
+        if (g.smx.virt[i].used) {
+            n++;
+        }
+    }
+    return n;
+}
+
+static int cube_virt_slot(int focus)
+{
+    int i, n = 0;
+    for (i = 0; i < NP_VIRT_MAX; i++) {
+        if (!g.smx.virt[i].used) {
+            continue;
+        }
+        if (n == focus) {
+            return i;
+        }
+        n++;
+    }
+    return -1;
+}
+
+static void cube_virt_by(int dir)
+{
+    int n = cube_virt_n();
+    if (n < 1) {
+        g.virt_focus = 0;
+        return;
+    }
+    g.virt_focus += dir;
+    while (g.virt_focus < 0) {
+        g.virt_focus += n;
+    }
+    g.virt_focus %= n;
+}
+
+static void cube_assign_focus(void)
+{
+    int ix, iy, iz, share[8], ns, i, other = -1;
+    if (g.site_focus < 0 || g.site_focus >= np_1010_count()) {
+        return;
+    }
+    if (g.elec_sel < 0 || g.elec_sel >= NP_NCHAN) {
+        g.elec_sel = 0;
+    }
+    np_elec_set_site(&g.elec[g.elec_sel], g.site_focus);
+    cfg_save();
+    np_1010_ijk(g.site_focus, &ix, &iy, &iz);
+    ns = np_1010_sites_at(ix, iy, iz, share, 8);
+    for (i = 0; i < NP_NCHAN; i++) {
+        if (i != g.elec_sel && g.elec[i].site == g.site_focus) {
+            other = i;
+        }
+    }
+    if (other >= 0) {
+        set_status(1, "ch%d @ %s  cell %d,%d,%d  also ch%d", g.elec_sel + 1,
+                   np_1010_name(g.site_focus), ix, iy, iz, other + 1);
+    } else if (ns > 1) {
+        set_status(1, "ch%d @ %s  cell %d,%d,%d  (%d names on this cell)", g.elec_sel + 1,
+                   np_1010_name(g.site_focus), ix, iy, iz, ns);
+    } else {
+        set_status(1, "ch%d @ %s  cell %d,%d,%d", g.elec_sel + 1, np_1010_name(g.site_focus),
+                   ix, iy, iz);
+    }
+}
 
 static void cam_pt(float x, float y, float z, int *sx, int *sy, float *depth)
 {
@@ -2377,16 +2699,19 @@ static void draw_iso_cube(const struct np_cube *c)
     for (i = 0; i < 8; i++) {
         cam_pt(c->x + vx[i] * h, c->y + vy[i] * h, c->z + vz[i] * h, &p[i][0], &p[i][1], NULL);
     }
-    fill_tri(p[0][0], p[0][1], p[1][0], p[1][1], p[2][0], p[2][1], cr, cg + 18 > 255 ? 255 : cg + 18,
-             cb);
-    fill_tri(p[0][0], p[0][1], p[2][0], p[2][1], p[3][0], p[3][1], cr, cg + 18 > 255 ? 255 : cg + 18,
-             cb);
-    fill_tri(p[3][0], p[3][1], p[2][0], p[2][1], p[6][0], p[6][1], cr * 2 / 3, cg * 2 / 3,
-             cb * 2 / 3);
-    fill_tri(p[3][0], p[3][1], p[6][0], p[6][1], p[7][0], p[7][1], cr * 2 / 3, cg * 2 / 3,
-             cb * 2 / 3);
-    fill_tri(p[1][0], p[1][1], p[5][0], p[5][1], p[6][0], p[6][1], cr / 2, cg / 2, cb / 2);
-    fill_tri(p[1][0], p[1][1], p[6][0], p[6][1], p[2][0], p[2][1], cr / 2, cg / 2, cb / 2);
+    /* Dim cells are wire only — filled scanlines starve the USB reader. */
+    if (!dim) {
+        fill_tri(p[0][0], p[0][1], p[1][0], p[1][1], p[2][0], p[2][1],
+                 cr, cg + 18 > 255 ? 255 : cg + 18, cb);
+        fill_tri(p[0][0], p[0][1], p[2][0], p[2][1], p[3][0], p[3][1],
+                 cr, cg + 18 > 255 ? 255 : cg + 18, cb);
+        fill_tri(p[3][0], p[3][1], p[2][0], p[2][1], p[6][0], p[6][1], cr * 2 / 3, cg * 2 / 3,
+                 cb * 2 / 3);
+        fill_tri(p[3][0], p[3][1], p[6][0], p[6][1], p[7][0], p[7][1], cr * 2 / 3, cg * 2 / 3,
+                 cb * 2 / 3);
+        fill_tri(p[1][0], p[1][1], p[5][0], p[5][1], p[6][0], p[6][1], cr / 2, cg / 2, cb / 2);
+        fill_tri(p[1][0], p[1][1], p[6][0], p[6][1], p[2][0], p[2][1], cr / 2, cg / 2, cb / 2);
+    }
     SDL_SetRenderDrawColor(R, 18, 6, 10, 255);
     SDL_RenderDrawLine(R, p[0][0], p[0][1], p[1][0], p[1][1]);
     SDL_RenderDrawLine(R, p[1][0], p[1][1], p[2][0], p[2][1]);
@@ -2401,6 +2726,8 @@ static void draw_iso_cube(const struct np_cube *c)
 
 static int cube_in_spin(int mx, int my)
 {
+    mx -= s_cube_px;
+    my -= s_cube_py;
     return mx >= s_cube_vx && my >= s_cube_vy && mx < s_cube_vx + s_cube_vw &&
            my < s_cube_vy + s_cube_vh;
 }
@@ -2408,6 +2735,8 @@ static int cube_in_spin(int mx, int my)
 static int cube_hit_elec(int mx, int my)
 {
     int i, best = -1, bd = 24 * 24;
+    mx -= s_cube_px;
+    my -= s_cube_py;
     for (i = 0; i < NP_NCHAN; i++) {
         int dx = mx - s_elec_sx[i], dy = my - s_elec_sy[i], d;
         if (s_elec_sx[i] < -10000) {
@@ -2424,7 +2753,11 @@ static int cube_hit_elec(int mx, int my)
 
 static int cube_hit_node(int mx, int my)
 {
-    int i, best = -1, bd = 18 * 18;
+    int i, best = -1, reach, bd;
+    mx -= s_cube_px;
+    my -= s_cube_py;
+    reach = 14 + (int)(10.f * g.cube_zoom);
+    bd = reach * reach;
     for (i = 0; i < NP_1010_N; i++) {
         int dx = mx - s_node_sx[i], dy = my - s_node_sy[i], d;
         if (s_node_sx[i] < -10000) {
@@ -2439,24 +2772,58 @@ static int cube_hit_node(int mx, int my)
     return best;
 }
 
+static int cube_hit_map(int mx, int my)
+{
+    int i, best = -1, bd = 16 * 16;
+    mx -= s_cube_px;
+    my -= s_cube_py;
+    if (mx < s_map_x || my < s_map_y || mx >= s_map_x + s_map_w || my >= s_map_y + s_map_h) {
+        return -1;
+    }
+    for (i = 0; i < NP_1010_N; i++) {
+        int dx = mx - s_map_sx[i], dy = my - s_map_sy[i], d;
+        d = dx * dx + dy * dy;
+        if (d < bd) {
+            bd = d;
+            best = i;
+        }
+    }
+    return best;
+}
+
 static int cube_pointer_down(int mx, int my)
 {
-    int hit, node, c;
-    if (g.tab != 2 || !cube_in_spin(mx, my)) {
+    int hit, node, c, mapped;
+    if (g.tab != 2) {
+        return 0;
+    }
+    mapped = cube_hit_map(mx, my);
+    if (mapped >= 0) {
+        g.site_focus = mapped;
+        if (g.elec_sel >= 0) {
+            cube_assign_focus();
+        } else {
+            set_status(1, "site %s  - pick a channel, then Assign", np_1010_name(mapped));
+        }
+        return 1;
+    }
+    if (!cube_in_spin(mx, my)) {
         return 0;
     }
     hit = cube_hit_elec(mx, my);
     if (hit >= 0) {
         g.elec_sel = hit;
+        if (g.elec[hit].site >= 0) {
+            g.site_focus = g.elec[hit].site;
+        }
         set_status(1, "ch%d %s", hit + 1, g.elec[hit].name[0] ? g.elec[hit].name : "?");
         return 1;
     }
     node = cube_hit_node(mx, my);
     if (node >= 0) {
+        g.site_focus = node;
         if (g.elec_sel >= 0) {
-            np_elec_set_site(&g.elec[g.elec_sel], node);
-            cfg_save();
-            set_status(1, "ch%d stays at %s", g.elec_sel + 1, np_1010_name(node));
+            cube_assign_focus();
             return 1;
         }
         for (c = 0; c < NP_NCHAN; c++) {
@@ -2466,6 +2833,7 @@ static int cube_pointer_down(int mx, int my)
                 return 1;
             }
         }
+        set_status(1, "site %s  - pick a channel, then Assign", np_1010_name(node));
         return 1;
     }
     s_cube_drag = 1;
@@ -2516,45 +2884,73 @@ static void draw_cube(int x, int y, int w, int h)
 {
     struct np_cube cells[NP_CUBE_BUDGET];
     int n, i, c, ids[NP_NCHAN], nid;
-    float pulse;
-    char lab[48];
+    char lab[96];
 
+    int map_h = h > 300 ? 148 : 118;
+    int sot_h = 18;
     fill(x, y, w, h, 6, 4, 8);
     nid = np_smx_ch_ids(&g.smx, ids);
+    cube_zoom_clamp();
+    if (g.site_focus < 0 || g.site_focus >= np_1010_count()) {
+        g.site_focus = 0;
+    }
     s_cube_vx = x;
     s_cube_vy = y;
     s_cube_vw = w;
-    s_cube_vh = h - 22;
-    if (s_cube_vh < 80) {
-        s_cube_vh = h;
+    s_cube_vh = h - map_h - sot_h;
+    if (s_cube_vh < 90) {
+        map_h = 100;
+        s_cube_vh = h - map_h - sot_h;
     }
     s_cube_ox = x + w / 2;
-    s_cube_oy = y + s_cube_vh / 2 + 10;
-    s_cube_k = (float)(w < s_cube_vh ? w : s_cube_vh) / 2.35f;
-    if (s_cube_k < 70.f) {
-        s_cube_k = 70.f;
+    s_cube_oy = y + s_cube_vh / 2 + 8;
+    s_cube_k = (float)(w < s_cube_vh ? w : s_cube_vh) / 2.35f * g.cube_zoom;
+    if (s_cube_k < 50.f) {
+        s_cube_k = 50.f;
     }
-    pulse = 0.55f + 0.45f * sinf((float)SDL_GetTicks() * 0.006f);
-
+    /* Sample SoT only — no per-refresh pulse. Glow is last SMX second. */
     draw_cube_wire();
     n = np_smx_head_cubes(&g.smx, g.elec, g.chrgb, cells, NP_CUBE_BUDGET);
-    for (i = 0; i < n; i++) {
-        if (cells[i].role == 2) {
-            cells[i].a = (uint8_t)(180.f + 70.f * pulse);
-            cells[i].s *= 0.92f + 0.16f * pulse;
-        }
+    if (n > 1) {
+        qsort(cells, (size_t)n, sizeof(cells[0]), cube_farther);
     }
-    qsort(cells, (size_t)n, sizeof(cells[0]), cube_farther);
     for (i = 0; i < n; i++) {
         draw_iso_cube(&cells[i]);
     }
 
-    /* 10-10 names sit on the cube top — same cells the channels occupy. */
+    /* Highlight the focused 10-10 cell — SoT is the name, not the blob. */
+    {
+        int fx, fy, fz;
+        struct np_cube hi;
+        np_1010_ijk(g.site_focus, &fx, &fy, &fz);
+        np_ijk_world(fx, fy, fz, &hi.x, &hi.y, &hi.z);
+        hi.s = 0.30f;
+        hi.r = 255;
+        hi.g = 210;
+        hi.b = 70;
+        hi.a = 255;
+        hi.role = 2;
+        draw_iso_cube(&hi);
+        {
+            int vs = cube_virt_slot(g.virt_focus);
+            if (vs >= 0) {
+                np_ijk_world(g.smx.virt[vs].x, g.smx.virt[vs].y, g.smx.virt[vs].z, &hi.x, &hi.y,
+                             &hi.z);
+                hi.s = 0.24f;
+                hi.r = 40;
+                hi.g = 200;
+                hi.b = 220;
+                draw_iso_cube(&hi);
+            }
+        }
+    }
+
+    /* 10-10 names on the cube. Core + assigned + focus always; all names when zoomed. */
     for (i = 0; i < NP_1010_N; i++) {
-        float cx, cy, cz;
-        int sx, sy, taken = -1;
+        float cx, cy, cz, depth = 0.f;
+        int sx, sy, taken = -1, show;
         np_1010_cube_xyz(i, &cx, &cy, &cz);
-        cam_pt(cx, cy, cz, &sx, &sy, NULL);
+        cam_pt(cx, cy, cz, &sx, &sy, &depth);
         s_node_sx[i] = sx;
         s_node_sy[i] = sy;
         for (c = 0; c < NP_NCHAN; c++) {
@@ -2563,9 +2959,14 @@ static void draw_cube(int x, int y, int w, int h)
                 break;
             }
         }
-        if (taken < 0 && np_1010_core(i)) {
+        show = (i == g.site_focus) || taken >= 0 || np_1010_core(i);
+        if (show && depth > -0.25f) {
             const char *nm = np_1010_name(i);
-            text(sx - (int)strlen(nm) * 3, sy + 6, nm, 120, 28, 40, 1);
+            int bright = (i == g.site_focus);
+            text(sx - (int)strlen(nm) * 3, sy + 6, nm,
+                 bright ? 255 : (taken >= 0 ? g.chrgb[taken][0] : 160),
+                 bright ? 220 : (taken >= 0 ? g.chrgb[taken][1] : 40),
+                 bright ? 80 : (taken >= 0 ? g.chrgb[taken][2] : 50), 1);
         }
     }
     for (c = 0; c < NP_NCHAN; c++) {
@@ -2587,13 +2988,55 @@ static void draw_cube(int x, int y, int w, int h)
              c == g.elec_sel ? 230 : g.chrgb[c][2], 1);
     }
 
-    snprintf(lab, sizeof(lab), "8^3  n=%d/%d  shell=headset  in=IMU/plugin", n,
-             NP_CUBE_BUDGET);
-    text(x + 8, y + 6, lab, NP_CUBE_CR, NP_CUBE_CG, NP_CUBE_CB, 1);
+    {
+        int fx, fy, fz;
+        np_1010_ijk(g.site_focus, &fx, &fy, &fz);
+        snprintf(lab, sizeof(lab), "find %s  cell %d,%d,%d  zoom %.1fx   +/-  [ ] site  Enter assign",
+                 np_1010_name(g.site_focus), fx, fy, fz, (double)g.cube_zoom);
+        text(x + 8, y + 6, lab, NP_CUBE_CR, NP_CUBE_CG, NP_CUBE_CB, 1);
+    }
     if (g.elec_sel >= 0) {
-        snprintf(lab, sizeof(lab), "ch%d @ %s  click a named cell to move", g.elec_sel + 1,
-                 g.elec[g.elec_sel].name[0] ? g.elec[g.elec_sel].name : "?");
+        snprintf(lab, sizeof(lab), "ch%d now %s   pick a 10-10 on the map or Assign",
+                 g.elec_sel + 1, g.elec[g.elec_sel].name[0] ? g.elec[g.elec_sel].name : "?");
         text(x + 8, y + 18, lab, 200, 160, 80, 1);
+    }
+
+    /* Flat 10-10 — same markings as the headset. This is how you find a cell. */
+    {
+        int mx0 = x + 10, my0 = y + s_cube_vh + 4, mw = w - 20, mh = map_h - 8;
+        int i;
+        s_map_x = mx0;
+        s_map_y = my0;
+        s_map_w = mw;
+        s_map_h = mh;
+        fill(mx0, my0, mw, mh, 8, 6, 10);
+        text(mx0 + 4, my0 + 3, "10-10  (nose up)   [ ] next site   Enter assign", 140, 40, 50,
+             1);
+        for (i = 0; i < NP_1010_N; i++) {
+            float fx, fy;
+            int sx, sy, taken = -1, r;
+            np_1010_flat(i, &fx, &fy);
+            sx = mx0 + mw / 2 + (int)(fx * (float)(mw / 2 - 16));
+            sy = my0 + mh / 2 - (int)(fy * (float)(mh / 2 - 16));
+            s_map_sx[i] = sx;
+            s_map_sy[i] = sy;
+            for (c = 0; c < NP_NCHAN; c++) {
+                if (g.elec[c].site == i) {
+                    taken = c;
+                    break;
+                }
+            }
+            r = (i == g.site_focus) ? 5 : (taken >= 0 || np_1010_core(i) ? 3 : 2);
+            fill(sx - r, sy - r, r * 2, r * 2,
+                 i == g.site_focus ? 255 : (taken >= 0 ? g.chrgb[taken][0] : 90),
+                 i == g.site_focus ? 210 : (taken >= 0 ? g.chrgb[taken][1] : 24),
+                 i == g.site_focus ? 70 : (taken >= 0 ? g.chrgb[taken][2] : 32));
+            if (i == g.site_focus || taken >= 0 || np_1010_core(i)) {
+                text(sx + 5, sy - 3, np_1010_name(i),
+                     i == g.site_focus ? 255 : 200, i == g.site_focus ? 220 : 180,
+                     i == g.site_focus ? 90 : 190, 1);
+            }
+        }
     }
 
     /* Current second — SoT strip. */
@@ -2639,18 +3082,90 @@ static const char *port_short(void)
     return p;
 }
 
+static int draw_channels(int x, int y)
+{
+    int c;
+    char line[8], gn[8];
+    text(x + 12, y, "Channels 1-8", 140, 148, 160, 1);
+    y += 14;
+    for (c = 0; c < NP_NCHAN; c++) {
+        int col = c / 4;
+        int row = c % 4;
+        int bx = x + 10 + col * 145;
+        int by = y + row * 26;
+        snprintf(line, sizeof(line), "%d", c + 1);
+        text(bx, by + 6, line, g.chrgb[c][0], g.chrgb[c][1], g.chrgb[c][2], 1);
+        btn(bx + 14, by, 36, 20, g.active[c] ? "ON" : "off", g.active[c], 6, c,
+            g.active[c] ? 28 : 40, g.active[c] ? 90 : 42, g.active[c] ? 60 : 50);
+        btn(bx + 52, by, 36, 20, g.rld[c] ? "RLD" : "rld", g.rld[c], 7, c,
+            g.rld[c] ? 50 : 40, g.rld[c] ? 70 : 42, g.rld[c] ? 110 : 50);
+        snprintf(gn, sizeof(gn), "g%d", g.gain[c]);
+        btn(bx + 90, by, 40, 20, gn, 1, 8, c, 40, 42, 52);
+    }
+    return y + 4 * 26 + 8;
+}
+
+static int draw_view_block(int x, int y)
+{
+    char b[40];
+    text(x + 12, y, "View", 140, 148, 160, 1);
+    y += 13;
+    snprintf(b, sizeof(b), "win %ds", g.window_s);
+    btn(x + 12, y, 136, 22, b, 1, 9, 0, 36, 40, 48);
+    if (g.og) {
+        snprintf(b, sizeof(b), "scale fit");
+    } else if (g.autoscale) {
+        snprintf(b, sizeof(b), "scale AUTO");
+    } else {
+        snprintf(b, sizeof(b), "scale +-%duV", g.scale_uv);
+    }
+    btn(x + 152, y, 136, 22, b, 1, 10, 0, 36, 40, 48);
+    y += 26;
+    if (g.notch_hz < 0) {
+        if (g.cal_hz > 1.f) {
+            snprintf(b, sizeof(b), "notch AUTO %.0f", (double)g.cal_hz);
+        } else {
+            snprintf(b, sizeof(b), "notch AUTO");
+        }
+    } else if (g.notch_hz) {
+        snprintf(b, sizeof(b), (float)g.notch_hz > design_sps() * 0.42f
+                                   ? "notch %d wide"
+                                   : "notch %dHz",
+                 g.notch_hz);
+    } else {
+        snprintf(b, sizeof(b), "notch off");
+    }
+    btn(x + 12, y, 136, 22, b, g.notch_hz != 0, 11, 0, 36, 40, 48);
+    if (g.hp_hz) {
+        snprintf(b, sizeof(b), "hp %dHz", g.hp_hz);
+    } else {
+        snprintf(b, sizeof(b), "hp off");
+    }
+    btn(x + 152, y, 136, 22, b, g.hp_hz != 0, 12, 0, 36, 40, 48);
+    y += 26;
+    btn(x + 12, y, 136, 22, g.grid ? "grid on" : "grid off", g.grid, 13, 0, 36, 40, 48);
+    btn(x + 152, y, 136, 22, g.paused ? "PAUSED" : "live", !g.paused, 14, 0,
+        g.paused ? 110 : 36, g.paused ? 50 : 40, g.paused ? 40 : 48);
+    y += 26;
+    btn(x + 12, y, 136, 22, g.show_uv ? "uV on" : "uV off", g.show_uv, 15, 0, 36, 40, 48);
+    btn(x + 152, y, 136, 22, g.detrend ? "detrend" : "raw DC", g.detrend, 21, 0, 36, 40, 48);
+    return y + 26;
+}
+
 static void draw_side(int x)
 {
-    int y = 14;
+    int y = 8;
     int c;
-    char line[96];
+    char live[48];
     const char *port = port_short();
     const char *bname = g.board == NP_BOARD_KNIGHT_IMU ? "8-ch + IMU" : "8-ch EXG";
 
+    side_clamp();
+    hit_in_body = 0;
+
+    /* Pinned — always on the first screen. Tabs before chrome. */
     text(x + 12, y, "exg-c", 240, 242, 248, 2);
-    y += 20;
     if (g.connected) {
-        char live[48];
         if (g.board == NP_BOARD_KNIGHT_IMU) {
             float ax = 0, ay = 0, az = 0;
             pthread_mutex_lock(&g.ring.mu);
@@ -2661,63 +3176,48 @@ static void draw_side(int x)
                 az = g.ring.acc[2][w];
             }
             pthread_mutex_unlock(&g.ring.mu);
-            snprintf(live, sizeof(live), "IMU  %.2f  %.2f  %.2f", ax, ay, az);
+            snprintf(live, sizeof(live), "%.1f %.1f %.1f", ax, ay, az);
         } else {
-            snprintf(live, sizeof(live), "live  %.0f sps",
+            snprintf(live, sizeof(live), "%.0f sps",
                      g.sps > 1.f ? g.sps : (float)NP_DEFAULT_SPS);
         }
-        text(x + 12, y, live, 180, 200, 120, 1);
+        text(x + 90, y + 4, live, 180, 200, 120, 1);
     } else {
-        text(x + 12, y, "not connected", 120, 128, 140, 1);
+        text(x + 90, y + 4, "offline", 120, 128, 140, 1);
     }
-    y += 16;
-
-    text(x + 12, y, "Port", 140, 148, 160, 1);
-    y += 11;
-    btn(x + 12, y, sidew() - 24, 24, port, 1, 4, 0, 32, 36, 44);
-    y += 30;
-
-    text(x + 12, y, "Board", 140, 148, 160, 1);
-    y += 11;
-    btn(x + 12, y, sidew() - 24, 24, bname, 1, 5, 0, 32, 36, 44);
-    y += 30;
-
-    if (!g.connected) {
-        btn(x + 12, y, sidew() - 24, 28, "Connect", 1, 1, 0, 30, 110, 80);
-    } else {
-        btn(x + 12, y, sidew() - 24, 28, "Disconnect", 1, 2, 0, 120, 40, 48);
-    }
-    y += 34;
-    btn(x + 12, y, sidew() - 24, 24, g.recording ? "Stop record" : "Record CSV",
-        g.recording, 3, 0, g.recording ? 110 : 36, g.recording ? 50 : 40,
-        g.recording ? 40 : 52);
-    y += 32;
-
-    text(x + 12, y, "Channels 1-8", 140, 148, 160, 1);
-    y += 14;
-    for (c = 0; c < NP_NCHAN; c++) {
-        int col = c / 4;
-        int row = c % 4;
-        int bx = x + 10 + col * 145;
-        int by = y + row * 28;
-        char gn[8];
-        snprintf(line, sizeof(line), "%d", c + 1);
-        text(bx, by + 6, line, g.chrgb[c][0], g.chrgb[c][1], g.chrgb[c][2], 1);
-        btn(bx + 14, by, 36, 22, g.active[c] ? "ON" : "off", g.active[c], 6, c,
-            g.active[c] ? 28 : 40, g.active[c] ? 90 : 42, g.active[c] ? 60 : 50);
-        btn(bx + 52, by, 36, 22, g.rld[c] ? "RLD" : "rld", g.rld[c], 7, c,
-            g.rld[c] ? 50 : 40, g.rld[c] ? 70 : 42, g.rld[c] ? 110 : 50);
-        snprintf(gn, sizeof(gn), "g%d", g.gain[c]);
-        btn(bx + 90, by, 40, 22, gn, 1, 8, c, 40, 42, 52);
-    }
-    y += 4 * 28 + 12;
+    y += 20;
     btn(x + 12, y, 84, 22, "Main", g.tab == 0, 30, 0, g.tab == 0 ? 36 : 28, g.tab == 0 ? 50 : 32,
         44);
     btn(x + 100, y, 84, 22, "Cube", g.tab == 2, 36, 0, g.tab == 2 ? 70 : 28, g.tab == 2 ? 22 : 32,
         g.tab == 2 ? 32 : 44);
     btn(x + 188, y, 88, 22, "Settings", g.tab == 1, 31, 0, g.tab == 1 ? 36 : 28,
         g.tab == 1 ? 50 : 32, 44);
+    y += 26;
+    btn(x + 12, y, 168, 22, port, 1, 4, 0, 32, 36, 44);
+    if (!g.connected) {
+        btn(x + 184, y, 92, 22, "Connect", 1, 1, 0, 30, 110, 80);
+    } else {
+        btn(x + 184, y, 92, 22, "Disconnect", 1, 2, 0, 120, 40, 48);
+    }
+    y += 26;
+    btn(x + 12, y, 168, 22, bname, 1, 5, 0, 32, 36, 44);
+    btn(x + 184, y, 92, 22, g.recording ? "Stop CSV" : "CSV", g.recording, 3, 0,
+        g.recording ? 110 : 36, g.recording ? 50 : 40, g.recording ? 40 : 52);
     y += 28;
+    side_pin_h = y;
+    {
+        SDL_Rect clip;
+        clip.x = x;
+        clip.y = side_pin_h;
+        clip.w = sidew();
+        clip.h = side_view() - side_pin_h;
+        if (clip.h < 1) {
+            clip.h = 1;
+        }
+        SDL_RenderSetClipRect(R, &clip);
+    }
+    hit_in_body = 1;
+    y -= g.side_scroll;
     if (g.tab == 2) {
         char b[48];
         snprintf(b, sizeof(b), "SMX  %u ch  %us", (unsigned)g.smx.nch, g.smx.have);
@@ -2728,14 +3228,52 @@ static void draw_side(int x)
         pthread_mutex_unlock(&g.mu);
         text(x + 12, y, b, g.cube_ok ? 80 : 160, g.cube_ok ? 200 : 120, g.cube_ok ? 120 : 80, 1);
         y += 16;
+        text(x + 12, y, "ch, find site, Assign", 100, 108, 116, 1);
+        y += 14;
         for (c = 0; c < NP_NCHAN; c++) {
-            snprintf(b, sizeof(b), "%d  %s", c + 1, g.elec[c].name[0] ? g.elec[c].name : "?");
-            btn(x + 12, y, sidew() - 24, 20, b, g.elec_sel == c, 37, c,
+            int col = c / 4, row = c % 4;
+            int bx = x + 12 + col * 140;
+            int by = y + row * 22;
+            snprintf(b, sizeof(b), "%d %s", c + 1, g.elec[c].name[0] ? g.elec[c].name : "?");
+            btn(bx, by, 132, 20, b, g.elec_sel == c, 37, c,
                 g.elec_sel == c ? 80 : 28, g.elec_sel == c ? 20 : 32,
                 g.elec_sel == c ? 34 : 42);
-            y += 22;
         }
-        y += 6;
+        y += 4 * 22 + 8;
+        {
+            char zb[24];
+            snprintf(zb, sizeof(zb), "zoom %.1fx", (double)g.cube_zoom);
+            btn(x + 12, y, 88, 20, "−", 0, 47, 0, 36, 40, 48);
+            btn(x + 104, y, 80, 20, zb, 0, 0, 0, 28, 32, 40);
+            btn(x + 188, y, 88, 20, "+", 0, 48, 0, 36, 40, 48);
+        }
+        y += 24;
+        {
+            int ix = 0, iy = 0, iz = 0;
+            char sb[40];
+            np_1010_ijk(g.site_focus, &ix, &iy, &iz);
+            snprintf(sb, sizeof(sb), "%s  %d,%d,%d", np_1010_name(g.site_focus), ix, iy, iz);
+            btn(x + 12, y, 44, 22, "<", 0, 49, 0, 36, 40, 48);
+            btn(x + 60, y, 156, 22, sb, 1, 51, 0, 70, 28, 32);
+            btn(x + 220, y, 56, 22, ">", 0, 50, 0, 36, 40, 48);
+        }
+        y += 26;
+        btn(x + 12, y, sidew() - 24, 22, "Assign to selected ch", 0, 51, 0, 28, 80, 48);
+        y += 26;
+        {
+            int vs = cube_virt_slot(g.virt_focus);
+            char vb[40];
+            if (vs >= 0) {
+                snprintf(vb, sizeof(vb), "sensor %s  %u,%u,%u", g.smx.virt[vs].name,
+                         g.smx.virt[vs].x, g.smx.virt[vs].y, g.smx.virt[vs].z);
+            } else {
+                snprintf(vb, sizeof(vb), "sensor  (none)");
+            }
+            btn(x + 12, y, 44, 20, "<", 0, 52, 0, 36, 40, 48);
+            btn(x + 60, y, 156, 20, vb, 0, 0, 0, 28, 36, 42);
+            btn(x + 220, y, 56, 20, ">", 0, 53, 0, 36, 40, 48);
+        }
+        y += 24;
         btn(x + 12, y, 130, 20, "front", 0, 38, 0, 32, 36, 44);
         btn(x + 146, y, 130, 20, "default 8", 0, 39, 0, 32, 36, 44);
         y += 26;
@@ -2744,6 +3282,8 @@ static void draw_side(int x)
         y += 26;
         snprintf(b, sizeof(b), "algo %s", np_algo_name(g.algo));
         btn(x + 12, y, sidew() - 24, 22, b, g.algo != 0, 44, 0, 36, 40, 48);
+        y += 26;
+        side_end(x, y);
         return;
     }
     if (g.tab == 1) {
@@ -2791,52 +3331,13 @@ static void draw_side(int x)
         }
         y += 4 * 26 + 8;
         text(x + 12, y, "~/.config/exg-c/profiles/", 100, 108, 116, 1);
+        y += 16;
+        side_end(x, y);
         return;
     }
-    {
-        char b[40];
-        text(x + 12, y, "View", 140, 148, 160, 1);
-        y += 14;
-        snprintf(b, sizeof(b), "win %ds", g.window_s);
-        btn(x + 12, y, 136, 22, b, 1, 9, 0, 36, 40, 48);
-        if (g.og) {
-            snprintf(b, sizeof(b), "scale fit");
-        } else if (g.autoscale) {
-            snprintf(b, sizeof(b), "scale AUTO");
-        } else {
-            snprintf(b, sizeof(b), "scale +-%duV", g.scale_uv);
-        }
-        btn(x + 152, y, 136, 22, b, 1, 10, 0, 36, 40, 48);
-        y += 26;
-        if (g.notch_hz < 0) {
-            if (g.cal_hz > 1.f) {
-                snprintf(b, sizeof(b), "notch AUTO %.0f", (double)g.cal_hz);
-            } else {
-                snprintf(b, sizeof(b), "notch AUTO");
-            }
-        } else if (g.notch_hz) {
-            snprintf(b, sizeof(b), (float)g.notch_hz > design_sps() * 0.42f
-                                       ? "notch %d wide"
-                                       : "notch %dHz",
-                     g.notch_hz);
-        } else {
-            snprintf(b, sizeof(b), "notch off");
-        }
-        btn(x + 12, y, 136, 22, b, g.notch_hz != 0, 11, 0, 36, 40, 48);
-        if (g.hp_hz) {
-            snprintf(b, sizeof(b), "hp %dHz", g.hp_hz);
-        } else {
-            snprintf(b, sizeof(b), "hp off");
-        }
-        btn(x + 152, y, 136, 22, b, g.hp_hz != 0, 12, 0, 36, 40, 48);
-        y += 26;
-        btn(x + 12, y, 136, 22, g.grid ? "grid on" : "grid off", g.grid, 13, 0, 36, 40, 48);
-        btn(x + 152, y, 136, 22, g.paused ? "PAUSED" : "live", !g.paused, 14, 0,
-            g.paused ? 110 : 36, g.paused ? 50 : 40, g.paused ? 40 : 48);
-        y += 26;
-        btn(x + 12, y, 136, 22, g.show_uv ? "uV on" : "uV off", g.show_uv, 15, 0, 36, 40, 48);
-        btn(x + 152, y, 136, 22, g.detrend ? "detrend" : "raw DC", g.detrend, 21, 0, 36, 40, 48);
-    }
+    y = draw_view_block(x, y);
+    y = draw_channels(x, y);
+    side_end(x, y);
 }
 
 static void draw_learn(int x, int y, int w, int h)
@@ -3037,6 +3538,9 @@ static void click(int x, int y)
     int i;
     for (i = 0; i < nhits; i++) {
         if (!inside(&hits[i].r, x, y)) {
+            continue;
+        }
+        if (hits[i].r.x >= win_w - sidew() && !in_side(x, y)) {
             continue;
         }
         switch (hits[i].kind) {
@@ -3244,15 +3748,29 @@ static void click(int x, int y)
             break;
         case 30:
             g.tab = 0;
+            g.side_scroll = 0;
             break;
         case 31:
             g.tab = 1;
+            g.side_scroll = 0;
             break;
         case 36:
             g.tab = 2;
+            g.side_scroll = 0;
+            break;
+        case 45:
+            g.side_scroll -= 48;
+            side_clamp();
+            break;
+        case 46:
+            g.side_scroll += 48;
+            side_clamp();
             break;
         case 37:
             g.elec_sel = hits[i].ch;
+            if (g.elec[g.elec_sel].site >= 0) {
+                g.site_focus = g.elec[g.elec_sel].site;
+            }
             set_status(1, "ch%d @ %s", g.elec_sel + 1,
                        g.elec[g.elec_sel].name[0] ? g.elec[g.elec_sel].name : "?");
             break;
@@ -3265,6 +3783,34 @@ static void click(int x, int y)
             np_elec_default(g.elec);
             cfg_save();
             set_status(1, "default  Fp1 Fp2 C3 C4 P3 P4 O1 O2");
+            break;
+        case 47:
+            cube_zoom_by(-1);
+            break;
+        case 48:
+            cube_zoom_by(1);
+            break;
+        case 49:
+            cube_site_by(-1);
+            break;
+        case 50:
+            cube_site_by(1);
+            break;
+        case 51:
+            cube_assign_focus();
+            break;
+        case 52:
+            cube_virt_by(-1);
+            break;
+        case 53:
+            cube_virt_by(1);
+            {
+                int vs = cube_virt_slot(g.virt_focus);
+                if (vs >= 0) {
+                    set_status(1, "sensor %s  cell %u,%u,%u", g.smx.virt[vs].name,
+                               g.smx.virt[vs].x, g.smx.virt[vs].y, g.smx.virt[vs].z);
+                }
+            }
             break;
         case 32:
             if (g.ui_scale == 10) {
@@ -3323,7 +3869,7 @@ static void frame(void)
     fill(0, 0, win_w, win_h, 22, 24, 30);
     fill(win_w - sidew(), 0, sidew(), win_h, 26, 28, 34);
     if (g.tab == 2) {
-        draw_cube(12, WAVE_TOP, plot_w, win_h - WAVE_TOP - statush() - 8);
+        present_cube(12, WAVE_TOP, plot_w, win_h - WAVE_TOP - statush() - 8);
     } else {
         draw_waves(12, WAVE_TOP, plot_w, wave_h);
         draw_learn(12, WAVE_TOP + wave_h + 4, plot_w, learnh());
@@ -3331,6 +3877,91 @@ static void frame(void)
     }
     draw_side(win_w - sidew());
     draw_status();
+}
+
+static int cube_need_bake(int w, int h)
+{
+    int c;
+    if (!cube_tex || cube_tw != w || cube_th != h) {
+        return 1;
+    }
+    if (cube_baked_seq != g.smx.seq) {
+        return 1;
+    }
+    if (cube_baked_yaw != g.cube_yaw || cube_baked_pitch != g.cube_pitch ||
+        cube_baked_zoom != g.cube_zoom) {
+        return 1;
+    }
+    if (cube_baked_site != g.site_focus || cube_baked_virt != g.virt_focus ||
+        cube_baked_sel != g.elec_sel) {
+        return 1;
+    }
+    for (c = 0; c < NP_NCHAN; c++) {
+        if (cube_baked_sites[c] != g.elec[c].site) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static void cube_remember(int w, int h)
+{
+    int c;
+    cube_tw = w;
+    cube_th = h;
+    cube_baked_seq = g.smx.seq;
+    cube_baked_yaw = g.cube_yaw;
+    cube_baked_pitch = g.cube_pitch;
+    cube_baked_zoom = g.cube_zoom;
+    cube_baked_site = g.site_focus;
+    cube_baked_virt = g.virt_focus;
+    cube_baked_sel = g.elec_sel;
+    for (c = 0; c < NP_NCHAN; c++) {
+        cube_baked_sites[c] = g.elec[c].site;
+    }
+}
+
+/* Algocube is sample SoT. Bake on new SMX second or view change, blit the rest. */
+static void present_cube(int x, int y, int w, int h)
+{
+    if (w < 8 || h < 8) {
+        return;
+    }
+    if (cube_need_bake(w, h)) {
+        if (cube_tex && (cube_tw != w || cube_th != h)) {
+            SDL_DestroyTexture(cube_tex);
+            cube_tex = NULL;
+        }
+        if (!cube_tex) {
+            cube_tex = SDL_CreateTexture(R, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET,
+                                         w, h);
+        }
+        if (cube_tex) {
+            float s = ui_f();
+            SDL_RenderSetScale(R, 1.f, 1.f);
+            SDL_SetRenderTarget(R, cube_tex);
+            SDL_RenderSetClipRect(R, NULL);
+            draw_cube(0, 0, w, h);
+            SDL_SetRenderTarget(R, NULL);
+            SDL_RenderSetScale(R, s, s);
+            s_cube_px = x;
+            s_cube_py = y;
+            cube_remember(w, h);
+        } else {
+            s_cube_px = 0;
+            s_cube_py = 0;
+            draw_cube(x, y, w, h);
+            return;
+        }
+    }
+    {
+        SDL_Rect dst;
+        dst.x = x;
+        dst.y = y;
+        dst.w = w;
+        dst.h = h;
+        SDL_RenderCopy(R, cube_tex, NULL, &dst);
+    }
 }
 
 static int run_gui(void)
@@ -3429,12 +4060,51 @@ static int run_gui(void)
                     if (g.nports) {
                         g.port_i = (g.port_i + 1) % g.nports;
                     }
+                } else if (k == SDLK_m) {
+                    g.tab = 0;
+                    g.side_scroll = 0;
+                } else if (k == SDLK_s) {
+                    g.tab = 1;
+                    g.side_scroll = 0;
+                } else if (k == SDLK_b) {
+                    g.tab = 2;
+                    g.side_scroll = 0;
+                } else if (k == SDLK_UP || k == SDLK_PAGEUP) {
+                    g.side_scroll -= 48;
+                    side_clamp();
+                } else if (k == SDLK_DOWN || k == SDLK_PAGEDOWN) {
+                    g.side_scroll += 48;
+                    side_clamp();
+                } else if (g.tab == 2 && (k == SDLK_MINUS || k == SDLK_KP_MINUS)) {
+                    cube_zoom_by(-1);
+                } else if (g.tab == 2 &&
+                           (k == SDLK_EQUALS || k == SDLK_PLUS || k == SDLK_KP_PLUS)) {
+                    cube_zoom_by(1);
+                } else if (g.tab == 2 && k == SDLK_LEFT) {
+                    cube_site_by(-1);
+                } else if (g.tab == 2 && k == SDLK_RIGHT) {
+                    cube_site_by(1);
+                } else if (g.tab == 2 && k == SDLK_RETURN) {
+                    cube_assign_focus();
+                } else if (g.tab == 2 && k == SDLK_COMMA) {
+                    cube_virt_by(-1);
+                } else if (g.tab == 2 && k == SDLK_PERIOD) {
+                    cube_virt_by(1);
                 } else if (k >= SDLK_1 && k <= SDLK_8) {
                     int ch = k - SDLK_1;
-                    g.active[ch] = !g.active[ch];
-                    if (g.connected) {
-                        cmd_push(g.active[ch] ? CMD_CHON : CMD_CHOFF, ch + 1,
-                                 g.gain[ch]);
+                    if (g.tab == 2) {
+                        g.elec_sel = ch;
+                        if (g.elec[ch].site >= 0) {
+                            g.site_focus = g.elec[ch].site;
+                        }
+                        set_status(1, "ch%d %s", ch + 1,
+                                   g.elec[ch].name[0] ? g.elec[ch].name : "?");
+                    } else {
+                        g.active[ch] = !g.active[ch];
+                        if (g.connected) {
+                            cmd_push(g.active[ch] ? CMD_CHON : CMD_CHOFF, ch + 1,
+                                     g.gain[ch]);
+                        }
                     }
                 }
             } else if (ev.type == SDL_MOUSEBUTTONDOWN && ev.button.button == SDL_BUTTON_LEFT) {
@@ -3457,26 +4127,44 @@ static int run_gui(void)
                 cube_pointer_move((int)(ev.motion.x / s), (int)(ev.motion.y / s));
             } else if (ev.type == SDL_MOUSEBUTTONUP && ev.button.button == SDL_BUTTON_LEFT) {
                 cube_pointer_up();
+            } else if (ev.type == SDL_MOUSEWHEEL) {
+                float s = ui_f();
+                int mx, my, dy;
+                SDL_GetMouseState(&mx, &my);
+                mx = (int)(mx / s);
+                my = (int)(my / s);
+                dy = ev.wheel.y;
+                if (ev.wheel.direction == SDL_MOUSEWHEEL_FLIPPED) {
+                    dy = -dy;
+                }
+                if (mx >= win_w - sidew()) {
+                    g.side_scroll -= dy * 36;
+                    side_clamp();
+                } else if (g.tab == 2 && cube_in_spin(mx, my)) {
+                    cube_zoom_by(dy);
+                }
             }
         }
         learn_tick();
         if (g.connected && !g.en_running) {
             uint64_t tot = 0;
+            uint32_t now = SDL_GetTicks();
             np_ring_stats(&g.ring, &tot, NULL, NULL);
-            if (tot == g.stall_tot) {
-                g.stall_n++;
-                if (g.stall_n == 90) {
-                    set_status(0, "stream stalled at %llu frames", (unsigned long long)tot);
-                }
-                if (g.stall_n > 180) {
-                    g.stall_n = 0;
-                    stream_recover();
-                }
-            } else {
+            if (tot != g.stall_tot) {
                 g.stall_tot = tot;
+                g.stall_t = now;
                 g.stall_n = 0;
                 if (g.recover_n && tot > 50) {
                     g.recover_n = 0;
+                }
+            } else if (g.stall_t && now - g.stall_t > 3000) {
+                if (!g.stall_n) {
+                    set_status(0, "stream stalled at %llu frames", (unsigned long long)tot);
+                    g.stall_n = 1;
+                }
+                if (now - g.stall_t > 4000) {
+                    g.stall_t = now;
+                    stream_recover();
                 }
             }
         }
@@ -3506,6 +4194,10 @@ static int run_gui(void)
     pthread_cond_signal(&g.qcv);
     pthread_join(g.cmd_thr, NULL);
     do_disconnect();
+    if (cube_tex) {
+        SDL_DestroyTexture(cube_tex);
+        cube_tex = NULL;
+    }
     SDL_DestroyRenderer(R);
     SDL_DestroyWindow(win);
     SDL_Quit();
@@ -3592,7 +4284,10 @@ int main(int argc, char **argv)
     g.pref_h = 1080;
     g.cube_yaw = 0.55f;
     g.cube_pitch = 0.40f;
-    g.elec_sel = -1;
+    g.cube_zoom = 1.0f;
+    g.site_focus = 0;
+    g.virt_focus = 0;
+    g.elec_sel = 0;
     np_elec_default(g.elec);
     snprintf(g.prof, sizeof(g.prof), "default");
     for (i = 0; i < NP_NCHAN; i++) {

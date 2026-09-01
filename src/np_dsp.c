@@ -8,6 +8,16 @@
 #define M_PI 3.14159265358979323846
 #endif
 
+/* Flush denormals — otherwise IIR dies into subnormals and the hot path
+ * gets ~100× slower after a few minutes of near-zero residual. */
+static float np_flush(float y)
+{
+    if (y < 1e-18f && y > -1e-18f) {
+        return 0.f;
+    }
+    return y;
+}
+
 void np_detrend(float *x, int n)
 {
     int i;
@@ -135,19 +145,19 @@ void np_plate_destroy(float *x, int n, const float *noise_psd)
     }
     memset(ola, 0, (size_t)n * sizeof(float));
     covered = 0;
-    for (start = 0; start + NP_FFT_N <= n; start += hop) {
-        for (i = 0; i < NP_FFT_N; i++) {
-            float win = 0.5f - 0.5f * cosf(2.f * (float)M_PI * (float)i / (float)(NP_FFT_N - 1));
-            re[i] = x[start + i] * win;
-            im[i] = 0.f;
+    {
+        float mean = 0.f;
+        for (k = 2; k < NP_PSD_BINS; k++) {
+            mean += noise_psd[k];
         }
-        fft_inplace(re, im, NP_FFT_N, 0);
-        {
-            float mean = 0.f;
-            for (k = 2; k < NP_PSD_BINS; k++) {
-                mean += noise_psd[k];
+        mean /= (float)(NP_PSD_BINS - 2);
+        for (start = 0; start + NP_FFT_N <= n; start += hop) {
+            for (i = 0; i < NP_FFT_N; i++) {
+                float win = 0.5f - 0.5f * cosf(2.f * (float)M_PI * (float)i / (float)(NP_FFT_N - 1));
+                re[i] = x[start + i] * win;
+                im[i] = 0.f;
             }
-            mean /= (float)(NP_PSD_BINS - 2);
+            fft_inplace(re, im, NP_FFT_N, 0);
             for (k = 0; k < NP_PSD_BINS; k++) {
                 float p = re[k] * re[k] + im[k] * im[k];
                 float npw = noise_psd[k];
@@ -166,12 +176,12 @@ void np_plate_destroy(float *x, int n, const float *noise_psd)
                     im[NP_FFT_N - k] *= g;
                 }
             }
+            fft_inplace(re, im, NP_FFT_N, 1);
+            for (i = 0; i < NP_FFT_N; i++) {
+                ola[start + i] += re[i];
+            }
+            covered = start + NP_FFT_N;
         }
-        fft_inplace(re, im, NP_FFT_N, 1);
-        for (i = 0; i < NP_FFT_N; i++) {
-            ola[start + i] += re[i];
-        }
-        covered = start + NP_FFT_N;
     }
     if (covered > n) {
         covered = n;
@@ -200,7 +210,7 @@ float np_hp_step(struct np_hp *f, float x)
     if (f->a <= 0.f) {
         return x;
     }
-    y = f->a * (f->y1 + x - f->x1);
+    y = np_flush(f->a * (f->y1 + x - f->x1));
     f->x1 = x;
     f->y1 = y;
     return y;
@@ -256,7 +266,7 @@ float np_notch_step(struct np_notch *f, float x)
     if (f->b0 == 1.f && f->b1 == 0.f) {
         return x;
     }
-    y = f->b0 * x + f->b1 * f->x1 + f->b2 * f->x2 - f->a1 * f->y1 - f->a2 * f->y2;
+    y = np_flush(f->b0 * x + f->b1 * f->x1 + f->b2 * f->x2 - f->a1 * f->y1 - f->a2 * f->y2);
     f->x2 = f->x1;
     f->x1 = x;
     f->y2 = f->y1;

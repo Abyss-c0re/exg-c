@@ -29,8 +29,8 @@ Or `./np-exg --cli --port /dev/ttyUSB1 --seconds 8` with no window.
    That is the desk / open-input plate, not EEG.
 3. Put the headset on. Sit still. Click **CALM**.
 4. Leave **CLN** on. The plot is leftover after that plate + calm DC.
-5. Open **Cube**. Each channel sits on a 10-10 cell (Fp1, C3, …) and
-   glows in that channel’s color when leftover vs CALM is SIGNAL.
+5. Open **Cube** (`b`). The flat 10-10 map is the headset. `1`–`8` pick a
+   channel, `[` `]` (arrows) find a site, Enter **Assign**. `+` / `-` zoom.
 6. Open **Settings**. Type a profile name (for example `motor`) and
    click **Save**. **Load** brings it back later.
 7. On Cube or Settings, click **algo …** to pick how each cell becomes
@@ -60,7 +60,9 @@ CLEAN, gain, colors, channel on/RLD, and electrode sites.
 ## Keys
 
 `c` connect · `d` disconnect · `r` record CSV · space pause · `1`–`8`
-toggle a channel · `q` quit
+channel (on Cube: pick that ch) · `m` Main · `s` Settings · `b` Cube ·
+arrows scroll the sidebar / on Cube step 10-10 · `+` `-` zoom · Enter
+assign · `q` quit
 
 ## Cleaning the line (honest)
 

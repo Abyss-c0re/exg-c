@@ -73,6 +73,8 @@ void np_1010_elaz(int i, float *az, float *el);
 void np_1010_flat(int i, float *fx, float *fy); /* +x right, +y nose, unit cap */
 int np_1010_find(const char *name);
 int np_1010_nearest(float az, float el);
+/* How many 10-10 names share this shell cell. Writes up to cap site ids. */
+int np_1010_sites_at(int x, int y, int z, int out[], int cap);
 void np_view_apply(float yaw, float pitch, float x, float y, float z, float *ox, float *oy,
                    float *oz);
 void np_view_undo(float yaw, float pitch, float x, float y, float z, float *ox, float *oy,

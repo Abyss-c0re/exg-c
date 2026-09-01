@@ -378,6 +378,11 @@ static void test_disk_cal(void)
         }
     }
     fclose(f);
+    if (got_tone && hz <= 1.f) {
+        expect(rows == 8, "on-disk cal 8 channels");
+        expect(1, "on-disk cal tone idle (no line)");
+        return;
+    }
     expect(got_tone && hz > 45.f && hz < 55.f, "on-disk cal tone ~50 Hz");
     expect(rows == 8, "on-disk cal 8 channels");
 }
@@ -560,6 +565,18 @@ static void test_cube3(void)
     expect(x < 4 && z == 7, "Fp1 left-front face");
     expect(np_1010_ijk(np_1010_find("Cz"), &x, &y, &z) == 0 && y == 7, "Cz on top face");
     expect(np_1010_ijk(np_1010_find("O1"), &x, &y, &z) == 0 && z == 0, "O1 on back face");
+    {
+        int i, all_shell = 1, at[8], nat;
+        for (i = 0; i < np_1010_count(); i++) {
+            if (np_1010_ijk(i, &x, &y, &z) != 0 || !np_cube_shell(x, y, z)) {
+                all_shell = 0;
+            }
+        }
+        expect(all_shell, "every 10-10 name is a shell cell");
+        np_1010_ijk(np_1010_find("Cz"), &x, &y, &z);
+        nat = np_1010_sites_at(x, y, z, at, 8);
+        expect(nat >= 1, "Cz cell has at least Cz");
+    }
     np_1010_ijk(e[0].site, &x, &y, &z);
     np_1010_ijk(e[0].site, &x2, &y2, &z2);
     expect(x == x2 && y == y2 && z == z2, "headset cell is fixed");

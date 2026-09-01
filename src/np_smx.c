@@ -211,6 +211,25 @@ int np_1010_ijk(int site, int *x, int *y, int *z)
     return 0;
 }
 
+int np_1010_sites_at(int x, int y, int z, int out[], int cap)
+{
+    int i, n = 0, sx, sy, sz;
+    for (i = 0; i < NP_1010_N; i++) {
+        if (np_1010_ijk(i, &sx, &sy, &sz) != 0) {
+            continue;
+        }
+        if (sx != x || sy != y || sz != z) {
+            continue;
+        }
+        if (out && n < cap) {
+            out[n] = i;
+        }
+        n++;
+    }
+    return n;
+    return 0;
+}
+
 int np_virt_find(const struct np_smx *m, const char *name)
 {
     int i;
