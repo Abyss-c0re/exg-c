@@ -89,6 +89,15 @@
             android:textColor="@color/ink" />
 
         <Button
+            android:id="@+id/tabPoses"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:backgroundTint="@color/btn"
+            android:text="Poses"
+            android:textColor="@color/ink" />
+
+        <Button
             android:id="@+id/tabSet"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
@@ -211,6 +220,41 @@
                 android:layout_height="0dp"
                 android:layout_weight="1" />
         </LinearLayout>
+
+        <ScrollView
+            android:id="@+id/poses"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:visibility="gone">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="12dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Recorded poses — delete here. Main only shows the name."
+                    android:textColor="@color/muted" />
+
+                <TextView
+                    android:id="@+id/poseHint"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:paddingTop="8dp"
+                    android:paddingBottom="8dp"
+                    android:text="MATCH on to see live %. Tap a row to select."
+                    android:textColor="@color/ink" />
+
+                <LinearLayout
+                    android:id="@+id/poseList"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical" />
+            </LinearLayout>
+        </ScrollView>
 
         <ScrollView
             android:id="@+id/settings"

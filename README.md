@@ -18,7 +18,7 @@ Not a medical device. Not affiliated with NeuroPawn.
 - IMU acc / gyr / mag on 57-byte Knight boards (`8-ch + IMU`)
 - Band presets: `raw` / `line-kill` / `EEG` / `EMG`
 - CLIP gate — Record will not save a saturated window
-- Learn: **Record** a named pose, **MATCH** scores the live stream against those chips (green ≥ 55%)
+- Learn: **Record** a named pose on Main. **Poses** tab lists them, scores live %, and deletes.
 
 Default montage: Fp1 Fp2 C3 C4 P3 P4 O1 O2.
 

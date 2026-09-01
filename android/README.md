@@ -33,9 +33,8 @@ debug keystore. The native library is `libexg.so` (no SDL2).
 4. Open **exg-c**. It lists the device. Tap **Connect**.
 5. First session: **NOISE** (desk) → **OK** → wear headset → **CALM** → leave **CLN** on.
 6. **ID** should read `still`. Hard blink → `blink`. Jaw clench → `clench`.
-   Then type that name and **Record** — it snaps 1 s at the burst. A chip
-   appears. **MATCH on** scores the live stream against those chips
-   (green ≥ 55%). Long-press a chip to delete.
+   Then type that name and **Record** — it snaps 1 s at the burst. Main
+   shows the **name** only. **Poses** lists them with live % and **Delete**.
 
 Do not hammer Disconnect / Connect. Each DTR pulse resets the Nano; wait
 for frames instead.
