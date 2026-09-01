@@ -2,6 +2,8 @@
 #include "np_dsp.h"
 #include "np_knight.h"
 #include "np_ring.h"
+#include "np_cube.h"
+#include "np_smx.h"
 #include "nplearn.h"
 
 #include <math.h>
@@ -131,6 +133,17 @@ static void test_ring(void)
     }
     n = np_ring_copy(&r, 0, buf, 4);
     expect(n == 4 && buf[0] == 6.f && buf[3] == 9.f, "ring last-4");
+    {
+        float acc[3], gyr[3], mag[3];
+        int ok = 0;
+        memset(&s, 0, sizeof(s));
+        s.imu = 1;
+        s.acc[2] = 1.5f;
+        s.gyr[1] = 0.4f;
+        np_ring_push(&r, &s);
+        np_ring_imu(&r, acc, gyr, mag, &ok);
+        expect(ok && acc[2] == 1.5f && gyr[1] == 0.4f, "ring keeps last IMU");
+    }
 }
 
 static void synth(float *x, int n, float sps, float line_hz, float line_a, float sig_hz,
@@ -364,6 +377,273 @@ static void test_disk_cal(void)
     expect(rows == 8, "on-disk cal 8 channels");
 }
 
+static void test_smx(void)
+{
+    struct np_smx m;
+    struct np_cube cubes[NP_CUBE_BUDGET + 4];
+    char pack[NP_SMX_SEC * NP_NCHAN + 4];
+    uint8_t row[NP_NCHAN];
+    int ids[NP_NCHAN];
+    int i, n, nc, on, lat, core;
+
+    np_smx_init(&m);
+    memset(row, 0, sizeof(row));
+    row[0] = 1;
+    row[2] = 1;
+    row[7] = 1;
+    np_smx_push(&m, row, 8, 0xFF);
+    expect(m.nch == 8 && m.have == 1 && m.seq == 1, "smx first second");
+    n = np_smx_pack(&m, pack, sizeof(pack));
+    expect(n == 8 && strcmp(pack, "10100001") == 0, "smx pack newest row");
+
+    memset(row, 0, sizeof(row));
+    row[1] = 1;
+    np_smx_push(&m, row, 8, 0xFF);
+    n = np_smx_pack(&m, pack, sizeof(pack));
+    expect(n == 16 && memcmp(pack, "01000000", 8) == 0, "smx newest first");
+    expect(memcmp(pack + 8, "10100001", 8) == 0, "smx keeps prior second");
+
+    expect(np_smx_ch_ids(&m, ids) == 8 && ids[0] == 1 && ids[7] == 8, "smx ch ids 1-8");
+
+    for (i = 0; i < 40; i++) {
+        memset(row, 0, sizeof(row));
+        row[i % 8] = 1;
+        np_smx_push(&m, row, 8, 0xFF);
+    }
+    expect(m.have == NP_SMX_SEC, "smx keeps 32 seconds");
+    nc = np_smx_cubes(&m, cubes, NP_CUBE_BUDGET + 4);
+    expect(nc > 2 && nc <= NP_CUBE_BUDGET, "smx cubes under budget 40");
+    on = lat = core = 0;
+    {
+        int crim_ok = 1;
+        for (i = 0; i < nc; i++) {
+            if (cubes[i].role == 1) {
+                core++;
+            } else if (cubes[i].role == 2) {
+                on++;
+                if (cubes[i].r != NP_CUBE_CR || cubes[i].g != NP_CUBE_CG ||
+                    cubes[i].b != NP_CUBE_CB) {
+                    crim_ok = 0;
+                }
+            } else {
+                lat++;
+            }
+        }
+        expect(crim_ok, "smx channel cube crimson");
+    }
+    expect(core >= 1, "smx has core cube");
+    expect(on + lat + core == nc, "smx roles lattice/core/channel");
+
+    /* Width follows used channels, not always 8. */
+    np_smx_init(&m);
+    row[0] = 1;
+    row[1] = 0;
+    row[2] = 1;
+    np_smx_push(&m, row, 3, 0x07);
+    n = np_smx_pack(&m, pack, sizeof(pack));
+    expect(n == 3 && strcmp(pack, "101") == 0, "smx width = used channels");
+    expect(np_smx_ch_ids(&m, ids) == 3 && ids[0] == 1 && ids[2] == 3,
+           "smx used-channel ids");
+}
+
+static void test_elec_view(void)
+{
+    struct np_elec e[NP_NCHAN], back;
+    struct np_smx m;
+    struct np_cube cubes[NP_CUBE_BUDGET];
+    float x, y, z, x2, y2, z2;
+    int i, n, sites;
+    uint8_t row[NP_NCHAN];
+
+    np_elec_default(e);
+    {
+        int distinct = 1;
+        for (i = 1; i < NP_NCHAN; i++) {
+            if (e[i].az == e[0].az && e[i].el == e[0].el) {
+                distinct = 0;
+            }
+        }
+        expect(distinct, "default sites distinct");
+    }
+    expect(np_1010_count() == NP_1010_N, "61 10-10 headset nodes");
+    expect(np_1010_find("Fp1") >= 0 && np_1010_find("C3") >= 0 && np_1010_find("O2") >= 0,
+           "headset names Fp1 C3 O2 exist");
+    expect(np_1010_core(np_1010_find("Fp1")) && np_1010_core(np_1010_find("Cz")),
+           "10-20 names are core markings");
+    expect(!np_1010_core(np_1010_find("AF3")) && !np_1010_core(np_1010_find("FCz")),
+           "10-10 intermediates are not 10-20 core");
+    expect(strcmp(e[0].name, "Fp1") == 0 && strcmp(e[1].name, "Fp2") == 0, "default ch1 Fp1 ch2 Fp2");
+    expect(strcmp(e[2].name, "C3") == 0 && strcmp(e[7].name, "O2") == 0, "default C3..O2");
+    np_elec_to_xyz(&e[0], 1.f, &x, &y, &z);
+    expect(fabsf(x * x + y * y + z * z - 1.f) < 1e-5f, "site on unit sphere");
+    expect(x < 0.f && z > 0.f, "Fp1 is left-front");
+    {
+        float fx, fy;
+        np_1010_flat(np_1010_find("Fp1"), &fx, &fy);
+        expect(fx < 0.f && fy > 0.f, "Fp1 flat is left-front");
+        np_1010_flat(np_1010_find("Cz"), &fx, &fy);
+        expect(fabsf(fx) < 0.05f && fabsf(fy) < 0.05f, "Cz flat is center");
+    }
+    np_elec_from_xyz(x, y, z, &back);
+    expect(fabsf(back.az - e[0].az) < 0.05f && fabsf(back.el - e[0].el) < 0.05f,
+           "xyz round-trip az/el");
+    expect(strcmp(np_1010_name(np_1010_nearest(e[2].az, e[2].el)), "C3") == 0, "nearest snap C3");
+
+    np_view_apply(0.7f, 0.4f, 1.f, 0.f, 0.f, &x, &y, &z);
+    np_view_undo(0.7f, 0.4f, x, y, z, &x2, &y2, &z2);
+    expect(fabsf(x2 - 1.f) < 1e-5f && fabsf(y2) < 1e-5f && fabsf(z2) < 1e-5f,
+           "view rot inverse");
+    np_view_apply(-1.1f, 0.5f, 3.f, 4.f, 0.f, &x, &y, &z);
+    expect(fabsf(x * x + y * y + z * z - 25.f) < 1e-4f, "view rot preserves length");
+
+    np_smx_init(&m);
+    memset(row, 0, sizeof(row));
+    row[0] = 1;
+    np_smx_push(&m, row, 8, 0xFF);
+    n = np_smx_head_cubes(&m, e, NULL, cubes, NP_CUBE_BUDGET);
+    expect(n > 10 && n <= NP_CUBE_BUDGET, "cube lattice under budget 40");
+    {
+        float x1, y1, z1, x2, y2, z2;
+        np_elec_cube_xyz(&e[0], &x1, &y1, &z1);
+        np_elec_cube_xyz(&e[0], &x2, &y2, &z2);
+        expect(x1 == x2 && y1 == y2 && z1 == z2, "channel cell does not move");
+        expect(x1 < 0.f && z1 > 0.f, "Fp1 cube cell is left-front");
+        np_elec_cube_xyz(&e[1], &x2, &y2, &z2);
+        expect(!(x1 == x2 && z1 == z2), "Fp1 and Fp2 occupy different cells");
+    }
+    sites = 0;
+    for (i = 0; i < n; i++) {
+        if (cubes[i].role == 2) {
+            sites++;
+        }
+    }
+    expect(sites >= 1, "SIGNAL channel glows on the cube");
+    {
+        int rgb[NP_NCHAN][3];
+        int found = 0;
+        for (i = 0; i < NP_NCHAN; i++) {
+            rgb[i][0] = 10 + i;
+            rgb[i][1] = 80 + i;
+            rgb[i][2] = 160 + i;
+        }
+        n = np_smx_head_cubes(&m, e, rgb, cubes, NP_CUBE_BUDGET);
+        for (i = 0; i < n; i++) {
+            if (cubes[i].role == 2 && cubes[i].r == 10 && cubes[i].g == 80 &&
+                cubes[i].b == 160) {
+                found = 1;
+            }
+        }
+        expect(found, "glow uses per-channel color");
+    }
+}
+
+static void test_cube3(void)
+{
+    struct np_smx m;
+    struct np_elec e[NP_NCHAN];
+    char pack[NP_CUBE3_N + 4];
+    int x, y, z, x2, y2, z2;
+    float acc[3] = {0.f, 0.f, 1.8f}, gyr[3] = {0, 0, 0}, mag[3] = {0, 0, 0};
+
+    np_smx_init(&m);
+    np_elec_default(e);
+    expect(np_cube_idx(0, 0, 0) == 0 && np_cube_idx(7, 7, 7) == 511, "8^3 index 0..511");
+    expect(np_cube_shell(0, 3, 3) && np_cube_shell(7, 1, 1), "faces are shell");
+    expect(!np_cube_shell(3, 3, 3) && !np_cube_shell(4, 5, 3), "interior is virtual");
+    expect(np_1010_ijk(np_1010_find("Fp1"), &x, &y, &z) == 0 && np_cube_shell(x, y, z),
+           "Fp1 on shell");
+    expect(x < 4 && z == 7, "Fp1 left-front face");
+    expect(np_1010_ijk(np_1010_find("Cz"), &x, &y, &z) == 0 && y == 7, "Cz on top face");
+    expect(np_1010_ijk(np_1010_find("O1"), &x, &y, &z) == 0 && z == 0, "O1 on back face");
+    np_1010_ijk(e[0].site, &x, &y, &z);
+    np_1010_ijk(e[0].site, &x2, &y2, &z2);
+    expect(x == x2 && y == y2 && z == z2, "headset cell is fixed");
+    expect(np_virt_claim(&m, "bad", 0, 3, 3) < 0, "plugin cannot take EEG shell");
+    expect(np_virt_claim(&m, "emg", 3, 4, 5) >= 0, "plugin claims interior");
+    np_virt_write(&m, "emg", 1);
+    expect(np_virt_read(&m, "emg") == 1, "plugin write/read");
+    np_cube_imu(&m, acc, gyr, mag);
+    expect(np_virt_read(&m, "accZ") == 1, "IMU accZ lights interior");
+    expect(np_cube_pack(&m, pack, sizeof(pack)) == NP_CUBE3_N, "SoT pack is 512 bits");
+    {
+        int i, uniq = 1, on_shell = 1, seen[NP_CUBE3_N];
+        memset(seen, 0, sizeof(seen));
+        for (i = 0; i < NP_NCHAN; i++) {
+            int id;
+            np_1010_ijk(e[i].site, &x, &y, &z);
+            if (!np_cube_shell(x, y, z)) {
+                on_shell = 0;
+            }
+            id = np_cube_idx(x, y, z);
+            if (seen[id]) {
+                uniq = 0;
+            }
+            seen[id] = 1;
+        }
+        expect(on_shell, "default montage on shell");
+        expect(uniq, "default 8 sites are distinct cells");
+    }
+    np_cube_set(&m, 1, 2, 7, 1, NP_CELL_EEG);
+    expect(np_cube_get(&m, 1, 2, 7) == 1, "cube set/get");
+    np_cube_clear_kind(&m, NP_CELL_EEG);
+    expect(np_cube_get(&m, 1, 2, 7) == 0, "clear EEG leaves cell off");
+    expect(np_virt_read(&m, "emg") == 1, "clear EEG keeps plugin bits");
+    np_cube_set(&m, 0, 0, 0, 1, NP_CELL_IMU);
+    np_cube_imu(&m, acc, gyr, mag);
+    expect(np_cube_get(&m, 0, 0, 0) == 0, "IMU tick does not keep a shell bit");
+}
+
+static void test_profile_format(void)
+{
+    const char *path = "/tmp/exg-c-profile-mock.ini";
+    FILE *f;
+    char line[96];
+    int gain1 = 0, active3 = -1, rld2 = -1, scale = 0, notch = 0;
+    char elec1[8] = "", elec8[8] = "", prof[24] = "";
+
+    f = fopen(path, "w");
+    expect(f != NULL, "profile mock file opens");
+    if (!f) {
+        return;
+    }
+    fprintf(f, "[ui]\nscale=20\nprofile=motor\n");
+    fprintf(f, "[view]\nnotch_hz=50\nhp_hz=1\n");
+    fprintf(f, "[cube]\nelec1=Fp1\nelec8=O2\n");
+    fprintf(f, "[channels]\ngain1=8\nactive3=0\nrld2=1\n");
+    fclose(f);
+    f = fopen(path, "r");
+    expect(f != NULL, "profile mock file reads");
+    if (!f) {
+        return;
+    }
+    while (fgets(line, sizeof(line), f)) {
+        int v, ch;
+        if (sscanf(line, "scale=%d", &v) == 1) {
+            scale = v;
+        } else if (sscanf(line, "profile=%23s", prof) == 1) {
+            ;
+        } else if (sscanf(line, "notch_hz=%d", &notch) == 1) {
+            ;
+        } else if (sscanf(line, "elec1=%7s", elec1) == 1) {
+            ;
+        } else if (sscanf(line, "elec8=%7s", elec8) == 1) {
+            ;
+        } else if (sscanf(line, "gain%d=%d", &ch, &v) == 2 && ch == 1) {
+            gain1 = v;
+        } else if (sscanf(line, "active%d=%d", &ch, &v) == 2 && ch == 3) {
+            active3 = v;
+        } else if (sscanf(line, "rld%d=%d", &ch, &v) == 2 && ch == 2) {
+            rld2 = v;
+        }
+    }
+    fclose(f);
+    expect(scale == 20 && notch == 50, "profile keeps UI and filter");
+    expect(strcmp(prof, "motor") == 0, "profile name stored");
+    expect(strcmp(elec1, "Fp1") == 0 && strcmp(elec8, "O2") == 0,
+           "profile keeps electrode sites");
+    expect(gain1 == 8 && active3 == 0 && rld2 == 1, "profile keeps gain on/rld");
+}
+
 int main(void)
 {
     test_cmds();
@@ -375,6 +655,10 @@ int main(void)
     test_nplearn();
     test_disk_cal();
     test_replay_live_csv();
+    test_smx();
+    test_elec_view();
+    test_cube3();
+    test_profile_format();
     if (fails) {
         fprintf(stderr, "%d FAIL\n", fails);
         return 1;

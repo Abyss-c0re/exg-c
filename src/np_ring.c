@@ -20,6 +20,15 @@ void np_ring_push(struct np_ring *r, const struct np_sample *s)
     r->acc[0][w] = s->acc[0];
     r->acc[1][w] = s->acc[1];
     r->acc[2][w] = s->acc[2];
+    if (s->imu) {
+        int k;
+        for (k = 0; k < 3; k++) {
+            r->imu_acc[k] = s->acc[k];
+            r->imu_gyr[k] = s->gyr[k];
+            r->imu_mag[k] = s->mag[k];
+        }
+        r->imu_ok = 1;
+    }
     r->loff_p = s->loff_p;
     r->loff_n = s->loff_n;
     r->wr++;
@@ -70,6 +79,27 @@ void np_ring_loff(struct np_ring *r, uint8_t *p, uint8_t *n)
     }
     if (n) {
         *n = r->loff_n;
+    }
+    pthread_mutex_unlock(&r->mu);
+}
+
+void np_ring_imu(struct np_ring *r, float acc[3], float gyr[3], float mag[3], int *ok)
+{
+    int k;
+    pthread_mutex_lock(&r->mu);
+    if (ok) {
+        *ok = r->imu_ok;
+    }
+    for (k = 0; k < 3; k++) {
+        if (acc) {
+            acc[k] = r->imu_acc[k];
+        }
+        if (gyr) {
+            gyr[k] = r->imu_gyr[k];
+        }
+        if (mag) {
+            mag[k] = r->imu_mag[k];
+        }
     }
     pthread_mutex_unlock(&r->mu);
 }

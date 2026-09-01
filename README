@@ -1,48 +1,100 @@
-exg-c — unaffiliated 8-channel EXG host (C)
+# exg-c
 
-Build:  make            # libnplearn.a + ./np-exg
-        make lib        # matcher only
-        make test       # mock parser / CAL / AUTO / nplearn
-        make test-live  # table-top collect on /dev/ttyUSB1
-Run:    ./np-exg
-        ./np-exg --cli --port /dev/ttyUSB1 --seconds 8
+A local 8-channel EXG host written in C. Plug in a Knight-class board,
+watch the traces, clean the line noise, map channels on a cube, save a
+profile. Not a medical device. Not affiliated with NeuroPawn.
 
-nplearn/ is a separate no-heap C library (filter + named templates +
-score). The SDL host links it; an MCU compiles nplearn.c + nplearn_filt.c
-only. See nplearn/README.
+## Install (once)
 
-Requires libSDL2 and dialout (the host re-execs via sg if needed).
-Once:  sudo ./install-usb-permissions.sh
-Settings persist in ~/.config/exg-c.ini (UI scale, window, colors, view).
-Sidebar Settings tab: UI 1.0x / 1.5x / 2.0x (whole layout), window size,
-per-channel colors. Scale multiplies every control the same amount.
+```
+sudo ./install-usb-permissions.sh
+```
 
-Keys: c connect  d disconnect  r record  space pause  1-8 toggle  q quit
-Click View buttons for window, scale, 50/60/AUTO notch, high-pass, grid.
-60 Hz at 125 SPS is 2 samples/cycle, so that notch is a wide digital
-zero at 60 Hz (not the sharp Q=30 used at 50 Hz). It still cuts line.
-NOISE uses ~8 s (1024 samples) and a Welch plate. CLEAN destroys bins
-that match that plate (Wiener), then the line lock, then calm DC.
-CALM is worn-still. Leftover is the signal the matcher can learn.
-Default plot is ±200 µV. After CAL (headset off), a channel still at
-that baseline FROZEN — the strip stops scrolling, like the official
-host when you take the headset off. Live update resumes when RMS
-leaves the baseline. Scale OG is the old stretch-the-rail look.
-Learn: click 1. type a name, hold the pose, click Record 2s and stay still.
-It captures at the end of the countdown. MATCH scores live vs saved samples.
-Same name overwrites. del removes the selected chip.
-Learn always runs hp 2 Hz, a 40 Hz low-pass, and the mains notch (50 if
-view notch is off). Save records the live window as-is after that filter;
-it does not refuse rail or large EMG. Samples persist in ~/.config/exg-c.learn
-Firmware on the board is 125 SPS; the status line shows measured rate.
+Needs libSDL2. The host re-runs itself via `sg dialout` if your user is
+not yet in that group.
 
-Calibrate: click CAL, take the headset off, click OK. That window is the
-open-input baseline (exg-c.cal next to the binary). With CUT on, any
-channel still at that baseline is drawn flat (static removed); a real
-change vs cal is shown after subtracting the baseline DC. Toggle CUT to
-see the raw rail again.
+## Run
 
-USB frames keep coming when the analog switches are off — those switches
-only route the front-end, they do not stop acquire_data(). Open inputs
-sit at the ADS1299 rail (~±0.13 V) and are labeled open/rail, not EEG.
-Lead-off bits (frame bytes 18–19) are shown when the firmware sets them.
+```
+make
+./np-exg
+```
+
+Or `./np-exg --cli --port /dev/ttyUSB1 --seconds 8` with no window.
+
+## First session
+
+1. Click **Connect** (or wait — it tries the first USB port on start).
+2. Leave the headset **off the head**. Click **NOISE**, then **OK**.
+   That is the desk / open-input plate, not EEG.
+3. Put the headset on. Sit still. Click **CALM**.
+4. Leave **CLN** on. The plot is leftover after that plate + calm DC.
+5. Open **Cube**. Each channel sits on a 10-10 cell (Fp1, C3, …) and
+   glows in that channel’s color when leftover looks like SIGNAL.
+6. Open **Settings**. Type a profile name (for example `motor`) and
+   click **Save**. **Load** brings it back later.
+
+## What the tabs do
+
+| Tab | Use it for |
+|-----|------------|
+| **Main** | Live traces, FFT, learn/match, NOISE / CALM / CLEAN |
+| **Cube** | 8×8×8 state matrix. Shell = headset sites. Inside = IMU (and plugins). Drag to spin. Click a channel, then a named cell, to move it. |
+| **Settings** | UI size, window, channel colors, **Save / Load / next** profiles |
+
+Default montage: ch1–8 → Fp1 Fp2 C3 C4 P3 P4 O1 O2.
+
+## Profiles
+
+A profile is the whole setup: UI scale, window size, notch / high-pass,
+CLEAN, gain, colors, channel on/RLD, and electrode sites.
+
+- Last session also autosaves to `~/.config/exg-c.ini`.
+- Named files live in `~/.config/exg-c/profiles/<name>.ini`.
+- **next** walks saved names; then click **Load**.
+- Names: letters, digits, `-`, `_`. Enter in the name box also Saves.
+
+## Keys
+
+`c` connect · `d` disconnect · `r` record CSV · space pause · `1`–`8`
+toggle a channel · `q` quit
+
+## Cleaning the line (honest)
+
+NOISE is ~8 s and a Welch plate. CLEAN destroys bins that match that
+plate, then the line lock, then calm DC. CALM is worn-still. Leftover
+is what Learn can store.
+
+Default plot is ±200 µV. After NOISE, a channel still at that baseline
+is drawn **FROZEN** (stops scrolling), like the official host with the
+headset off. It moves again when RMS leaves the plate.
+
+60 Hz at 125 SPS is two samples per cycle, so that notch is wide on
+purpose. It still cuts line.
+
+USB **keeps streaming** when the analog switches are off. Those
+switches only route the front-end. Open inputs sit at the ADS1299 rail
+and are labeled open/rail, not EEG.
+
+## Learn
+
+Type a name → **Record 2s** → hold still. MATCH scores live vs saved
+poses. Same name overwrites. `del` removes the selected chip. Samples
+stay in `~/.config/exg-c.learn`. Learn always runs hp 2 Hz, a 40 Hz
+low-pass, and the mains notch.
+
+## Build / test
+
+```
+make            # libnplearn.a + ./np-exg
+make test       # mock parser, CAL, AUTO, cube, profiles
+make test-live  # 5 s collect on /dev/ttyUSB1 (desk, not cortex)
+make lib        # matcher only
+```
+
+`nplearn/` is a no-heap C library for MCU templates. The host links it.
+See `nplearn/README`.
+
+BrainCube plugins include `include/np_cube.h` (`np_virt_claim` /
+`np_virt_write`). Interior cells only — the headset shell is reserved.
+

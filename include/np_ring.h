@@ -16,6 +16,10 @@ struct np_ring {
     uint32_t bad;
     uint8_t loff_p;
     uint8_t loff_n;
+    float imu_acc[3];
+    float imu_gyr[3];
+    float imu_mag[3];
+    int imu_ok;
 };
 
 void np_ring_init(struct np_ring *r);
@@ -23,5 +27,6 @@ void np_ring_push(struct np_ring *r, const struct np_sample *s);
 uint32_t np_ring_copy(struct np_ring *r, int ch, float *dst, uint32_t n);
 void np_ring_stats(struct np_ring *r, uint64_t *total, uint32_t *good, uint32_t *bad);
 void np_ring_loff(struct np_ring *r, uint8_t *p, uint8_t *n);
+void np_ring_imu(struct np_ring *r, float acc[3], float gyr[3], float mag[3], int *ok);
 
 #endif

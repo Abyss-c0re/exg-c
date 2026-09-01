@@ -5,11 +5,20 @@
 #include "nplearn.h"
 #include "np_ring.h"
 #include "np_serial.h"
+#include "np_cube.h"
+#include "np_smx.h"
 #include "sdl2_min.h"
 
+#include <arpa/inet.h>
+#include <ctype.h>
+#include <dirent.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <stdarg.h>
 #include <grp.h>
+#include <netdb.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
 #include <sys/stat.h>
 #include <math.h>
 #ifndef M_PI
@@ -34,6 +43,8 @@
 #define WAVE_TOP 8
 #define OPEN_UV 3000.f
 #define QMAX 48
+#define NP_PROF_NAME 24
+#define NP_MAX_PROF 16
 #define CMD_CHON 1
 #define CMD_CHOFF 2
 #define CMD_RLDADD 3
@@ -111,6 +122,16 @@ struct np_app {
     int chrgb[NP_NCHAN][3];
     pthread_mutex_t csv_mu;
     pthread_mutex_t parse_mu;
+    struct np_smx smx;
+    char cube_ack[48];
+    int cube_ok;
+    float cube_yaw, cube_pitch;
+    struct np_elec elec[NP_NCHAN];
+    int elec_sel; /* 0..7 or -1 */
+    char prof[NP_PROF_NAME];
+    char profiles[NP_MAX_PROF][NP_PROF_NAME];
+    int nprof;
+    int typing_prof;
 };
 
 static struct np_app g;
@@ -152,6 +173,9 @@ static float ui_f(void)
 static void set_status(int ok, const char *fmt, ...);
 static void typing_set(int on);
 static void apply_filt(int ch, float *buf, uint32_t n);
+static void ch_stats(const float *buf, uint32_t n, float *dc, float *rms, float *pk);
+static void cmd_push(int op, int ch, int gain);
+static void cfg_save(void);
 static const int SCALE_UV[] = {50, 100, 200, 500, 1000, 5000};
 #define NSCALE 6
 static const int WIN_S[] = {1, 2, 4, 8};
@@ -347,6 +371,9 @@ static void learn_start_hold(void)
 static void typing_set(int on)
 {
     g.typing = on;
+    if (!on) {
+        g.typing_prof = 0;
+    }
     if (on) {
         SDL_StartTextInput();
     } else {
@@ -354,27 +381,65 @@ static void typing_set(int on)
     }
 }
 
-static void cfg_save(void)
+static void cfg_save(void);
+static int cfg_write(const char *path);
+static int cfg_read(const char *path);
+static void prof_scan(void);
+static void prof_apply(void);
+
+static void prof_dir(char *out, size_t n)
 {
-    char path[NP_MAX_PATH];
-    FILE *f;
-    cfg_path(path, sizeof(path));
-    {
-        const char *h = getenv("HOME");
-        if (h && h[0]) {
-            char dir[NP_MAX_PATH];
-            snprintf(dir, sizeof(dir), "%s/.config", h);
-            mkdir(dir, 0755);
+    const char *h = getenv("HOME");
+    if (h && h[0]) {
+        snprintf(out, n, "%s/.config/exg-c/profiles", h);
+    } else {
+        snprintf(out, n, "exg-c-profiles");
+    }
+}
+
+static int prof_ok_name(const char *s)
+{
+    int n = 0;
+    if (!s || !s[0]) {
+        return 0;
+    }
+    for (; *s; s++, n++) {
+        unsigned char c = (unsigned char)*s;
+        if (!(isalnum(c) || c == '-' || c == '_')) {
+            return 0;
         }
+        if (n >= NP_PROF_NAME - 1) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static void prof_file(const char *name, char *out, size_t n)
+{
+    char dir[192];
+    prof_dir(dir, sizeof(dir));
+    snprintf(out, n, "%s/%.23s.ini", dir, name ? name : "default");
+}
+
+static int cfg_write(const char *path)
+{
+    FILE *f;
+    int i;
+    if (!path || !path[0]) {
+        return -1;
     }
     f = fopen(path, "w");
     if (!f) {
-        return;
+        return -1;
     }
     fprintf(f, "[ui]\n");
     fprintf(f, "scale=%d\n", g.ui_scale);
     fprintf(f, "width=%d\n", g.pref_w);
     fprintf(f, "height=%d\n", g.pref_h);
+    if (g.prof[0]) {
+        fprintf(f, "profile=%s\n", g.prof);
+    }
     fprintf(f, "\n[view]\n");
     fprintf(f, "window_s=%d\n", g.window_s);
     fprintf(f, "autoscale=%d\n", g.autoscale);
@@ -387,35 +452,42 @@ static void cfg_save(void)
     fprintf(f, "detrend=%d\n", g.detrend);
     fprintf(f, "cal_cut=%d\n", g.cal_cut);
     fprintf(f, "board=%d\n", (int)g.board);
-    {
-        int i;
-        fprintf(f, "\n[channels]\n");
-        for (i = 0; i < NP_NCHAN; i++) {
-            fprintf(f, "gain%d=%d\n", i + 1, g.gain[i]);
-            fprintf(f, "color%d=%d,%d,%d\n", i + 1, g.chrgb[i][0], g.chrgb[i][1], g.chrgb[i][2]);
+    fprintf(f, "\n[cube]\n");
+    fprintf(f, "yaw=%.4f\n", (double)g.cube_yaw);
+    fprintf(f, "pitch=%.4f\n", (double)g.cube_pitch);
+    for (i = 0; i < NP_NCHAN; i++) {
+        if (g.elec[i].name[0]) {
+            fprintf(f, "elec%d=%s\n", i + 1, g.elec[i].name);
+        } else {
+            fprintf(f, "elec%d=%.2f,%.2f\n", i + 1, (double)g.elec[i].az, (double)g.elec[i].el);
         }
     }
+    fprintf(f, "\n[channels]\n");
+    for (i = 0; i < NP_NCHAN; i++) {
+        fprintf(f, "gain%d=%d\n", i + 1, g.gain[i]);
+        fprintf(f, "color%d=%d,%d,%d\n", i + 1, g.chrgb[i][0], g.chrgb[i][1], g.chrgb[i][2]);
+        fprintf(f, "active%d=%d\n", i + 1, g.active[i] ? 1 : 0);
+        fprintf(f, "rld%d=%d\n", i + 1, g.rld[i] ? 1 : 0);
+    }
     fclose(f);
+    return 0;
 }
 
-static void cfg_load(void)
+static int cfg_read(const char *path)
 {
-    char path[NP_MAX_PATH], line[80];
     FILE *f;
-    cfg_path(path, sizeof(path));
+    char line[96];
+    if (!path || !path[0]) {
+        return -1;
+    }
     f = fopen(path, "r");
     if (!f) {
-        const char *h = getenv("HOME");
-        if (h && h[0]) {
-            snprintf(path, sizeof(path), "%s/.config/exg-c.conf", h);
-            f = fopen(path, "r");
-        }
-        if (!f) {
-            return;
-        }
+        return -1;
     }
     while (fgets(line, sizeof(line), f)) {
         int v;
+        float fa, fb;
+        char ename[24];
         if (sscanf(line, "window_s=%d", &v) == 1) {
             g.window_s = v;
         } else if (sscanf(line, "autoscale=%d", &v) == 1) {
@@ -452,6 +524,21 @@ static void cfg_load(void)
             g.pref_w = v;
         } else if (sscanf(line, "height=%d", &v) == 1 && v >= 560) {
             g.pref_h = v;
+        } else if (sscanf(line, "profile=%23s", ename) == 1 && prof_ok_name(ename)) {
+            snprintf(g.prof, sizeof(g.prof), "%s", ename);
+        } else if (sscanf(line, "yaw=%f", &fa) == 1) {
+            g.cube_yaw = fa;
+        } else if (sscanf(line, "pitch=%f", &fa) == 1) {
+            g.cube_pitch = fa;
+        } else if (sscanf(line, "elec%d=%f,%f", &v, &fa, &fb) == 3 && v >= 1 && v <= NP_NCHAN) {
+            g.elec[v - 1].az = fa;
+            g.elec[v - 1].el = fb;
+            np_elec_set_site(&g.elec[v - 1], np_1010_nearest(fa, fb));
+        } else if (sscanf(line, "elec%d=%7s", &v, ename) == 2 && v >= 1 && v <= NP_NCHAN) {
+            int s = np_1010_find(ename);
+            if (s >= 0) {
+                np_elec_set_site(&g.elec[v - 1], s);
+            }
         } else {
             int ch, gn, r, gc, b;
             if (sscanf(line, "gain%d=%d", &ch, &gn) == 2 && ch >= 1 && ch <= NP_NCHAN &&
@@ -462,6 +549,10 @@ static void cfg_load(void)
                 g.chrgb[ch - 1][0] = r;
                 g.chrgb[ch - 1][1] = gc;
                 g.chrgb[ch - 1][2] = b;
+            } else if (sscanf(line, "active%d=%d", &ch, &v) == 2 && ch >= 1 && ch <= NP_NCHAN) {
+                g.active[ch - 1] = v ? 1 : 0;
+            } else if (sscanf(line, "rld%d=%d", &ch, &v) == 2 && ch >= 1 && ch <= NP_NCHAN) {
+                g.rld[ch - 1] = v ? 1 : 0;
             }
         }
     }
@@ -481,6 +572,155 @@ static void cfg_load(void)
     if (g.pref_h < 560) {
         g.pref_h = WIN_H;
     }
+    return 0;
+}
+
+static void cfg_save(void)
+{
+    char path[NP_MAX_PATH];
+    const char *h = getenv("HOME");
+    if (h && h[0]) {
+        char dir[NP_MAX_PATH];
+        snprintf(dir, sizeof(dir), "%s/.config", h);
+        mkdir(dir, 0755);
+    }
+    cfg_path(path, sizeof(path));
+    cfg_write(path);
+}
+
+static void cfg_load(void)
+{
+    char path[NP_MAX_PATH];
+    cfg_path(path, sizeof(path));
+    if (cfg_read(path) == 0) {
+        return;
+    }
+    {
+        const char *h = getenv("HOME");
+        if (h && h[0]) {
+            snprintf(path, sizeof(path), "%s/.config/exg-c.conf", h);
+            cfg_read(path);
+        }
+    }
+}
+
+static void prof_scan(void)
+{
+    char dir[NP_MAX_PATH];
+    DIR *d;
+    struct dirent *e;
+    g.nprof = 0;
+    prof_dir(dir, sizeof(dir));
+    d = opendir(dir);
+    if (!d) {
+        return;
+    }
+    while ((e = readdir(d)) != NULL && g.nprof < NP_MAX_PROF) {
+        size_t n = strlen(e->d_name);
+        if (n < 5 || strcmp(e->d_name + n - 4, ".ini") != 0) {
+            continue;
+        }
+        if (n - 4 >= NP_PROF_NAME) {
+            continue;
+        }
+        memcpy(g.profiles[g.nprof], e->d_name, n - 4);
+        g.profiles[g.nprof][n - 4] = 0;
+        if (prof_ok_name(g.profiles[g.nprof])) {
+            g.nprof++;
+        }
+    }
+    closedir(d);
+}
+
+static void prof_apply(void)
+{
+    int c;
+    filt_reset();
+    if (Win) {
+        SDL_SetWindowSize(Win, g.pref_w, g.pref_h);
+    }
+    pthread_mutex_lock(&g.parse_mu);
+    np_parser_set_gains(&g.parser, g.gain);
+    pthread_mutex_unlock(&g.parse_mu);
+    if (!g.connected) {
+        return;
+    }
+    for (c = 0; c < NP_NCHAN; c++) {
+        if (g.active[c]) {
+            cmd_push(CMD_CHON, c + 1, g.gain[c]);
+        } else {
+            cmd_push(CMD_CHOFF, c + 1, 0);
+        }
+        cmd_push(g.rld[c] ? CMD_RLDADD : CMD_RLDRM, c + 1, 0);
+    }
+}
+
+static void prof_save(void)
+{
+    char dir[NP_MAX_PATH], path[NP_MAX_PATH], parent[NP_MAX_PATH];
+    if (!prof_ok_name(g.prof)) {
+        set_status(0, "type a profile name (letters, digits, - _)");
+        return;
+    }
+    {
+        const char *h = getenv("HOME");
+        if (h && h[0]) {
+            snprintf(parent, sizeof(parent), "%s/.config", h);
+            mkdir(parent, 0755);
+            snprintf(parent, sizeof(parent), "%s/.config/exg-c", h);
+            mkdir(parent, 0755);
+        }
+    }
+    prof_dir(dir, sizeof(dir));
+    mkdir(dir, 0755);
+    prof_file(g.prof, path, sizeof(path));
+    if (cfg_write(path) != 0) {
+        set_status(0, "cannot write profile %s", g.prof);
+        return;
+    }
+    cfg_save();
+    prof_scan();
+    set_status(1, "saved profile '%s'", g.prof);
+}
+
+static void prof_load(void)
+{
+    char path[NP_MAX_PATH];
+    if (!prof_ok_name(g.prof)) {
+        prof_scan();
+        if (g.nprof > 0) {
+            snprintf(g.prof, sizeof(g.prof), "%s", g.profiles[0]);
+        } else {
+            set_status(0, "no profile name - type one or Save first");
+            return;
+        }
+    }
+    prof_file(g.prof, path, sizeof(path));
+    if (cfg_read(path) != 0) {
+        set_status(0, "no profile '%s'", g.prof);
+        return;
+    }
+    prof_apply();
+    cfg_save();
+    set_status(1, "loaded profile '%s'", g.prof);
+}
+
+static void prof_cycle(void)
+{
+    int i, next = 0;
+    prof_scan();
+    if (g.nprof <= 0) {
+        set_status(0, "no saved profiles yet");
+        return;
+    }
+    for (i = 0; i < g.nprof; i++) {
+        if (strcmp(g.profiles[i], g.prof) == 0) {
+            next = (i + 1) % g.nprof;
+            break;
+        }
+    }
+    snprintf(g.prof, sizeof(g.prof), "%s", g.profiles[next]);
+    set_status(1, "profile '%s'  (%d/%d)  click Load", g.prof, next + 1, g.nprof);
 }
 
 static void apply_filt(int ch, float *buf, uint32_t n)
@@ -517,6 +757,285 @@ static void apply_filt(int ch, float *buf, uint32_t n)
         if (g.cal_cut && g.calm.have) {
             np_sub_dc(buf, (int)n, g.calm.dc[ch]);
         }
+    }
+}
+
+static volatile int cube_busy;
+
+static const char *cube_url(void)
+{
+    const char *u = getenv("NP_CUBE_URL");
+    if (u && u[0]) {
+        return u;
+    }
+    return "off";
+}
+
+/* Best-effort POST. Short timeouts. Bits only. */
+static int cube_post_json(const char *base, const char *path, const char *json, char *resp,
+                          int rcap)
+{
+    char host[128], req[1400], hdr[256];
+    const char *p;
+    int port = 80, fd = -1, n, blen, woff, got = 0;
+    struct addrinfo hints, *ai = NULL;
+    struct pollfd pfd;
+    char portstr[12];
+
+    if (resp && rcap > 0) {
+        resp[0] = 0;
+    }
+    if (!base || !json || !path) {
+        return 0;
+    }
+    if (!strncmp(base, "off", 3) || !strcmp(base, "0")) {
+        return 0;
+    }
+    p = base;
+    if (!strncmp(p, "http://", 7)) {
+        p += 7;
+    }
+    {
+        const char *col = strchr(p, ':');
+        const char *sl = strchr(p, '/');
+        size_t hl;
+        if (col && (!sl || col < sl)) {
+            hl = (size_t)(col - p);
+            port = atoi(col + 1);
+            if (port <= 0) {
+                port = 17333;
+            }
+        } else {
+            hl = sl ? (size_t)(sl - p) : strlen(p);
+        }
+        if (hl >= sizeof(host) || hl == 0) {
+            return 0;
+        }
+        memcpy(host, p, hl);
+        host[hl] = 0;
+    }
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+    snprintf(portstr, sizeof(portstr), "%d", port);
+    if (getaddrinfo(host, portstr, &hints, &ai) != 0) {
+        return 0;
+    }
+    fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0) {
+        freeaddrinfo(ai);
+        return 0;
+    }
+    {
+        int fl = fcntl(fd, F_GETFL, 0);
+        if (fl >= 0) {
+            fcntl(fd, F_SETFL, fl | O_NONBLOCK);
+        }
+    }
+    if (connect(fd, ai->ai_addr, ai->ai_addrlen) < 0 && errno != EINPROGRESS) {
+        freeaddrinfo(ai);
+        close(fd);
+        return 0;
+    }
+    freeaddrinfo(ai);
+    pfd.fd = fd;
+    pfd.events = POLLOUT;
+    if (poll(&pfd, 1, 200) <= 0) {
+        close(fd);
+        return 0;
+    }
+    {
+        int err = 0;
+        socklen_t el = sizeof(err);
+        if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &el) < 0 || err) {
+            close(fd);
+            return 0;
+        }
+    }
+    blen = (int)strlen(json);
+    n = snprintf(hdr, sizeof(hdr),
+                 "POST %s HTTP/1.0\r\nHost: %s:%d\r\nContent-Type: application/json\r\n"
+                 "Content-Length: %d\r\nConnection: close\r\n\r\n",
+                 path, host, port, blen);
+    if (n < 0 || n + blen >= (int)sizeof(req)) {
+        close(fd);
+        return 0;
+    }
+    memcpy(req, hdr, (size_t)n);
+    memcpy(req + n, json, (size_t)blen);
+    n += blen;
+    woff = 0;
+    while (woff < n) {
+        int w;
+        pfd.events = POLLOUT;
+        if (poll(&pfd, 1, 200) <= 0) {
+            close(fd);
+            return 0;
+        }
+        w = (int)write(fd, req + woff, (size_t)(n - woff));
+        if (w < 0) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                continue;
+            }
+            close(fd);
+            return 0;
+        }
+        woff += w;
+    }
+    if (resp && rcap > 1) {
+        pfd.events = POLLIN;
+        while (got < rcap - 1) {
+            int r;
+            if (poll(&pfd, 1, 200) <= 0) {
+                break;
+            }
+            r = (int)read(fd, resp + got, (size_t)(rcap - 1 - got));
+            if (r <= 0) {
+                break;
+            }
+            got += r;
+        }
+        resp[got] = 0;
+    }
+    close(fd);
+    return 1;
+}
+
+static void *cube_post_thr(void *arg)
+{
+    char *json = arg;
+    char resp[320];
+    const char *url = cube_url();
+    int ok;
+
+    memset(resp, 0, sizeof(resp));
+    ok = cube_post_json(url, "/v1/coord", json, resp, sizeof(resp));
+    pthread_mutex_lock(&g.mu);
+    if (ok && strstr(resp, "\"stored\":true")) {
+        snprintf(g.cube_ack, sizeof(g.cube_ack), "cube stored");
+        g.cube_ok = 1;
+    } else if (ok && strstr(resp, "\"ok\":true")) {
+        snprintf(g.cube_ack, sizeof(g.cube_ack), "cube ack");
+        g.cube_ok = 1;
+    } else {
+        snprintf(g.cube_ack, sizeof(g.cube_ack), "cube offline");
+        g.cube_ok = 0;
+    }
+    pthread_mutex_unlock(&g.mu);
+    cube_busy = 0;
+    free(json);
+    return NULL;
+}
+
+static void cube_offer(void)
+{
+    char bits[NP_CUBE3_N + 4];
+    char *json;
+    int n, cap;
+    pthread_t th;
+    pthread_attr_t at;
+    const char *url = cube_url();
+
+    if (!strncmp(url, "off", 3) || !strcmp(url, "0")) {
+        snprintf(g.cube_ack, sizeof(g.cube_ack), "offer off");
+        g.cube_ok = 0;
+        return;
+    }
+    if (cube_busy) {
+        return;
+    }
+    n = np_cube_pack(&g.smx, bits, sizeof(bits));
+    cap = n + 280;
+    json = malloc((size_t)cap);
+    if (!json) {
+        return;
+    }
+    snprintf(json, (size_t)cap,
+             "{\"plate\":\"NEXUS_COORD v1 | from=exg-c | type=smx | topic=channel_stim | "
+             "seq=%u | unity=1.0 | hold_flash=1 | share=state_matrix_only | pii=0 | "
+             "n=8 | cells=512 | nch=%u | have=%u | sot_bits=%s |\"}",
+             g.smx.seq, (unsigned)g.smx.nch, g.smx.have, bits);
+    cube_busy = 1;
+    pthread_attr_init(&at);
+    pthread_attr_setdetachstate(&at, PTHREAD_CREATE_DETACHED);
+    if (pthread_create(&th, &at, cube_post_thr, json) != 0) {
+        cube_busy = 0;
+        free(json);
+    }
+    pthread_attr_destroy(&at);
+}
+
+static void smx_tick(void)
+{
+    static uint64_t last;
+    struct timespec ts;
+    uint64_t now;
+    uint8_t bits[NP_NCHAN];
+    uint8_t mask = 0;
+    int nch = 0, c;
+    uint32_t want;
+    float buf[NP_RING];
+
+    if (!g.connected) {
+        return;
+    }
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    now = (uint64_t)ts.tv_sec * 1000ull + (uint64_t)(ts.tv_nsec / 1000000ull);
+    if (last && now - last < 1000ull) {
+        return;
+    }
+    last = now;
+
+    want = (uint32_t)design_sps();
+    if (want < 32) {
+        want = 32;
+    }
+    if (want > NP_RING) {
+        want = NP_RING;
+    }
+    memset(bits, 0, sizeof(bits));
+    for (c = 0; c < NP_NCHAN; c++) {
+        uint32_t n;
+        float dc = 0, rms = 0, pk = 0, raw_rms = 0, rr = 0;
+        int det;
+        if (!g.active[c]) {
+            continue;
+        }
+        mask |= (uint8_t)(1u << c);
+        n = np_ring_copy(&g.ring, c, buf, want);
+        if (n >= 16) {
+            ch_stats(buf, n, &dc, &rms, &pk);
+            raw_rms = rms;
+            apply_filt(c, buf, n);
+            ch_stats(buf, n, &dc, &rms, &pk);
+            det = np_detect(raw_rms > 1.f ? raw_rms : rms, rms,
+                            g.cal.have ? g.cal.rms[c] : 0.f,
+                            g.calm.have ? g.calm.rms[c] : 0.f, &rr);
+            bits[nch] = (det == NP_DET_SIGNAL) ? 1 : 0;
+        }
+        nch++;
+    }
+    if (nch > 0) {
+        int ix, iy, iz;
+        float acc[3], gyr[3], mag[3];
+        int imu_ok = 0, used = 0;
+        np_smx_push(&g.smx, bits, nch, mask);
+        np_cube_clear_kind(&g.smx, NP_CELL_EEG);
+        for (c = 0; c < NP_NCHAN; c++) {
+            if (!g.active[c]) {
+                continue;
+            }
+            if (g.elec[c].site >= 0) {
+                np_1010_ijk(g.elec[c].site, &ix, &iy, &iz);
+                np_cube_set(&g.smx, ix, iy, iz, bits[used] ? 1 : 0, NP_CELL_EEG);
+            }
+            used++;
+        }
+        np_ring_imu(&g.ring, acc, gyr, mag, &imu_ok);
+        if (imu_ok) {
+            np_cube_imu(&g.smx, acc, gyr, mag);
+        }
+        cube_offer();
     }
 }
 
@@ -1723,6 +2242,361 @@ static void draw_fft(int x, int y, int w, int h)
     }
 }
 
+static void fill_tri(int x0, int y0, int x1, int y1, int x2, int y2, int r, int gc, int b)
+{
+    int i;
+    if (y0 > y1) {
+        int t = x0;
+        x0 = x1;
+        x1 = t;
+        t = y0;
+        y0 = y1;
+        y1 = t;
+    }
+    if (y0 > y2) {
+        int t = x0;
+        x0 = x2;
+        x2 = t;
+        t = y0;
+        y0 = y2;
+        y2 = t;
+    }
+    if (y1 > y2) {
+        int t = x1;
+        x1 = x2;
+        x2 = t;
+        t = y1;
+        y1 = y2;
+        y2 = t;
+    }
+    if (y2 == y0) {
+        return;
+    }
+    SDL_SetRenderDrawColor(R, (Uint8)r, (Uint8)gc, (Uint8)b, 255);
+    for (i = y0; i <= y2; i++) {
+        int xa, xb;
+        if (i <= y1) {
+            xa = y1 == y0 ? x0 : x0 + (x1 - x0) * (i - y0) / (y1 - y0);
+            xb = x0 + (x2 - x0) * (i - y0) / (y2 - y0);
+        } else {
+            xa = y2 == y1 ? x1 : x1 + (x2 - x1) * (i - y1) / (y2 - y1);
+            xb = x0 + (x2 - x0) * (i - y0) / (y2 - y0);
+        }
+        if (xa > xb) {
+            int t = xa;
+            xa = xb;
+            xb = t;
+        }
+        SDL_RenderDrawLine(R, xa, i, xb, i);
+    }
+}
+
+static int s_cube_ox, s_cube_oy, s_cube_vx, s_cube_vy, s_cube_vw, s_cube_vh;
+static float s_cube_k;
+static int s_elec_sx[NP_NCHAN], s_elec_sy[NP_NCHAN];
+static int s_node_sx[NP_1010_N], s_node_sy[NP_1010_N];
+static int s_cube_drag; /* 0 none 1 spin 2 place */
+static int s_cube_lx, s_cube_ly, s_cube_dirty;
+
+static void cam_pt(float x, float y, float z, int *sx, int *sy, float *depth)
+{
+    float vx, vy, vz;
+    np_view_apply(g.cube_yaw, g.cube_pitch, x, y, z, &vx, &vy, &vz);
+    if (sx) {
+        *sx = s_cube_ox + (int)(vx * s_cube_k);
+    }
+    if (sy) {
+        *sy = s_cube_oy - (int)(vy * s_cube_k);
+    }
+    if (depth) {
+        *depth = vz;
+    }
+}
+
+static int cube_farther(const void *a, const void *b)
+{
+    const struct np_cube *ca = a, *cb = b;
+    float ax, ay, az, bx, by, bz;
+    np_view_apply(g.cube_yaw, g.cube_pitch, ca->x, ca->y, ca->z, &ax, &ay, &az);
+    np_view_apply(g.cube_yaw, g.cube_pitch, cb->x, cb->y, cb->z, &bx, &by, &bz);
+    if (az < bz) {
+        return -1;
+    }
+    if (az > bz) {
+        return 1;
+    }
+    return 0;
+}
+
+static void draw_iso_cube(const struct np_cube *c)
+{
+    int p[8][2];
+    float h = c->s * 0.5f;
+    int i, cr, cg, cb, dim;
+    const float vx[8] = {-1, 1, 1, -1, -1, 1, 1, -1};
+    const float vy[8] = {1, 1, 1, 1, -1, -1, -1, -1};
+    const float vz[8] = {-1, -1, 1, 1, -1, -1, 1, 1};
+
+    dim = c->a < 120 ? 1 : 0;
+    cr = dim ? c->r / 3 : c->r;
+    cg = dim ? c->g / 3 : c->g;
+    cb = dim ? c->b / 3 : c->b;
+    if (cr < 8) {
+        cr = 8;
+    }
+    for (i = 0; i < 8; i++) {
+        cam_pt(c->x + vx[i] * h, c->y + vy[i] * h, c->z + vz[i] * h, &p[i][0], &p[i][1], NULL);
+    }
+    fill_tri(p[0][0], p[0][1], p[1][0], p[1][1], p[2][0], p[2][1], cr, cg + 18 > 255 ? 255 : cg + 18,
+             cb);
+    fill_tri(p[0][0], p[0][1], p[2][0], p[2][1], p[3][0], p[3][1], cr, cg + 18 > 255 ? 255 : cg + 18,
+             cb);
+    fill_tri(p[3][0], p[3][1], p[2][0], p[2][1], p[6][0], p[6][1], cr * 2 / 3, cg * 2 / 3,
+             cb * 2 / 3);
+    fill_tri(p[3][0], p[3][1], p[6][0], p[6][1], p[7][0], p[7][1], cr * 2 / 3, cg * 2 / 3,
+             cb * 2 / 3);
+    fill_tri(p[1][0], p[1][1], p[5][0], p[5][1], p[6][0], p[6][1], cr / 2, cg / 2, cb / 2);
+    fill_tri(p[1][0], p[1][1], p[6][0], p[6][1], p[2][0], p[2][1], cr / 2, cg / 2, cb / 2);
+    SDL_SetRenderDrawColor(R, 18, 6, 10, 255);
+    SDL_RenderDrawLine(R, p[0][0], p[0][1], p[1][0], p[1][1]);
+    SDL_RenderDrawLine(R, p[1][0], p[1][1], p[2][0], p[2][1]);
+    SDL_RenderDrawLine(R, p[2][0], p[2][1], p[3][0], p[3][1]);
+    SDL_RenderDrawLine(R, p[3][0], p[3][1], p[0][0], p[0][1]);
+    SDL_RenderDrawLine(R, p[3][0], p[3][1], p[7][0], p[7][1]);
+    SDL_RenderDrawLine(R, p[2][0], p[2][1], p[6][0], p[6][1]);
+    SDL_RenderDrawLine(R, p[1][0], p[1][1], p[5][0], p[5][1]);
+    SDL_RenderDrawLine(R, p[7][0], p[7][1], p[6][0], p[6][1]);
+    SDL_RenderDrawLine(R, p[6][0], p[6][1], p[5][0], p[5][1]);
+}
+
+static int cube_in_spin(int mx, int my)
+{
+    return mx >= s_cube_vx && my >= s_cube_vy && mx < s_cube_vx + s_cube_vw &&
+           my < s_cube_vy + s_cube_vh;
+}
+
+static int cube_hit_elec(int mx, int my)
+{
+    int i, best = -1, bd = 24 * 24;
+    for (i = 0; i < NP_NCHAN; i++) {
+        int dx = mx - s_elec_sx[i], dy = my - s_elec_sy[i], d;
+        if (s_elec_sx[i] < -10000) {
+            continue;
+        }
+        d = dx * dx + dy * dy;
+        if (d < bd) {
+            bd = d;
+            best = i;
+        }
+    }
+    return best;
+}
+
+static int cube_hit_node(int mx, int my)
+{
+    int i, best = -1, bd = 18 * 18;
+    for (i = 0; i < NP_1010_N; i++) {
+        int dx = mx - s_node_sx[i], dy = my - s_node_sy[i], d;
+        if (s_node_sx[i] < -10000) {
+            continue;
+        }
+        d = dx * dx + dy * dy;
+        if (d < bd) {
+            bd = d;
+            best = i;
+        }
+    }
+    return best;
+}
+
+static int cube_pointer_down(int mx, int my)
+{
+    int hit, node, c;
+    if (g.tab != 2 || !cube_in_spin(mx, my)) {
+        return 0;
+    }
+    hit = cube_hit_elec(mx, my);
+    if (hit >= 0) {
+        g.elec_sel = hit;
+        set_status(1, "ch%d %s", hit + 1, g.elec[hit].name[0] ? g.elec[hit].name : "?");
+        return 1;
+    }
+    node = cube_hit_node(mx, my);
+    if (node >= 0) {
+        if (g.elec_sel >= 0) {
+            np_elec_set_site(&g.elec[g.elec_sel], node);
+            cfg_save();
+            set_status(1, "ch%d stays at %s", g.elec_sel + 1, np_1010_name(node));
+            return 1;
+        }
+        for (c = 0; c < NP_NCHAN; c++) {
+            if (g.elec[c].site == node) {
+                g.elec_sel = c;
+                set_status(1, "ch%d %s", c + 1, np_1010_name(node));
+                return 1;
+            }
+        }
+        return 1;
+    }
+    s_cube_drag = 1;
+    s_cube_lx = mx;
+    s_cube_ly = my;
+    return 1;
+}
+
+static void cube_pointer_move(int mx, int my)
+{
+    if (s_cube_drag == 1) {
+        g.cube_yaw += (float)(mx - s_cube_lx) * 0.010f;
+        g.cube_pitch += (float)(s_cube_ly - my) * 0.010f;
+        if (g.cube_pitch > 1.20f) {
+            g.cube_pitch = 1.20f;
+        }
+        if (g.cube_pitch < -0.35f) {
+            g.cube_pitch = -0.35f;
+        }
+        s_cube_lx = mx;
+        s_cube_ly = my;
+    }
+}
+
+static void cube_pointer_up(void)
+{
+    s_cube_drag = 0;
+    s_cube_dirty = 0;
+}
+
+static void draw_cube_wire(void)
+{
+    const float p[8][3] = {{-1, -1, -1}, {1, -1, -1}, {-1, 1, -1}, {1, 1, -1},
+                           {-1, -1, 1},  {1, -1, 1},  {-1, 1, 1},  {1, 1, 1}};
+    const int e[12][2] = {{0, 1}, {1, 3}, {3, 2}, {2, 0}, {4, 5}, {5, 7},
+                          {7, 6}, {6, 4}, {0, 4}, {1, 5}, {2, 6}, {3, 7}};
+    int i;
+    SDL_SetRenderDrawColor(R, 90, 18, 28, 255);
+    for (i = 0; i < 12; i++) {
+        int x0, y0, x1, y1;
+        cam_pt(p[e[i][0]][0], p[e[i][0]][1], p[e[i][0]][2], &x0, &y0, NULL);
+        cam_pt(p[e[i][1]][0], p[e[i][1]][1], p[e[i][1]][2], &x1, &y1, NULL);
+        SDL_RenderDrawLine(R, x0, y0, x1, y1);
+    }
+}
+
+static void draw_cube(int x, int y, int w, int h)
+{
+    struct np_cube cells[NP_CUBE_BUDGET];
+    int n, i, c, ids[NP_NCHAN], nid;
+    float pulse;
+    char lab[48];
+
+    fill(x, y, w, h, 6, 4, 8);
+    nid = np_smx_ch_ids(&g.smx, ids);
+    s_cube_vx = x;
+    s_cube_vy = y;
+    s_cube_vw = w;
+    s_cube_vh = h - 22;
+    if (s_cube_vh < 80) {
+        s_cube_vh = h;
+    }
+    s_cube_ox = x + w / 2;
+    s_cube_oy = y + s_cube_vh / 2 + 10;
+    s_cube_k = (float)(w < s_cube_vh ? w : s_cube_vh) / 2.35f;
+    if (s_cube_k < 70.f) {
+        s_cube_k = 70.f;
+    }
+    pulse = 0.55f + 0.45f * sinf((float)SDL_GetTicks() * 0.006f);
+
+    draw_cube_wire();
+    n = np_smx_head_cubes(&g.smx, g.elec, g.chrgb, cells, NP_CUBE_BUDGET);
+    for (i = 0; i < n; i++) {
+        if (cells[i].role == 2) {
+            cells[i].a = (uint8_t)(180.f + 70.f * pulse);
+            cells[i].s *= 0.92f + 0.16f * pulse;
+        }
+    }
+    qsort(cells, (size_t)n, sizeof(cells[0]), cube_farther);
+    for (i = 0; i < n; i++) {
+        draw_iso_cube(&cells[i]);
+    }
+
+    /* 10-10 names sit on the cube top — same cells the channels occupy. */
+    for (i = 0; i < NP_1010_N; i++) {
+        float cx, cy, cz;
+        int sx, sy, taken = -1;
+        np_1010_cube_xyz(i, &cx, &cy, &cz);
+        cam_pt(cx, cy, cz, &sx, &sy, NULL);
+        s_node_sx[i] = sx;
+        s_node_sy[i] = sy;
+        for (c = 0; c < NP_NCHAN; c++) {
+            if (g.elec[c].site == i) {
+                taken = c;
+                break;
+            }
+        }
+        if (taken < 0 && np_1010_core(i)) {
+            const char *nm = np_1010_name(i);
+            text(sx - (int)strlen(nm) * 3, sy + 6, nm, 120, 28, 40, 1);
+        }
+    }
+    for (c = 0; c < NP_NCHAN; c++) {
+        float cx, cy, cz;
+        int sx, sy;
+        char nlab[12];
+        np_elec_cube_xyz(&g.elec[c], &cx, &cy, &cz);
+        cam_pt(cx, cy, cz, &sx, &sy, NULL);
+        s_elec_sx[c] = sx;
+        s_elec_sy[c] = sy;
+        snprintf(nlab, sizeof(nlab), "%d %s", c + 1,
+                 g.elec[c].name[0] ? g.elec[c].name : "?");
+        if (c == g.elec_sel) {
+            fill(sx - 20, sy - 18, 40, 12, 0, 0, 0);
+        }
+        text(sx - (int)strlen(nlab) * 3, sy - 18, nlab,
+             c == g.elec_sel ? 255 : g.chrgb[c][0],
+             c == g.elec_sel ? 230 : g.chrgb[c][1],
+             c == g.elec_sel ? 230 : g.chrgb[c][2], 1);
+    }
+
+    snprintf(lab, sizeof(lab), "8^3  n=%d/%d  shell=headset  in=IMU/plugin", n,
+             NP_CUBE_BUDGET);
+    text(x + 8, y + 6, lab, NP_CUBE_CR, NP_CUBE_CG, NP_CUBE_CB, 1);
+    if (g.elec_sel >= 0) {
+        snprintf(lab, sizeof(lab), "ch%d @ %s  click a named cell to move", g.elec_sel + 1,
+                 g.elec[g.elec_sel].name[0] ? g.elec[g.elec_sel].name : "?");
+        text(x + 8, y + 18, lab, 200, 160, 80, 1);
+    }
+
+    /* Current second — SoT strip. */
+    {
+        int cell = (w - 16) / 8, gy = y + h - 18;
+        if (cell > 40) {
+            cell = 40;
+        }
+        if (cell < 16) {
+            cell = 16;
+        }
+        fill(x, gy, w, 18, 4, 3, 6);
+        for (c = 0; c < NP_NCHAN; c++) {
+            int on = 0, k;
+            if (g.smx.have) {
+                int row = (int)((g.smx.wr - 1) % NP_SMX_SEC);
+                for (k = 0; k < nid; k++) {
+                    if (ids[k] == c + 1) {
+                        on = g.smx.bit[row][k];
+                        break;
+                    }
+                }
+            }
+            fill(x + 8 + c * cell, gy + 5, cell - 3, 10,
+                 on ? g.chrgb[c][0] : g.chrgb[c][0] / 4,
+                 on ? g.chrgb[c][1] : g.chrgb[c][1] / 4,
+                 on ? g.chrgb[c][2] : g.chrgb[c][2] / 4);
+            text(x + 8 + c * cell, gy + 6, g.elec[c].name[0] ? g.elec[c].name : "?",
+                 on ? 255 : 160, on ? 240 : 90, on ? 240 : 100, 1);
+        }
+    }
+}
+
 static const char *port_short(void)
 {
     const char *p = g.nports ? g.ports[g.port_i] : "";
@@ -1807,13 +2681,61 @@ static void draw_side(int x)
         btn(bx + 90, by, 40, 22, gn, 1, 8, c, 40, 42, 52);
     }
     y += 4 * 28 + 12;
-    btn(x + 12, y, 130, 22, "Main", g.tab == 0, 30, 0, g.tab == 0 ? 36 : 28, g.tab == 0 ? 50 : 32,
+    btn(x + 12, y, 84, 22, "Main", g.tab == 0, 30, 0, g.tab == 0 ? 36 : 28, g.tab == 0 ? 50 : 32,
         44);
-    btn(x + 148, y, 140, 22, "Settings", g.tab == 1, 31, 0, g.tab == 1 ? 36 : 28,
+    btn(x + 100, y, 84, 22, "Cube", g.tab == 2, 36, 0, g.tab == 2 ? 70 : 28, g.tab == 2 ? 22 : 32,
+        g.tab == 2 ? 32 : 44);
+    btn(x + 188, y, 88, 22, "Settings", g.tab == 1, 31, 0, g.tab == 1 ? 36 : 28,
         g.tab == 1 ? 50 : 32, 44);
     y += 28;
+    if (g.tab == 2) {
+        char b[48];
+        snprintf(b, sizeof(b), "SMX  %u ch  %us", (unsigned)g.smx.nch, g.smx.have);
+        text(x + 12, y, b, NP_CUBE_CR, NP_CUBE_CG, NP_CUBE_CB, 1);
+        y += 14;
+        pthread_mutex_lock(&g.mu);
+        snprintf(b, sizeof(b), "%s", g.cube_ack[0] ? g.cube_ack : "cube idle");
+        pthread_mutex_unlock(&g.mu);
+        text(x + 12, y, b, g.cube_ok ? 80 : 160, g.cube_ok ? 200 : 120, g.cube_ok ? 120 : 80, 1);
+        y += 16;
+        for (c = 0; c < NP_NCHAN; c++) {
+            snprintf(b, sizeof(b), "%d  %s", c + 1, g.elec[c].name[0] ? g.elec[c].name : "?");
+            btn(x + 12, y, sidew() - 24, 20, b, g.elec_sel == c, 37, c,
+                g.elec_sel == c ? 80 : 28, g.elec_sel == c ? 20 : 32,
+                g.elec_sel == c ? 34 : 42);
+            y += 22;
+        }
+        y += 6;
+        btn(x + 12, y, 130, 20, "front", 0, 38, 0, 32, 36, 44);
+        btn(x + 146, y, 130, 20, "default 8", 0, 39, 0, 32, 36, 44);
+        y += 26;
+        btn(x + 12, y, 130, 22, "Save profile", 0, 41, 0, 28, 80, 48);
+        btn(x + 146, y, 130, 22, "Load profile", 0, 42, 0, 28, 80, 48);
+        return;
+    }
     if (g.tab == 1) {
         char b[48];
+        text(x + 12, y, "Profile  (name, then Save)", 140, 148, 160, 1);
+        y += 14;
+        fill(x + 12, y, sidew() - 24, 22, g.typing_prof ? 46 : 28, g.typing_prof ? 56 : 32,
+             g.typing_prof ? 70 : 42);
+        {
+            char shown[NP_PROF_NAME + 2];
+            if (g.prof[0]) {
+                snprintf(shown, sizeof(shown), "%s%s", g.prof, g.typing_prof ? "_" : "");
+            } else {
+                snprintf(shown, sizeof(shown), "%s", g.typing_prof ? "_" : "e.g. motor");
+            }
+            text(x + 18, y + 6, shown, g.prof[0] ? 240 : 130, 240, 246, 1);
+        }
+        add_hit(x + 12, y, sidew() - 24, 22, 40, 0);
+        y += 28;
+        btn(x + 12, y, 88, 22, "Save", 0, 41, 0, 28, 90, 52);
+        btn(x + 104, y, 88, 22, "Load", 0, 42, 0, 28, 90, 52);
+        btn(x + 196, y, 80, 22, g.nprof ? "next" : "none", 0, 43, 0, 36, 40, 48);
+        y += 28;
+        text(x + 12, y, "keeps UI, gain, filters, sites", 100, 108, 116, 1);
+        y += 16;
         text(x + 12, y, "UI", 140, 148, 160, 1);
         y += 14;
         snprintf(b, sizeof(b), "UI %.1fx", (double)ui_f());
@@ -1832,7 +2754,7 @@ static void draw_side(int x)
                 g.chrgb[c][2] / 3);
         }
         y += 4 * 26 + 8;
-        text(x + 12, y, "saved  ~/.config/exg-c.ini", 100, 108, 116, 1);
+        text(x + 12, y, "~/.config/exg-c/profiles/", 100, 108, 116, 1);
         return;
     }
     {
@@ -2193,8 +3115,25 @@ static void click(int x, int y)
             cfg_save();
             break;
         case 16:
+            g.typing_prof = 0;
             typing_set(1);
             return;
+        case 40:
+            g.typing_prof = 1;
+            typing_set(1);
+            return;
+        case 41:
+            typing_set(0);
+            prof_save();
+            break;
+        case 42:
+            typing_set(0);
+            prof_load();
+            break;
+        case 43:
+            typing_set(0);
+            prof_cycle();
+            break;
         case 17:
             typing_set(0);
             if (g.rec_t0) {
@@ -2268,6 +3207,24 @@ static void click(int x, int y)
         case 31:
             g.tab = 1;
             break;
+        case 36:
+            g.tab = 2;
+            break;
+        case 37:
+            g.elec_sel = hits[i].ch;
+            set_status(1, "ch%d @ %s", g.elec_sel + 1,
+                       g.elec[g.elec_sel].name[0] ? g.elec[g.elec_sel].name : "?");
+            break;
+        case 38:
+            g.cube_yaw = 0.55f;
+            g.cube_pitch = 0.40f;
+            set_status(1, "front");
+            break;
+        case 39:
+            np_elec_default(g.elec);
+            cfg_save();
+            set_status(1, "default  Fp1 Fp2 C3 C4 P3 P4 O1 O2");
+            break;
         case 32:
             if (g.ui_scale == 10) {
                 g.ui_scale = 15;
@@ -2319,13 +3276,18 @@ static void frame(void)
         wave_h = NP_NCHAN * 28;
     }
     nhits = 0;
+    smx_tick();
     SDL_SetRenderDrawColor(R, 22, 24, 30, 255);
     SDL_RenderClear(R);
     fill(0, 0, win_w, win_h, 22, 24, 30);
     fill(win_w - sidew(), 0, sidew(), win_h, 26, 28, 34);
-    draw_waves(12, WAVE_TOP, plot_w, wave_h);
-    draw_learn(12, WAVE_TOP + wave_h + 4, plot_w, learnh());
-    draw_fft(12, WAVE_TOP + wave_h + learnh() + 8, plot_w, ffth());
+    if (g.tab == 2) {
+        draw_cube(12, WAVE_TOP, plot_w, win_h - WAVE_TOP - statush() - 8);
+    } else {
+        draw_waves(12, WAVE_TOP, plot_w, wave_h);
+        draw_learn(12, WAVE_TOP + wave_h + 4, plot_w, learnh());
+        draw_fft(12, WAVE_TOP + wave_h + learnh() + 8, plot_w, ffth());
+    }
     draw_side(win_w - sidew());
     draw_status();
 }
@@ -2377,26 +3339,38 @@ static int run_gui(void)
                 live = 0;
             } else if (ev.type == SDL_TEXTINPUT && g.typing) {
                 const char *s = ev.text.text;
-                int n = (int)strlen(g.namebuf);
-                while (*s && n < NPL_NAME - 1) {
+                char *dst = g.typing_prof ? g.prof : g.namebuf;
+                int cap = g.typing_prof ? NP_PROF_NAME : NPL_NAME;
+                int n = (int)strlen(dst);
+                while (*s && n < cap - 1) {
                     unsigned char c = (unsigned char)*s++;
-                    if (c >= 32 && c < 127 && c != '/' && c != '\\') {
-                        g.namebuf[n++] = (char)c;
+                    if (g.typing_prof) {
+                        if (isalnum(c) || c == '-' || c == '_') {
+                            dst[n++] = (char)c;
+                        }
+                    } else if (c >= 32 && c < 127 && c != '/' && c != '\\') {
+                        dst[n++] = (char)c;
                     }
                 }
-                g.namebuf[n] = 0;
+                dst[n] = 0;
             } else if (ev.type == SDL_KEYDOWN) {
                 int k = ev.key.keysym.sym;
                 if (g.typing) {
+                    char *dst = g.typing_prof ? g.prof : g.namebuf;
                     if (k == SDLK_ESCAPE) {
                         typing_set(0);
                     } else if (k == SDLK_RETURN) {
+                        int was_prof = g.typing_prof;
                         typing_set(0);
-                        learn_start_hold();
+                        if (was_prof) {
+                            prof_save();
+                        } else {
+                            learn_start_hold();
+                        }
                     } else if (k == SDLK_BACKSPACE) {
-                        int n = (int)strlen(g.namebuf);
+                        int n = (int)strlen(dst);
                         if (n > 0) {
-                            g.namebuf[n - 1] = 0;
+                            dst[n - 1] = 0;
                         }
                     }
                 } else if (k == SDLK_ESCAPE || k == SDLK_q) {
@@ -2424,7 +3398,24 @@ static int run_gui(void)
                 }
             } else if (ev.type == SDL_MOUSEBUTTONDOWN && ev.button.button == SDL_BUTTON_LEFT) {
                 float s = ui_f();
-                click((int)(ev.button.x / s), (int)(ev.button.y / s));
+                int mx = (int)(ev.button.x / s), my = (int)(ev.button.y / s);
+                int hi, on_hit = 0;
+                for (hi = 0; hi < nhits; hi++) {
+                    if (inside(&hits[hi].r, mx, my)) {
+                        on_hit = 1;
+                        break;
+                    }
+                }
+                if (on_hit) {
+                    click(mx, my);
+                } else if (!cube_pointer_down(mx, my)) {
+                    click(mx, my);
+                }
+            } else if (ev.type == SDL_MOUSEMOTION) {
+                float s = ui_f();
+                cube_pointer_move((int)(ev.motion.x / s), (int)(ev.motion.y / s));
+            } else if (ev.type == SDL_MOUSEBUTTONUP && ev.button.button == SDL_BUTTON_LEFT) {
+                cube_pointer_up();
             }
         }
         learn_tick();
@@ -2558,13 +3549,21 @@ int main(int argc, char **argv)
     g.ui_scale = 15;
     g.pref_w = 1920;
     g.pref_h = 1080;
+    g.cube_yaw = 0.55f;
+    g.cube_pitch = 0.40f;
+    g.elec_sel = -1;
+    np_elec_default(g.elec);
+    snprintf(g.prof, sizeof(g.prof), "default");
     for (i = 0; i < NP_NCHAN; i++) {
         g.gain[i] = 12;
+        g.active[i] = 1;
+        g.rld[i] = 1;
         g.chrgb[i][0] = CHCOL[i][0];
         g.chrgb[i][1] = CHCOL[i][1];
         g.chrgb[i][2] = CHCOL[i][2];
     }
     cfg_load();
+    prof_scan();
     filt_reset();
     pthread_mutex_init(&g.mu, NULL);
     pthread_mutex_init(&g.qmu, NULL);
@@ -2572,6 +3571,8 @@ int main(int argc, char **argv)
     pthread_mutex_init(&g.parse_mu, NULL);
     pthread_cond_init(&g.qcv, NULL);
     np_ring_init(&g.ring);
+    np_smx_init(&g.smx);
+    snprintf(g.cube_ack, sizeof(g.cube_ack), "cube idle");
     npl_init(&g.learn);
     {
         char lp[NP_MAX_PATH];
@@ -2584,8 +3585,6 @@ int main(int argc, char **argv)
         return 1;
     }
     for (i = 0; i < NP_NCHAN; i++) {
-        g.active[i] = 1;
-        g.rld[i] = 1;
         if (g.gain[i] < 1) {
             g.gain[i] = 12;
         }

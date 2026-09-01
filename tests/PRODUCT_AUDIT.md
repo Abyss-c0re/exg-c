@@ -19,6 +19,7 @@ A local 8-channel USB host for a Knight-class ADS1299 board. Pure C, SDL2 plot, 
 | No affiliation theater | **PASS** | Window title `exg-c`; no vendor icon |
 | Integrity of numbers | **PASS** | `scale_uv` uses per-channel gain and `/79.57`; parser tests lock 57-byte IMU frames |
 | Budget the hot path | **PASS** | Display AUTO is an IIR at the measured Hz, not a per-frame LS fit |
+| State matrix / Cube | **PASS** | Fixed 8³ (512 bits); shell = 10-10 headset; interior = IMU/plugins; glow uses channel color; budget ≤ 40 |
 
 ## Automated proof (`make test`)
 
@@ -31,6 +32,10 @@ A local 8-channel USB host for a Knight-class ADS1299 board. Pure C, SDL2 plot, 
 | 60 Hz wide | still attenuates at 125 SPS (Nyquist 62.5 Hz) |
 | nplearn | prep/add/self-score |
 | On-disk cal | `exg-c.cal` tone near 50 Hz, 8 channel rows |
+| SMX | push/pack newest-first; width follows used channels |
+| 8³ cube | Fp1/Cz/O1 on shell faces; plugin cannot take shell; IMU lights interior; pack = 512 bits |
+| Channel color | glowing cell uses per-channel RGB |
+| Profile format | INI keeps UI scale, notch, sites (Fp1…O2), gain, on/RLD |
 
 ## Live table-top (`make test-live`)
 

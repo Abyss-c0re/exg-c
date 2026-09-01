@@ -1,7 +1,7 @@
 [Desktop Entry]
 Type=Application
 Name=exg-c
-Comment=8-channel EXG host (unaffiliated)
+Comment=Watch 8 EXG channels, map them on a cube, save profiles
 Exec=/opt/exg-c/np-exg
 Path=/opt/exg-c
 Icon=/opt/exg-c/exg-c.png
