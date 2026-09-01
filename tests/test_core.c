@@ -270,6 +270,10 @@ static void test_ml_harness(void)
     expect(np_detect(raw_e, resid_e, noise_rms, calm_rms, NULL) == NP_DET_SIGNAL,
            "harness: 8 Hz burst = SIGNAL");
     expect(resid_e > 1.5f * calm_rms, "harness: cleared event above calm");
+    expect(np_detect(200.f, 80.f, 0.f, 0.f, NULL) == NP_DET_NONE,
+           "harness: no plates is not SIGNAL");
+    expect(np_detect(noise_rms, resid_e, noise_rms, 0.f, NULL) == NP_DET_NOISE,
+           "harness: noise plate only, no CALM, is noise");
 }
 
 static void test_plate_destroy(void)

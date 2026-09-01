@@ -30,7 +30,7 @@ Or `./np-exg --cli --port /dev/ttyUSB1 --seconds 8` with no window.
 3. Put the headset on. Sit still. Click **CALM**.
 4. Leave **CLN** on. The plot is leftover after that plate + calm DC.
 5. Open **Cube**. Each channel sits on a 10-10 cell (Fp1, C3, …) and
-   glows in that channel’s color when leftover looks like SIGNAL.
+   glows in that channel’s color when leftover vs CALM is SIGNAL.
 6. Open **Settings**. Type a profile name (for example `motor`) and
    click **Save**. **Load** brings it back later.
 7. On Cube or Settings, click **algo …** to pick how each cell becomes
@@ -100,4 +100,3 @@ See `nplearn/README`.
 
 BrainCube plugins include `include/np_cube.h` (`np_virt_claim` /
 `np_virt_write`). Interior cells only — the headset shell is reserved.
-

@@ -124,8 +124,7 @@ void np_welch_psd(const float *x, int n, float *psd)
     }
 }
 
-/* Destroy live bins that match the noise plate (Wiener gain).
- * CubalC: compare matrices, proton 0 on the overlap. */
+/* Destroy live bins that match the noise plate (Wiener gain). */
 void np_plate_destroy(float *x, int n, const float *noise_psd)
 {
     float ola[NP_RING];
@@ -416,8 +415,6 @@ int np_detect(float raw_rms, float resid_rms, float noise_rms, float calm_rms, f
     if (noise_rms > floor_uv && raw_rms > 0.70f * noise_rms && raw_rms < 1.40f * noise_rms) {
         return NP_DET_NOISE;
     }
-    if (resid_rms > 3.f * floor_uv) {
-        return NP_DET_SIGNAL;
-    }
+    /* No worn CALM plate → do not invent SIGNAL from leftover rail. */
     return NP_DET_NONE;
 }

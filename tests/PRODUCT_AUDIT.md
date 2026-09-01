@@ -15,7 +15,7 @@ A local 8-channel USB host for a Knight-class ADS1299 board. Pure C, SDL2 plot, 
 | SoT over labels | **PASS** | AUTO notch frequency comes from CAL spectrum (`tone_hz` in `exg-c.cal`), not a hard-coded 50/60 |
 | No invented success | **PASS** | AUTO stays idle if no tone ≥ 4× band median; tests assert fail-closed |
 | Stability / hold flash | **PASS** | One DTR at connect; no second reset in enable; parser mutex; enable holds until commands drain |
-| Devices free | **PASS** | Runs local; no account, no phone-home |
+| Devices free | **PASS** | Runs local; cube offer defaults off; no account |
 | No affiliation theater | **PASS** | Window title `exg-c`; no vendor icon |
 | Integrity of numbers | **PASS** | `scale_uv` uses per-channel gain and `/79.57`; parser tests lock 57-byte IMU frames |
 | Budget the hot path | **PASS** | Display AUTO is an IIR at the measured Hz, not a per-frame LS fit |
@@ -70,7 +70,7 @@ This is **50 Hz mains on open inputs**, not brain signal. AUTO tracked the plate
 | 3 | **CLEAN** | ~8 s window. Welch noise plate → destroy matching bins (Wiener) + line lock + calm DC. |
 | 4 | **Detect** | `noise` / `calm` / **SIGNAL** if residual > 1.5× calm |
 
-Proof in `make test`: an 8 Hz burst that is in neither plate is classified **SIGNAL**. Desk matches **noise**. Worn-still matches **calm**.
+Proof in `make test` is **synthetic**: an 8 Hz burst above a fake calm plate is **SIGNAL**. Desk-like tone matches **noise**. A still synthetic worn plate matches **calm**. No worn-on-a-person CALM has been collected. Without a CALM plate, detect stays **NONE** — leftover rail is not SIGNAL.
 
 Learn/Record uses the cleaned window. This is the front-end for on-device templates (`nplearn`), not a cloud model.
 

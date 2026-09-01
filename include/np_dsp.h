@@ -31,7 +31,7 @@ int np_tone_from_psd(const float *psd, float sps, float *hz_out);
 void np_tone_cancel(float *x, int n, float hz, float sps);
 void np_sub_dc(float *x, int n, float dc);
 
-/* After noise-tone + calm-DC: 1 noise  2 calm  3 signal  0 unknown */
+/* After plates: 1 noise  2 calm  3 signal (needs CALM)  0 unknown */
 #define NP_DET_NONE 0
 #define NP_DET_NOISE 1
 #define NP_DET_CALM 2

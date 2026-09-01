@@ -6,13 +6,13 @@
  * One pass over a short window. No heap, no FFT.
  */
 
-#define NP_ALGO_DETECT 0 /* leftover vs NOISE/CALM plates */
-#define NP_ALGO_SIGN 1   /* last sample above DC */
+#define NP_ALGO_DETECT 0 /* 1 only if leftover vs worn CALM is SIGNAL */
+#define NP_ALGO_SIGN 1   /* last sample > 0 */
 #define NP_ALGO_MEAN 2   /* |last| above mean |x| */
 #define NP_ALGO_ENERGY 3 /* rms above mean |x| */
 #define NP_ALGO_DELTA 4  /* step above mean |dx| */
-#define NP_ALGO_FOLD 5   /* majority of samples above DC (FOLDBITS) */
-#define NP_ALGO_PROTON 6 /* positive energy > half total (proton 0/1) */
+#define NP_ALGO_FOLD 5   /* majority of samples > 0 */
+#define NP_ALGO_PROTON 6 /* +energy > half total */
 #define NP_ALGO_N 7
 
 const char *np_algo_name(int id);

@@ -358,7 +358,21 @@ static void learn_save_named(void)
         }
         g.saved_t0 = SDL_GetTicks();
         g.rec_t0 = 0;
-        set_status(1, "saved '%s'  %d ch + 8^3 %s", g.namebuf, nc, np_algo_name(g.algo));
+        {
+            int rail = 0, c;
+            for (c = 0; c < NPL_NCHAN; c++) {
+                if ((mask & (uint8_t)(1u << c)) && rms[c] > 250000.f) {
+                    rail = 1;
+                }
+            }
+            if (rail) {
+                set_status(1, "saved '%s'  %d ch + 8^3 %s  (open/rail window)", g.namebuf,
+                           nc, np_algo_name(g.algo));
+            } else {
+                set_status(1, "saved '%s'  %d ch + 8^3 %s", g.namebuf, nc,
+                           np_algo_name(g.algo));
+            }
+        }
     }
 }
 
@@ -992,6 +1006,7 @@ static void smx_tick(void)
     float buf[NP_RING];
 
     if (!g.connected) {
+        last = 0;
         return;
     }
     clock_gettime(CLOCK_MONOTONIC, &ts);
@@ -2630,7 +2645,7 @@ static void draw_side(int x)
     int c;
     char line[96];
     const char *port = port_short();
-    const char *bname = g.board == NP_BOARD_KNIGHT_IMU ? "8-ch + IMU" : "8-ch EEG";
+    const char *bname = g.board == NP_BOARD_KNIGHT_IMU ? "8-ch + IMU" : "8-ch EXG";
 
     text(x + 12, y, "exg-c", 240, 242, 248, 2);
     y += 20;
@@ -2709,7 +2724,7 @@ static void draw_side(int x)
         text(x + 12, y, b, NP_CUBE_CR, NP_CUBE_CG, NP_CUBE_CB, 1);
         y += 14;
         pthread_mutex_lock(&g.mu);
-        snprintf(b, sizeof(b), "%s", g.cube_ack[0] ? g.cube_ack : "cube idle");
+        snprintf(b, sizeof(b), "%s", g.cube_ack[0] ? g.cube_ack : "offer off");
         pthread_mutex_unlock(&g.mu);
         text(x + 12, y, b, g.cube_ok ? 80 : 160, g.cube_ok ? 200 : 120, g.cube_ok ? 120 : 80, 1);
         y += 16;
@@ -3598,7 +3613,7 @@ int main(int argc, char **argv)
     pthread_cond_init(&g.qcv, NULL);
     np_ring_init(&g.ring);
     np_smx_init(&g.smx);
-    snprintf(g.cube_ack, sizeof(g.cube_ack), "cube idle");
+    snprintf(g.cube_ack, sizeof(g.cube_ack), "offer off");
     npl_init(&g.learn);
     {
         char lp[NP_MAX_PATH];
