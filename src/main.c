@@ -474,6 +474,9 @@ static int stream_id(float *ratio)
     if (ratio) {
         *ratio = 0.f;
     }
+    if (g.connected && g.sps > 0.f && g.sps < 80.f) {
+        return NP_ID_NONE;
+    }
     if (want < 32) {
         want = 32;
     }
@@ -514,6 +517,10 @@ static void id_label(char *out, int n)
 {
     float r = 0.f;
     int id = stream_id(&r);
+    if (g.connected && g.sps > 0.f && g.sps < 80.f) {
+        snprintf(out, (size_t)n, "ID warming %.0f sps", (double)g.sps);
+        return;
+    }
     if (id == NP_ID_NEED) {
         snprintf(out, (size_t)n, "ID need CALM");
     } else if (id == NP_ID_RAIL) {
@@ -584,6 +591,10 @@ static void learn_tick(void)
     uint8_t mask;
     uint32_t now = SDL_GetTicks();
     learn_hold_tick();
+    if (g.connected && g.sps > 0.f && g.sps < 80.f) {
+        g.learn.best = -1;
+        return;
+    }
     if (!g.learn.match || g.learn.n <= 0) {
         g.learn.best = -1;
         return;
@@ -732,6 +743,13 @@ static void learn_hold_tick(void)
     now = SDL_GetTicks();
     dt = (int)(now - g.rec_t0);
     id = stream_id(&ratio);
+    if (g.connected && g.sps > 0.f && g.sps < 80.f) {
+        if (dt >= (int)REC_MS) {
+            g.rec_t0 = 0;
+            set_status(0, "still enabling — wait for 125 sps, then Record");
+        }
+        return;
+    }
     if (id == NP_ID_CLIP) {
         if (dt >= (int)REC_MS) {
             g.rec_t0 = 0;
@@ -2684,7 +2702,7 @@ static void draw_waves(int x, int y, int w, int h)
             }
             last = n ? buf[n - 1] : 0.f;
             fill(x, y1b - 1, w, 1, 32, 36, 44);
-            snprintf(lab, sizeof(lab), "ch%d", c + 1);
+            snprintf(lab, sizeof(lab), "%s", g.elec[c].name[0] ? g.elec[c].name : "?");
             text(x + 4, y0 + 4, lab, g.chrgb[c][0], g.chrgb[c][1], g.chrgb[c][2], 1);
             if (g.show_uv) {
                 if (rms >= 1000.f) {
@@ -2813,25 +2831,22 @@ static void draw_waves(int x, int y, int w, int h)
     }
 }
 
-static void draw_fft(int x, int y, int w, int h)
+enum { FFT_STRIP_N = 128, FFT_STRIP_BINS = 64 };
+
+static float fft_hold[FFT_STRIP_BINS];
+static uint32_t fft_t;
+static int fft_used, fft_open, fft_peak_hz;
+
+static void fft_refresh(void)
 {
-    enum { N = 128 };
-    static float mag_hold[N / 2];
-    static uint32_t fft_t;
-    static int fft_used, fft_open, fft_peak = 1;
-    float mag[N / 2];
+    enum { N = FFT_STRIP_N };
+    float mag[FFT_STRIP_BINS];
     float acc[N];
     int c, i, used = 0, open_n = 0, peak_i = 1;
     uint8_t lp = 0, ln = 0;
-    char cap[56];
     uint32_t now = SDL_GetTicks();
-    fill(x, y, w, h, 10, 12, 16);
     if (fft_t && now - fft_t < 80) {
-        memcpy(mag, mag_hold, sizeof(mag));
-        used = fft_used;
-        open_n = fft_open;
-        peak_i = fft_peak;
-        goto fft_draw;
+        return;
     }
     memset(mag, 0, sizeof(mag));
     np_ring_loff(&g.ring, &lp, &ln);
@@ -2872,12 +2887,31 @@ static void draw_fft(int x, int y, int w, int h)
             used++;
         }
     }
-    memcpy(mag_hold, mag, sizeof(mag));
+    memcpy(fft_hold, mag, sizeof(fft_hold));
     fft_t = now;
     fft_used = used;
     fft_open = open_n;
-    fft_peak = peak_i;
-fft_draw:
+    {
+        float peak = 1e-12f;
+        int sps = g.sps > 1.f ? (int)(g.sps + 0.5f) : NP_DEFAULT_SPS;
+        for (i = 1; i < FFT_STRIP_BINS; i++) {
+            if (mag[i] > peak) {
+                peak = mag[i];
+                peak_i = i;
+            }
+        }
+        fft_peak_hz = (peak_i * sps) / N;
+    }
+}
+
+static void draw_fft(int x, int y, int w, int h)
+{
+    int i, used, open_n;
+    char cap[56];
+    fft_refresh();
+    used = fft_used;
+    open_n = fft_open;
+    fill(x, y, w, h, 10, 12, 16);
     if (open_n && used == open_n) {
         snprintf(cap, sizeof(cap), "FFT  open");
     } else {
@@ -2886,14 +2920,13 @@ fft_draw:
     text(x + 6, y + 4, cap, 160, 168, 180, 1);
     if (used) {
         float peak = 1e-12f;
-        int bins = N / 2;
+        int bins = FFT_STRIP_BINS;
         int plot_y = y + 16;
         int plot_h = h - 22;
         int bar_w;
         for (i = 1; i < bins; i++) {
-            if (mag[i] > peak) {
-                peak = mag[i];
-                peak_i = i;
+            if (fft_hold[i] > peak) {
+                peak = fft_hold[i];
             }
         }
         bar_w = w / (bins - 1);
@@ -2901,7 +2934,7 @@ fft_draw:
             bar_w = 1;
         }
         for (i = 1; i < bins; i++) {
-            int bh = (int)(mag[i] / peak * (plot_h - 2));
+            int bh = (int)(fft_hold[i] / peak * (plot_h - 2));
             int bx = x + (i - 1) * (w - 1) / (bins - 1);
             if (bh < 1) {
                 bh = 1;
@@ -2910,9 +2943,7 @@ fft_draw:
         }
         {
             char hz[24];
-            /* 125 SPS, N-point FFT → bin * sps / N */
-            int sps = g.sps > 1.f ? (int)(g.sps + 0.5f) : NP_DEFAULT_SPS;
-            snprintf(hz, sizeof(hz), "%d Hz", (peak_i * sps) / N);
+            snprintf(hz, sizeof(hz), "%d Hz", fft_peak_hz);
             text(x + w - 52, y + 4, hz, 180, 200, 210, 1);
         }
     }
@@ -3998,7 +4029,9 @@ static void draw_learn(int x, int y, int w, int h)
         text(x + 480, y + 8, lab, 80, 220, 140, 1);
     } else if (g.learn.best >= 0 && g.learn.match && g.learn.n) {
         int pct = (int)(g.learn.score[g.learn.best] * 100.f);
-        snprintf(lab, sizeof(lab), "now: %s  %d%%", g.learn.s[g.learn.best].name, pct);
+        int cpct = (int)(g.learn.score_cube[g.learn.best] * 100.f);
+        snprintf(lab, sizeof(lab), "now: %s  %d%%  cube %d%%", g.learn.s[g.learn.best].name, pct,
+                 cpct);
         text(x + 480, y + 8, lab, pct >= 55 ? 80 : 200, pct >= 55 ? 230 : 170, 120, 1);
     } else if (!g.namebuf[0]) {
         text(x + 480, y + 8, "name, then Record — blink or clench", 120, 128, 140, 1);
@@ -5468,6 +5501,13 @@ float np_host_learn_score(int i)
     }
     return g.learn.score[i];
 }
+float np_host_learn_score_cube(int i)
+{
+    if (i < 0 || i >= g.learn.n) {
+        return 0.f;
+    }
+    return g.learn.score_cube[i];
+}
 int np_host_learn_sel(void)
 {
     return g.learn.sel;
@@ -5771,6 +5811,17 @@ void np_host_elec_label(int ch, char *out, int n)
     }
     snprintf(out, (size_t)n, "%d %s", ch + 1, g.elec[ch].name[0] ? g.elec[ch].name : "?");
 }
+void np_host_elec_name(int ch, char *out, int n)
+{
+    if (!out || n < 2) {
+        return;
+    }
+    if (ch < 0 || ch >= NP_NCHAN) {
+        out[0] = 0;
+        return;
+    }
+    snprintf(out, (size_t)n, "%s", g.elec[ch].name[0] ? g.elec[ch].name : "?");
+}
 int np_host_elec_site(int ch)
 {
     return (ch >= 0 && ch < NP_NCHAN) ? g.elec[ch].site : -1;
@@ -5946,6 +5997,33 @@ int np_host_rec_ms(void)
         return 0;
     }
     return (int)REC_MS - dt;
+}
+
+int np_host_csv(void)
+{
+    return g.recording;
+}
+
+void np_host_toggle_csv(void)
+{
+    toggle_record();
+}
+
+int np_host_fft(float *dst, int max, int *peak_hz)
+{
+    int n;
+    fft_refresh();
+    n = max < FFT_STRIP_BINS ? max : FFT_STRIP_BINS;
+    if (n < 0) {
+        n = 0;
+    }
+    if (dst && n > 0) {
+        memcpy(dst, fft_hold, (size_t)n * sizeof(float));
+    }
+    if (peak_hz) {
+        *peak_hz = fft_peak_hz;
+    }
+    return n;
 }
 
 int np_host_imu(float acc[3], float gyr[3], float mag[3])

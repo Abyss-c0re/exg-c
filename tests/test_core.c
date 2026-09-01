@@ -353,10 +353,18 @@ static void test_nplearn(void)
         npl_set_cube(&L, 0, a);
         npl_score(&L, wave, rms, mask);
         npl_score_cube(&L, a);
-        expect(L.score[0] > 0.7f, "cube Jaccard lifts same pose");
+        expect(L.score[0] > 0.7f, "wave score stays after cube");
+        expect(L.score_cube[0] > 0.99f, "cube Jaccard on same pose");
         npl_score(&L, wave, rms, mask);
         npl_score_cube(&L, z);
-        expect(L.score[0] < 0.4f, "empty live cube does not match a pose");
+        expect(L.score[0] > 0.7f, "empty cube does not overwrite wave");
+        expect(L.score_cube[0] == 0.f, "empty live cube Jaccard is 0");
+        {
+            float before = L.score[0];
+            uint8_t rows[2] = {0x0F, 0x0F};
+            npl_score_smx(&L, rows, 2);
+            expect(L.score[0] == before, "SMX does not mix into MATCH");
+        }
     }
 }
 

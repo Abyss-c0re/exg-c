@@ -32,15 +32,22 @@ debug keystore. The native library is `libexg.so` (no SDL2).
 3. Grant the USB permission dialog.
 4. Open **exg-c**. It lists the device. Tap **Connect**.
 5. First session: **NOISE** (desk) → **OK** → wear headset → **CALM** → leave **CLN** on.
-6. **ID** should read `still`. Hard blink → `blink`. Jaw clench → `clench`.
+6. Wait until the strip shows ~125 sps. **ID** / **Record** / **MATCH** stay
+   off while the board is still enabling (below 80 sps).
+7. **ID** should read `still`. Hard blink → `blink`. Jaw clench → `clench`.
    Then type that name and **Record** — it snaps 1 s at the burst. Main
-   shows the **name** only. **Poses** lists them with live % and **Delete**.
+   shows the **name** only. **Poses** lists them with live wave % and a
+   separate cube Jaccard. **Delete** lives on Poses.
 
 Do not hammer Disconnect / Connect. Each DTR pulse resets the Nano; wait
 for frames instead.
 
 If the plot is empty but the port is listed: unplug/replug once, grant
 USB again, tap **Connect** once.
+
+**CSV** writes `knight-YYYYMMDD-HHMMSS.csv` into the app files directory.
+**Pause** freezes the plot (FROZEN). The strip under the traces is a
+128-pt FFT with a marker at 50/60 Hz.
 
 ## Profiles
 
@@ -49,20 +56,23 @@ USB again, tap **Connect** once.
 **Export…** / **Import…** use the system document picker so you can put a
 profile on Downloads, Drive, or a USB stick — still no storage permission.
 
-**win** cycles the plot window (1 / 2 / 4 / 8 s). **UI** is 1.0 / 1.5 / 2.0×
+**win** picks the plot window (1 / 2 / 4 / 8 s). **UI** is 1.0 / 1.5 / 2.0×
 text. **board** is `8-ch + IMU` (57-byte frames, acc/gyr/mag on the strip)
 or `8-ch EXG`. Disconnect before switching board.
 
-**band** cycles `raw` → `line-kill` (notch+CAR+hp1) → `EEG` (+lp 40) →
+**band** picks `raw` / `line-kill` (notch+CAR+hp1) / `EEG` (+lp 40) /
 `EMG` (hp 20 + envelope). **CAR** subtracts the mean of non-clip
 channels. **envelope** plots 150 ms RMS. **detrend** hides DC.
 Record refuses a **CLIP** window (≥ 4 mV).
 
-Tap **ch1**…**ch8** in Settings for an RGB color picker. Other Settings
-buttons open a list — they no longer cycle on each tap.
+Tap the site name (Fp1…) in Settings for an RGB color picker. Other
+Settings buttons open a list — they do not cycle on each tap.
 
-**algo** (Cube tab and Settings) cycles how each headset cell becomes 0 or 1:
+**algo** (Cube tab and Settings) picks how each headset cell becomes 0 or 1:
 `detect` `sign` `mean` `energy` `delta` `fold` `proton`. Same as Linux.
+
+**MATCH** is wave + RMS. A hit is ≥ 55%. Cube Jaccard is shown next to
+it and does not replace the wave score.
 
 Names: letters, digits, `-`, `_`.
 
@@ -74,7 +84,7 @@ All of this is under `getFilesDir()`:
 - `exg-c.ini` — last session
 - `exg-c.learn` — learn templates
 - `exg-c/profiles/<name>.ini`
-- CSV recordings (`knight-YYYYMMDD-HHMMSS.csv`)
+- CSV recordings (`knight-YYYYMMDD-HHMMSS.csv`) from the **CSV** button
 
 ## USB IDs
 
@@ -91,7 +101,8 @@ All of this is under `getFilesDir()`:
 |------|------|
 | `CMakeLists.txt` | NDK: same `src/*.c` + `nplearn` + `np_serial_android.c` |
 | `src/com/abysscore/exgc/ExgActivity.java` | Native Android UI |
-| `src/com/abysscore/exgc/TraceView.java` | 8-channel plot |
+| `src/com/abysscore/exgc/TraceView.java` | 8-channel plot (site names + RMS) |
+| `src/com/abysscore/exgc/FftView.java` | 128-pt strip FFT |
 | `src/com/abysscore/exgc/CubeView.java` | 8³ cube (viz + map) |
 | `src/com/abysscore/exgc/ExgNative.java` | JNI to the C host |
 | `src/com/abysscore/exgc/UsbSerial.java` | USB Host serial |

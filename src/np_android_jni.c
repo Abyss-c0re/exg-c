@@ -659,6 +659,53 @@ Java_com_abysscore_exgc_ExgNative_togglePause(JNIEnv *env, jclass cls)
     np_host_toggle_pause();
 }
 
+JNIEXPORT jboolean JNICALL
+Java_com_abysscore_exgc_ExgNative_paused(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    return np_host_paused() ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_abysscore_exgc_ExgNative_csvOn(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    return np_host_csv() ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT void JNICALL
+Java_com_abysscore_exgc_ExgNative_toggleCsv(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    np_host_toggle_csv();
+}
+
+JNIEXPORT jint JNICALL
+Java_com_abysscore_exgc_ExgNative_copyFft(JNIEnv *env, jclass cls, jfloatArray dst)
+{
+    float tmp[64];
+    int hz = 0, n, want;
+    (void)cls;
+    if (!dst) {
+        return 0;
+    }
+    want = (*env)->GetArrayLength(env, dst);
+    if (want < 1) {
+        return 0;
+    }
+    n = np_host_fft(tmp, want < 64 ? want : 64, &hz);
+    if (n > want) {
+        n = want;
+    }
+    if (n > 0) {
+        (*env)->SetFloatArrayRegion(env, dst, 0, n, tmp);
+    }
+    return hz;
+}
+
 JNIEXPORT jint JNICALL
 Java_com_abysscore_exgc_ExgNative_cubeView(JNIEnv *env, jclass cls)
 {
@@ -721,6 +768,15 @@ Java_com_abysscore_exgc_ExgNative_elecLabel(JNIEnv *env, jclass cls, jint ch)
     char buf[16];
     (void)cls;
     np_host_elec_label(ch, buf, sizeof(buf));
+    return jstr_from(env, buf);
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_abysscore_exgc_ExgNative_elecName(JNIEnv *env, jclass cls, jint ch)
+{
+    char buf[16];
+    (void)cls;
+    np_host_elec_name(ch, buf, sizeof(buf));
     return jstr_from(env, buf);
 }
 
@@ -934,7 +990,8 @@ Java_com_abysscore_exgc_ExgNative_matchLine(JNIEnv *env, jclass cls)
     pct = (int)(np_host_learn_score(i) * 100.f);
     {
         char line[64];
-        snprintf(line, sizeof(line), "now %s %d%%", buf, pct);
+        int cpct = (int)(np_host_learn_score_cube(i) * 100.f);
+        snprintf(line, sizeof(line), "now %s %d%%  cube %d%%", buf, pct, cpct);
         return jstr_from(env, line);
     }
 }
@@ -962,6 +1019,14 @@ Java_com_abysscore_exgc_ExgNative_learnScore(JNIEnv *env, jclass cls, jint i)
     (void)env;
     (void)cls;
     return np_host_learn_score(i);
+}
+
+JNIEXPORT jfloat JNICALL
+Java_com_abysscore_exgc_ExgNative_learnScoreCube(JNIEnv *env, jclass cls, jint i)
+{
+    (void)env;
+    (void)cls;
+    return np_host_learn_score_cube(i);
 }
 
 JNIEXPORT jint JNICALL

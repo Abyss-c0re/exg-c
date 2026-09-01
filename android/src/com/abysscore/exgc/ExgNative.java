@@ -81,6 +81,11 @@ public final class ExgNative {
     public static native void cycleAlgo();
     public static native String algoName();
     public static native void togglePause();
+    public static native boolean paused();
+    public static native boolean csvOn();
+    public static native void toggleCsv();
+    /* Fills up to 64 bins (128-pt strip). Returns peak Hz. */
+    public static native int copyFft(float[] dst);
 
     public static native int cubeView();
     public static native void setCubeView(int map);
@@ -90,6 +95,7 @@ public final class ExgNative {
     public static native int elecSel();
     public static native void setElecSel(int ch);
     public static native String elecLabel(int ch);
+    public static native String elecName(int ch);
     public static native void elecXyz(int ch, float[] xyz);
     public static native int siteFocus();
     public static native void siteStep(int dir);
@@ -112,6 +118,7 @@ public final class ExgNative {
     public static native int learnN();
     public static native String learnName(int i);
     public static native float learnScore(int i);
+    public static native float learnScoreCube(int i);
     public static native int learnBest();
     public static native int learnSel();
     public static native void learnSelect(int i);

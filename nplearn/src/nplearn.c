@@ -191,48 +191,21 @@ void npl_score_cube(struct npl *L, const uint8_t cube[64])
         return;
     }
     for (i = 0; i < L->n; i++) {
-        float j;
         if (!L->s[i].have_cube) {
+            L->score_cube[i] = 0.f;
             continue;
         }
-        /* Occupied-cell Jaccard. Two empty cubes are 0, not unity. */
-        j = npl_cube_jaccard(L->s[i].cube, cube);
-        L->score[i] = 0.25f * L->score[i] + 0.75f * j;
-        if (L->best < 0 || L->score[i] > L->score[L->best]) {
-            L->best = i;
-        }
+        /* Occupied-cell Jaccard. Empty vs empty is 0. Does not replace wave score. */
+        L->score_cube[i] = npl_cube_jaccard(L->s[i].cube, cube);
     }
 }
 
 void npl_score_smx(struct npl *L, const uint8_t *rows, int n)
 {
-    int i, t, lim, agree, tot;
-    if (!L || !rows || n < 1) {
-        return;
-    }
-    for (i = 0; i < L->n; i++) {
-        float u;
-        if (L->s[i].smx_n < 1) {
-            continue;
-        }
-        lim = n < (int)L->s[i].smx_n ? n : (int)L->s[i].smx_n;
-        agree = 0;
-        tot = lim * 8;
-        for (t = 0; t < lim; t++) {
-            unsigned x = (unsigned)(L->s[i].smx[L->s[i].smx_n - 1 - t] ^ rows[n - 1 - t]);
-            int b;
-            for (b = 0; b < 8; b++) {
-                if (((x >> b) & 1u) == 0) {
-                    agree++;
-                }
-            }
-        }
-        u = tot > 0 ? (float)agree / (float)tot : 0.f;
-        L->score[i] = 0.65f * L->score[i] + 0.35f * u;
-        if (L->best < 0 || L->score[i] > L->score[L->best]) {
-            L->best = i;
-        }
-    }
+    /* SMX is stored on the pose. It does not mix into MATCH. */
+    (void)L;
+    (void)rows;
+    (void)n;
 }
 
 int npl_bound(void)

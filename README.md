@@ -18,7 +18,8 @@ Not a medical device. Not affiliated with NeuroPawn.
 - IMU acc / gyr / mag on 57-byte Knight boards (`8-ch + IMU`)
 - Band presets: `raw` / `line-kill` / `EEG` / `EMG`
 - CLIP gate — Record will not save a saturated window
-- Learn: **Record** a named pose on Main. **Poses** tab lists them, scores live %, and deletes.
+- Learn: **Record** a named pose on Main (gated at 80 sps). **Poses** lists wave % vs cube Jaccard. MATCH hit is wave ≥ 55%.
+- **CSV** dump, **Pause**, site names + RMS on the plot, FFT strip with a 50/60 Hz marker
 
 Default montage: Fp1 Fp2 C3 C4 P3 P4 O1 O2.
 

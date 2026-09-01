@@ -112,10 +112,23 @@
         android:layout_height="0dp"
         android:layout_weight="1">
 
-        <com.abysscore.exgc.TraceView
-            android:id="@+id/traces"
+        <LinearLayout
+            android:id="@+id/mainPane"
             android:layout_width="match_parent"
-            android:layout_height="match_parent" />
+            android:layout_height="match_parent"
+            android:orientation="vertical">
+
+            <com.abysscore.exgc.TraceView
+                android:id="@+id/traces"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1" />
+
+            <com.abysscore.exgc.FftView
+                android:id="@+id/fft"
+                android:layout_width="match_parent"
+                android:layout_height="56dp" />
+        </LinearLayout>
 
         <LinearLayout
             android:id="@+id/cubePane"
@@ -245,7 +258,7 @@
                     android:layout_height="wrap_content"
                     android:paddingTop="8dp"
                     android:paddingBottom="8dp"
-                    android:text="MATCH on to see live %. Tap a row to select."
+                    android:text="MATCH on to see wave % vs cube Jaccard. Tap a row to select."
                     android:textColor="@color/ink" />
 
                 <LinearLayout
@@ -468,7 +481,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:paddingTop="12dp"
-                    android:text="Channels — tap ch# for RGB picker, tap gN for gain"
+                    android:text="Channels — tap the site name for RGB, tap gN for gain"
                     android:textColor="@color/muted" />
 
                 <LinearLayout
@@ -553,6 +566,18 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="MATCH" />
+
+            <Button
+                android:id="@+id/csv"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="CSV" />
+
+            <Button
+                android:id="@+id/pause"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Pause" />
         </LinearLayout>
 
         <HorizontalScrollView

@@ -54,6 +54,7 @@ int np_host_learn_n(void);
 int np_host_learn_best(void);
 void np_host_learn_name(int i, char *out, int n);
 float np_host_learn_score(int i);
+float np_host_learn_score_cube(int i);
 int np_host_learn_sel(void);
 void np_host_learn_select(int i);
 void np_host_learn_del(int i);
@@ -102,6 +103,7 @@ void np_host_cube_front(void);
 int np_host_elec_sel(void);
 void np_host_set_elec_sel(int ch);
 void np_host_elec_label(int ch, char *out, int n);
+void np_host_elec_name(int ch, char *out, int n);
 int np_host_elec_site(int ch);
 void np_host_elec_xyz(int ch, float *x, float *y, float *z);
 int np_host_site_focus(void);
@@ -123,6 +125,11 @@ int np_host_prof_import(const char *path);
 
 void np_host_id(char *out, int n);
 int np_host_rec_ms(void);
+
+int np_host_csv(void);
+void np_host_toggle_csv(void);
+/* 128-pt strip FFT, 64 bins. Fills dst[0..n), writes peak Hz. */
+int np_host_fft(float *dst, int max, int *peak_hz);
 
 int np_host_imu(float acc[3], float gyr[3], float mag[3]);
 int np_host_board_imu(void);

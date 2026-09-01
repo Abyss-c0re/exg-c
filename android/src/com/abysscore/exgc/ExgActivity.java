@@ -25,6 +25,8 @@ import java.io.OutputStream;
 public class ExgActivity extends Activity {
     private final Handler h = new Handler(Looper.getMainLooper());
     private TraceView traces;
+    private FftView fft;
+    private View mainPane;
     private CubeView cube;
     private View cubePane;
     private View cubeMapTools;
@@ -38,6 +40,8 @@ public class ExgActivity extends Activity {
     private TextView idLine;
     private TextView profList;
     private Button record;
+    private Button csv;
+    private Button pause;
     private Button connect;
     private Button port;
     private Button tabMain, tabCube, tabPoses, tabSet;
@@ -80,6 +84,7 @@ public class ExgActivity extends Activity {
             refreshChrome();
             if (tab == 0) {
                 traces.pull();
+                fft.pull();
             } else if (tab == 1) {
                 cube.pull();
             }
@@ -98,6 +103,8 @@ public class ExgActivity extends Activity {
         ExgNative.start(dir != null ? dir.getAbsolutePath() : getApplicationInfo().dataDir);
         setContentView(R.layout.activity_exg);
         traces = findViewById(R.id.traces);
+        fft = findViewById(R.id.fft);
+        mainPane = findViewById(R.id.mainPane);
         cube = findViewById(R.id.cube);
         cubePane = findViewById(R.id.cubePane);
         cubeMapTools = findViewById(R.id.cubeMapTools);
@@ -113,6 +120,8 @@ public class ExgActivity extends Activity {
         idLine = findViewById(R.id.idLine);
         profList = findViewById(R.id.profList);
         record = findViewById(R.id.record);
+        csv = findViewById(R.id.csv);
+        pause = findViewById(R.id.pause);
         connect = findViewById(R.id.connect);
         port = findViewById(R.id.port);
         tabMain = findViewById(R.id.tabMain);
@@ -202,6 +211,14 @@ public class ExgActivity extends Activity {
         });
         match.setOnClickListener(v -> {
             ExgNative.toggleMatch();
+            refreshChrome();
+        });
+        csv.setOnClickListener(v -> {
+            ExgNative.toggleCsv();
+            refreshChrome();
+        });
+        pause.setOnClickListener(v -> {
+            ExgNative.togglePause();
             refreshChrome();
         });
         learnName.addTextChangedListener(new SimpleWatch() {
@@ -333,7 +350,7 @@ public class ExgActivity extends Activity {
 
     private void showTab(int t) {
         tab = t;
-        traces.setVisibility(t == 0 ? View.VISIBLE : View.GONE);
+        mainPane.setVisibility(t == 0 ? View.VISIBLE : View.GONE);
         cubePane.setVisibility(t == 1 ? View.VISIBLE : View.GONE);
         posesPane.setVisibility(t == 2 ? View.VISIBLE : View.GONE);
         settings.setVisibility(t == 3 ? View.VISIBLE : View.GONE);
@@ -410,6 +427,14 @@ public class ExgActivity extends Activity {
         match.setText(matching ? "MATCH on" : "MATCH off");
         match.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
                 matching ? 0xFF2E8A58 : 0xFF2A3038));
+        boolean recCsv = ExgNative.csvOn();
+        csv.setText(recCsv ? "Stop CSV" : "CSV");
+        csv.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
+                recCsv ? 0xFF8A3038 : 0xFF2A3038));
+        boolean held = ExgNative.paused();
+        pause.setText(held ? "PAUSED" : "Pause");
+        pause.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
+                held ? 0xFF8A6030 : 0xFF2A3038));
         String id = ExgNative.idLine();
         String now = ExgNative.matchLine();
         int rec = ExgNative.recMs();
@@ -425,7 +450,11 @@ public class ExgActivity extends Activity {
             int best = ExgNative.learnBest();
             float sc = best >= 0 ? ExgNative.learnScore(best) : 0f;
             idLine.setTextColor(matching && sc >= 0.55f ? 0xFF3CB46E : 0xFF8B93A0);
-            record.setText("Record");
+            if (on && sps > 0f && sps < 80f) {
+                record.setText("wait " + (int) sps + " sps");
+            } else {
+                record.setText("Record");
+            }
         }
         if (ln != lastLearnN) {
             lastLearnN = ln;
@@ -474,6 +503,7 @@ public class ExgActivity extends Activity {
             scaleTree(root, f);
         }
         traces.setLabelScale(f);
+        fft.setLabelScale(f);
         cube.setLabelScale(f);
     }
 
@@ -603,9 +633,10 @@ public class ExgActivity extends Activity {
             LinearLayout row = new LinearLayout(this);
             row.setOrientation(LinearLayout.HORIZONTAL);
             Button lab = new Button(this);
-            lab.setText("ch" + (c + 1));
+            lab.setText(ExgNative.elecName(c));
             lab.setOnClickListener(v -> {
-                ColorPick.show(this, "ch" + (ch + 1) + " color",
+                String name = ExgNative.elecName(ch);
+                ColorPick.show(this, name + " color",
                         ExgNative.color(ch), rgb -> {
                             ExgNative.setColor(ch, rgb);
                             refreshChannels();
@@ -622,7 +653,7 @@ public class ExgActivity extends Activity {
                 ExgNative.setRld(ch, !ExgNative.rld(ch));
                 refreshChannels();
             });
-            gn.setOnClickListener(v -> pick("ch" + (ch + 1) + " gain",
+            gn.setOnClickListener(v -> pick(ExgNative.elecName(ch) + " gain",
                     new String[] {"1", "2", "3", "4", "6", "8", "12"},
                     gainIndex(ch), i -> {
                         ExgNative.setGain(ch, new int[] {1, 2, 3, 4, 6, 8, 12}[i]);
@@ -650,6 +681,7 @@ public class ExgActivity extends Activity {
             rld.setText(ExgNative.rld(ch) ? "RLD" : "rld");
             gn.setText("g" + ExgNative.gain(ch));
             Button lab = (Button) row.getChildAt(0);
+            lab.setText(ExgNative.elecName(ch));
             int col = ExgNative.color(ch) | 0xFF000000;
             lab.setTextColor(col);
             int r = (col >> 16) & 255, gc = (col >> 8) & 255, b = col & 255;
@@ -716,7 +748,7 @@ public class ExgActivity extends Activity {
             empty.setTextColor(0xFF8B93A0);
             empty.setPadding(8, 16, 8, 8);
             poseList.addView(empty);
-            poseHint.setText("MATCH on to see live %. Delete from this tab.");
+            poseHint.setText("MATCH on to see wave % vs cube Jaccard. Delete from this tab.");
             applyUiScale();
             return;
         }
@@ -758,13 +790,15 @@ public class ExgActivity extends Activity {
         int best = ExgNative.learnBest();
         int sel = ExgNative.learnSel();
         if (n < 1) {
-            poseHint.setText("MATCH on to see live %. Delete from this tab.");
+            poseHint.setText("MATCH on to see wave % vs cube Jaccard. Delete from this tab.");
             return;
         }
         if (poseList.getChildCount() != n) {
             return;
         }
-        poseHint.setText(matching ? "live scores — green is a hit (≥ 55%)" : "MATCH off — scores frozen");
+        poseHint.setText(matching
+                ? "green is a wave hit (≥ 55%). cube is Jaccard, display only."
+                : "MATCH off — scores frozen");
         for (int i = 0; i < n; i++) {
             android.view.View child = poseList.getChildAt(i);
             if (!(child instanceof LinearLayout)) {
@@ -773,8 +807,9 @@ public class ExgActivity extends Activity {
             TextView lab = (TextView) ((LinearLayout) child).getChildAt(0);
             String name = ExgNative.learnName(i);
             int pct = (int) (ExgNative.learnScore(i) * 100f);
+            int cpct = (int) (ExgNative.learnScoreCube(i) * 100f);
             if (matching) {
-                lab.setText(name + "   " + pct + "%");
+                lab.setText(name + "   " + pct + "%   cube " + cpct + "%");
             } else {
                 lab.setText(name);
             }

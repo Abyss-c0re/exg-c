@@ -15,12 +15,15 @@ public class TraceView extends View {
     private final int[] got = new int[NCHAN];
     private final int[] col = new int[NCHAN];
     private final boolean[] clip = new boolean[NCHAN];
+    private final String[] site = new String[NCHAN];
+    private final float[] rms = new float[NCHAN];
     private final Paint line = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint grid = new Paint();
     private final Paint lab = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Path path = new Path();
     private int scaleUv = 200;
     private float labelSp = 28f;
+    private boolean frozen;
 
     public TraceView(Context c) {
         super(c);
@@ -43,6 +46,7 @@ public class TraceView extends View {
         lab.setTextSize(labelSp);
         for (int i = 0; i < NCHAN; i++) {
             col[i] = 0xFF80C8FF;
+            site[i] = "ch" + (i + 1);
         }
     }
 
@@ -59,11 +63,24 @@ public class TraceView extends View {
     }
 
     public void pull() {
+        frozen = ExgNative.paused();
+        if (frozen && got[0] > 1) {
+            postInvalidateOnAnimation();
+            return;
+        }
         scaleUv = Math.max(20, ExgNative.scaleUv());
         for (int c = 0; c < NCHAN; c++) {
             got[c] = ExgNative.copyWave(c, wave[c]);
             col[c] = ExgNative.color(c);
             clip[c] = ExgNative.clipped(c);
+            String n = ExgNative.elecName(c);
+            site[c] = (n == null || n.length() == 0) ? ("ch" + (c + 1)) : n;
+            float e = 0f;
+            int nSamp = got[c];
+            for (int i = 0; i < nSamp; i++) {
+                e += wave[c][i] * wave[c][i];
+            }
+            rms[c] = nSamp > 0 ? (float) Math.sqrt(e / nSamp) : 0f;
         }
         postInvalidateOnAnimation();
     }
@@ -83,10 +100,16 @@ public class TraceView extends View {
             float mid = y0 + row * 0.5f;
             c.drawLine(0, mid, w, mid, grid);
             lab.setColor(col[ch]);
-            c.drawText("ch" + (ch + 1), 12, y0 + 32, lab);
+            String rmsLab = rms[ch] >= 1000f
+                    ? String.format(java.util.Locale.US, "%s  %.1f mV", site[ch], rms[ch] / 1000f)
+                    : String.format(java.util.Locale.US, "%s  %.0f µV", site[ch], rms[ch]);
+            c.drawText(rmsLab, 12, y0 + 32, lab);
             if (clip[ch]) {
                 lab.setColor(0xFFE05050);
                 c.drawText("CLIP", w - 140, y0 + 32, lab);
+            } else if (frozen) {
+                lab.setColor(0xFFF0A040);
+                c.drawText("FROZEN", w - 180, y0 + 32, lab);
             }
             int n = got[ch];
             if (n < 2) {
