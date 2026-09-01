@@ -343,7 +343,7 @@ static int learn_capture(float wave[NPL_NCHAN][NPL_LEN], float rms[NPL_NCHAN], u
     int c, have = 0;
     uint32_t want = (uint32_t)(g.window_s * (g.sps > 1.f ? g.sps : NP_DEFAULT_SPS));
     float sps = g.sps > 1.f ? g.sps : (float)NP_DEFAULT_SPS;
-    float notch = notch_hz_eff() > 1.f ? notch_hz_eff() : 50.f;
+    float notch = notch_hz_eff();
     *mask = 0;
     memset(wave, 0, (size_t)NPL_NCHAN * NPL_LEN * sizeof(float));
     memset(rms, 0, NPL_NCHAN * sizeof(float));
@@ -1940,79 +1940,6 @@ static void ch_stats(const float *buf, uint32_t n, float *dc, float *rms, float 
     *pk = p;
 }
 
-static void ab_grab(int onhead)
-{
-    uint32_t want = (uint32_t)(g.window_s * (g.sps > 1.f ? g.sps : NP_DEFAULT_SPS));
-    int c;
-    if (want < 32) {
-        want = 32;
-    }
-    if (want > NP_RING) {
-        want = NP_RING;
-    }
-    if (onhead) {
-        memset(&g.on, 0, sizeof(g.on));
-    } else {
-        memset(&g.off, 0, sizeof(g.off));
-    }
-    for (c = 0; c < NP_NCHAN; c++) {
-        float buf[NP_RING], dc, rms, pk;
-        uint32_t n = np_ring_copy(&g.ring, c, buf, want);
-        ch_stats(buf, n, &dc, &rms, &pk);
-        if (onhead) {
-            g.on.dc[c] = dc;
-            g.on.rms[c] = rms;
-            g.on.pk[c] = pk;
-            if (n > g.on.n) {
-                g.on.n = n;
-            }
-        } else {
-            g.off.dc[c] = dc;
-            g.off.rms[c] = rms;
-            g.off.pk[c] = pk;
-            if (n > g.off.n) {
-                g.off.n = n;
-            }
-        }
-    }
-    if (onhead) {
-        g.on.have = 1;
-    } else {
-        g.off.have = 1;
-    }
-}
-
-static void ab_write(void)
-{
-    char path[NP_MAX_PATH];
-    const char *h = getenv("HOME");
-    FILE *f;
-    int c;
-    if (h && h[0]) {
-        snprintf(path, sizeof(path), "%s/exg-c-ab.txt", h);
-    } else {
-        snprintf(path, sizeof(path), "exg-c-ab.txt");
-    }
-    f = fopen(path, "w");
-    if (!f) {
-        set_status(0, "cannot write %s", path);
-        return;
-    }
-    fprintf(f, "ch,off_dc_uV,off_rms_uV,off_pk_uV,on_dc_uV,on_rms_uV,on_pk_uV,ratio\n");
-    for (c = 0; c < NP_NCHAN; c++) {
-        float ratio = 0.f;
-        if (g.on.have && g.on.rms[c] > 1.f) {
-            ratio = g.off.rms[c] / g.on.rms[c];
-        }
-        fprintf(f, "%d,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f\n", c + 1,
-                g.off.have ? g.off.dc[c] : 0, g.off.have ? g.off.rms[c] : 0,
-                g.off.have ? g.off.pk[c] : 0, g.on.have ? g.on.dc[c] : 0,
-                g.on.have ? g.on.rms[c] : 0, g.on.have ? g.on.pk[c] : 0, ratio);
-    }
-    fclose(f);
-    set_status(1, "wrote %s", path);
-}
-
 static void cal_path(char *out, size_t n)
 {
     char exe[NP_MAX_PATH];
@@ -3275,7 +3202,7 @@ static int draw_view_block(int x, int y)
     y += 26;
     if (g.notch_hz < 0) {
         if (g.cal_hz > 1.f) {
-            snprintf(b, sizeof(b), "notch AUTO %.0f", (double)g.cal_hz);
+            snprintf(b, sizeof(b), "notch AUTO %.1f", (double)g.cal_hz);
         } else {
             snprintf(b, sizeof(b), "notch AUTO");
         }
@@ -3639,17 +3566,16 @@ static void draw_learn(int x, int y, int w, int h)
     btn(x + 138, y + h - 22, 40, 18, g.cal_cut ? "CLN" : "cln",
         g.cal_cut && g.cal.have, 27, 0, g.cal_cut ? 28 : 36, g.cal_cut ? 80 : 38,
         g.cal_cut ? 70 : 46);
-    btn(x + 182, y + h - 22, 44, 18, "write", 0, 24, 0, 32, 36, 44);
     if (g.cal_arm) {
-        text(x + 232, y + h - 18, "desk / off, then OK", 230, 190, 90, 1);
+        text(x + 186, y + h - 18, "desk / off, then OK", 230, 190, 90, 1);
     } else if (g.cal.have && g.calm.have) {
         snprintf(lab, sizeof(lab), "noise %.0fHz  calm %.0f uV%s", g.cal_hz,
                  g.calm.rms[0], g.cal_cut ? "  CLEAN" : "");
-        text(x + 232, y + h - 18, lab, 140, 180, 150, 1);
+        text(x + 186, y + h - 18, lab, 140, 180, 150, 1);
     } else if (g.cal.have) {
-        text(x + 232, y + h - 18, "wear headset, sit still, CALM", 100, 120, 110, 1);
+        text(x + 186, y + h - 18, "wear headset, sit still, CALM", 100, 120, 110, 1);
     } else {
-        text(x + 232, y + h - 18, "NOISE = desk plate   then CALM on head", 90, 96, 104, 1);
+        text(x + 186, y + h - 18, "NOISE = desk plate   then CALM on head", 90, 96, 104, 1);
     }
 }
 
@@ -3883,21 +3809,6 @@ static void click(int x, int y)
         case 20:
             g.learn.sel = hits[i].ch;
             snprintf(g.namebuf, sizeof(g.namebuf), "%s", g.learn.s[g.learn.sel].name);
-            break;
-        case 22:
-            ab_grab(0);
-            set_status(1, "OFF-head snap  ch1 rms %.0f uV  n=%u", g.off.rms[0], g.off.n);
-            break;
-        case 23:
-            ab_grab(1);
-            set_status(1, "ON-head snap  ch1 rms %.0f uV  n=%u", g.on.rms[0], g.on.n);
-            break;
-        case 24:
-            if (!g.off.have && !g.on.have) {
-                set_status(0, "snap OFF and/or ON first");
-            } else {
-                ab_write();
-            }
             break;
         case 25:
             g.cal_arm = 1;

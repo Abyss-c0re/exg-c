@@ -46,7 +46,7 @@ struct npl {
 
 void npl_init(struct npl *L);
 
-/* HP 2 Hz + notch (50 if notch_hz<=0) + LP 40 Hz + detrend. In place. */
+/* HP 2 Hz + optional notch (off if notch_hz<=1) + LP 40 Hz + detrend. */
 void npl_filter(float *x, int n, float sps, float notch_hz);
 
 /* Filter, drop filter warmup, pack to NPL_LEN (unit energy), write RMS.

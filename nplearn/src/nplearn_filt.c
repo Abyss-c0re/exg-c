@@ -149,15 +149,14 @@ void npl_filter(float *x, int n, float sps, float notch_hz)
     struct npl_notch nt;
     struct npl_lp lp;
     int i;
-    if (notch_hz <= 0.f) {
-        notch_hz = 50.f;
-    }
     hp_init(&hp, NPL_HP_HZ, sps);
-    notch_init(&nt, notch_hz, sps, 30.f);
+    notch_init(&nt, notch_hz > 1.f ? notch_hz : 0.f, sps, 30.f);
     lp_init(&lp, NPL_LP_HZ, sps);
     for (i = 0; i < n; i++) {
         float v = hp_step(&hp, x[i]);
-        v = notch_step(&nt, v);
+        if (notch_hz > 1.f) {
+            v = notch_step(&nt, v);
+        }
         x[i] = lp_step(&lp, v);
     }
     detrend(x, n);
