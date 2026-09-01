@@ -695,6 +695,7 @@ public class ExgActivity extends Activity {
             empty.setPadding(8, 16, 8, 8);
             poseList.addView(empty);
             poseHint.setText("MATCH on to see live %. Delete from this tab.");
+            applyUiScale();
             return;
         }
         for (int i = 0; i < n; i++) {
