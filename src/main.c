@@ -283,6 +283,59 @@ static void learn_persist(void)
     npl_save(&g.learn, path);
 }
 
+static uint8_t rec_smx[NPL_SMX_SEC];
+static int rec_smx_n;
+
+static uint8_t learn_fold_byte(uint8_t bits[NP_NCHAN])
+{
+    int c;
+    uint8_t fold = 0;
+    uint32_t want = (uint32_t)(2.f * design_sps());
+    memset(bits, 0, NP_NCHAN);
+    if (want < 32) {
+        want = 32;
+    }
+    if (want > NP_RING) {
+        want = NP_RING;
+    }
+    for (c = 0; c < NP_NCHAN; c++) {
+        float buf[NP_RING], dc = 0, rms = 0, pk = 0, raw = 0, rr = 0;
+        uint32_t n;
+        int det;
+        if (!g.active[c]) {
+            continue;
+        }
+        n = np_ring_copy(&g.ring, c, buf, want);
+        if (n < 16) {
+            continue;
+        }
+        ch_stats(buf, n, &dc, &rms, &pk);
+        raw = rms;
+        apply_filt(c, buf, n);
+        ch_stats(buf, n, &dc, &rms, &pk);
+        det = np_detect(raw > 1.f ? raw : rms, rms, g.cal.have ? g.cal.rms[c] : 0.f,
+                        g.calm.have ? g.calm.rms[c] : 0.f, &rr);
+        bits[c] = (uint8_t)np_algo_bit(g.algo, buf, (int)n, det == NP_DET_SIGNAL);
+        if (bits[c]) {
+            fold |= (uint8_t)(1u << c);
+        }
+    }
+    return fold;
+}
+
+static void learn_write_cube(const uint8_t bits[NP_NCHAN], uint8_t cube[64])
+{
+    int c, ix, iy, iz;
+    np_cube_clear_kind(&g.smx, NP_CELL_EEG);
+    for (c = 0; c < NP_NCHAN; c++) {
+        if (g.elec[c].site >= 0) {
+            np_1010_ijk(g.elec[c].site, &ix, &iy, &iz);
+            np_cube_set(&g.smx, ix, iy, iz, bits[c] ? 1 : 0, NP_CELL_EEG);
+        }
+    }
+    np_cube_pack_bin(&g.smx, cube);
+}
+
 /* Pull the live window through nplearn. Does not reject rail — that was
  * why Save said "nothing to learn" on a perfectly live stream. */
 static int learn_capture(float wave[NPL_NCHAN][NPL_LEN], float rms[NPL_NCHAN], uint8_t *mask)
@@ -342,9 +395,30 @@ static void learn_tick(void)
     }
     npl_score(&g.learn, wave, rms, mask);
     {
-        uint8_t cube[64];
-        np_cube_pack_bin(&g.smx, cube);
+        uint8_t cube[64], bits[NP_NCHAN], rows[NPL_SMX_SEC];
+        int ids[NP_NCHAN], nid, t, ns;
+        (void)learn_fold_byte(bits);
+        learn_write_cube(bits, cube);
         npl_score_cube(&g.learn, cube);
+        nid = np_smx_ch_ids(&g.smx, ids);
+        ns = (int)g.smx.have;
+        if (ns > NPL_SMX_SEC) {
+            ns = NPL_SMX_SEC;
+        }
+        for (t = 0; t < ns; t++) {
+            int row = (int)((g.smx.wr - (uint32_t)ns + (uint32_t)t) % NP_SMX_SEC);
+            uint8_t f = 0;
+            int k;
+            for (k = 0; k < nid; k++) {
+                if (g.smx.bit[row][k]) {
+                    f |= (uint8_t)(1u << (ids[k] - 1));
+                }
+            }
+            rows[t] = f;
+        }
+        if (ns > 0) {
+            npl_score_smx(&g.learn, rows, ns);
+        }
     }
 }
 
@@ -368,9 +442,16 @@ static void learn_save_named(void)
     }
     r = npl_add(&g.learn, g.namebuf, wave, rms, mask);
     if (r >= 0) {
-        uint8_t cube[64];
-        np_cube_pack_bin(&g.smx, cube);
+        uint8_t cube[64], bits[NP_NCHAN], fold;
+        fold = learn_fold_byte(bits);
+        learn_write_cube(bits, cube);
         npl_set_cube(&g.learn, r, cube);
+        if (rec_smx_n < 1) {
+            rec_smx[0] = fold;
+            rec_smx_n = 1;
+        }
+        npl_set_smx(&g.learn, r, rec_smx, rec_smx_n, fold);
+        rec_smx_n = 0;
     }
     if (r == -2) {
         set_status(0, "learn full (%d)", NPL_MAX);
@@ -398,11 +479,11 @@ static void learn_save_named(void)
                 }
             }
             if (rail) {
-                set_status(1, "saved '%s'  %d ch + 8^3 %s  (open/rail window)", g.namebuf,
-                           nc, np_algo_name(g.algo));
-            } else {
-                set_status(1, "saved '%s'  %d ch + 8^3 %s", g.namebuf, nc,
+                set_status(1, "saved '%s'  %d ch  matrix %s  (open/rail)", g.namebuf, nc,
                            np_algo_name(g.algo));
+            } else {
+                set_status(1, "saved '%s'  %d ch  matrix %s  %ds", g.namebuf, nc,
+                           np_algo_name(g.algo), g.learn.s[r].smx_n);
             }
         }
     }
@@ -419,11 +500,17 @@ static void learn_start_hold(void)
         set_status(0, "connect the board first");
         return;
     }
+    rec_smx_n = 0;
     g.rec_t0 = SDL_GetTicks();
     if (!g.rec_t0) {
         g.rec_t0 = 1;
     }
-    set_status(1, "hold still - recording '%s'...", g.namebuf);
+    {
+        uint8_t bits[NP_NCHAN], fold;
+        fold = learn_fold_byte(bits);
+        rec_smx[rec_smx_n++] = fold;
+    }
+    set_status(1, "hold - recording matrix '%s'...", g.namebuf);
 }
 
 static void typing_set(int on)
@@ -1212,6 +1299,20 @@ static void smx_tick(void)
             np_cube_imu(&g.smx, acc, gyr, mag);
         }
         cube_offer();
+        if (g.rec_t0 && rec_smx_n < NPL_SMX_SEC) {
+            uint8_t fold = 0;
+            int used = 0;
+            for (c = 0; c < NP_NCHAN; c++) {
+                if (!g.active[c]) {
+                    continue;
+                }
+                if (bits[used]) {
+                    fold |= (uint8_t)(1u << c);
+                }
+                used++;
+            }
+            rec_smx[rec_smx_n++] = fold;
+        }
     }
 }
 
@@ -3458,7 +3559,7 @@ static void draw_learn(int x, int y, int w, int h)
         snprintf(lab, sizeof(lab), "HOLD %.1fs", left_ms / 1000.f);
         btn(x + 264, y + 2, 100, 22, lab, 1, 17, 0, 120, 70, 30);
     } else {
-        btn(x + 264, y + 2, 100, 22, g.namebuf[0] ? "Record 2s" : "need name", g.namebuf[0], 17,
+        btn(x + 264, y + 2, 100, 22, g.namebuf[0] ? "Record matrix" : "need name", g.namebuf[0], 17,
             0, g.namebuf[0] ? 28 : 36, g.namebuf[0] ? 100 : 42, g.namebuf[0] ? 70 : 50);
     }
     btn(x + 370, y + 2, 58, 22, g.learn.match ? "MATCH" : "match", g.learn.match, 18, 0,
@@ -3485,7 +3586,7 @@ static void draw_learn(int x, int y, int w, int h)
     } else if (!g.namebuf[0]) {
         text(x + 480, y + 8, "name, then Record", 120, 128, 140, 1);
     } else {
-        text(x + 480, y + 8, "Record and hold 2s", 140, 180, 150, 1);
+        text(x + 480, y + 8, "Record holds the matrix 2s", 140, 180, 150, 1);
     }
 
     nshow = g.learn.n > 8 ? 8 : g.learn.n;

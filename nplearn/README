@@ -17,7 +17,11 @@ MCU:
           mask |= (uint8_t)(1u << ch);
   }
   npl_add(&L, "fist", wave, rms, mask);   /* record */
-  npl_score(&L, wave, rms, mask);         /* L.best, L.score[] */
+  npl_set_cube(&L, slot, cube512);        /* SoT: 8^3 bits */
+  npl_set_smx(&L, slot, rows, nsec, fold);
+  npl_score(&L, wave, rms, mask);
+  npl_score_cube(&L, live_cube);          /* Jaccard on occupied cells */
+  npl_score_smx(&L, live_rows, nsec);     /* L.best, L.score[] */
 
   unsigned char blob[npl_bound()];
   n = npl_export(&L, blob, sizeof blob);  /* write to flash */

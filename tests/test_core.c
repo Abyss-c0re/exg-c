@@ -339,6 +339,25 @@ static void test_nplearn(void)
     expect(npl_add(&L, "ten", wave, rms, mask) == 0, "npl_add");
     npl_score(&L, wave, rms, mask);
     expect(L.best == 0 && L.score[0] > 0.7f, "npl self-score");
+    {
+        uint8_t z[64], a[64], b[64];
+        memset(z, 0, 64);
+        memset(a, 0, 64);
+        memset(b, 0, 64);
+        a[0] = 0x0F;
+        b[0] = 0x03;
+        expect(npl_cube_jaccard(z, z) == 0.f, "empty cubes are not unity");
+        expect(npl_cube_jaccard(a, a) > 0.99f, "identical occupied Jaccard 1");
+        expect(npl_cube_jaccard(a, b) > 0.4f && npl_cube_jaccard(a, b) < 0.6f,
+               "partial overlap is not 1");
+        npl_set_cube(&L, 0, a);
+        npl_score(&L, wave, rms, mask);
+        npl_score_cube(&L, a);
+        expect(L.score[0] > 0.7f, "cube Jaccard lifts same pose");
+        npl_score(&L, wave, rms, mask);
+        npl_score_cube(&L, z);
+        expect(L.score[0] < 0.4f, "empty live cube does not match a pose");
+    }
 }
 
 static void test_replay_live_csv(void)

@@ -21,6 +21,7 @@
 #define NPL_NAME 24
 #define NPL_HP_HZ 2.f
 #define NPL_LP_HZ 40.f
+#define NPL_SMX_SEC 8
 
 struct npl_sample {
     char name[NPL_NAME];
@@ -29,6 +30,9 @@ struct npl_sample {
     float wave[NPL_NCHAN][NPL_LEN];
     uint8_t cube[64]; /* packed 8^3 State Matrix */
     uint8_t have_cube;
+    uint8_t smx[NPL_SMX_SEC]; /* 8 channel bits per second */
+    uint8_t smx_n;
+    uint8_t fold; /* last-second 8-ch fold */
 };
 
 struct npl {
@@ -55,10 +59,14 @@ void npl_pack(float *dst, const float *src, int n);
 int npl_add(struct npl *L, const char *name, const float wave[NPL_NCHAN][NPL_LEN],
             const float rms[NPL_NCHAN], uint8_t mask);
 void npl_set_cube(struct npl *L, int i, const uint8_t cube[64]);
+void npl_set_smx(struct npl *L, int i, const uint8_t *rows, int n, uint8_t fold);
 void npl_del(struct npl *L, int i);
 void npl_score(struct npl *L, const float wave[NPL_NCHAN][NPL_LEN],
                const float rms[NPL_NCHAN], uint8_t mask);
+/* Jaccard on occupied cells. Empty vs empty is 0 (fail closed). */
+float npl_cube_jaccard(const uint8_t a[64], const uint8_t b[64]);
 void npl_score_cube(struct npl *L, const uint8_t cube[64]);
+void npl_score_smx(struct npl *L, const uint8_t *rows, int n);
 
 /* Blob for flash / EEPROM. npl_bound() is the max byte size. */
 int npl_bound(void);

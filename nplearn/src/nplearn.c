@@ -66,6 +66,44 @@ void npl_set_cube(struct npl *L, int i, const uint8_t cube[64])
     L->s[i].have_cube = 1;
 }
 
+void npl_set_smx(struct npl *L, int i, const uint8_t *rows, int n, uint8_t fold)
+{
+    if (!L || i < 0 || i >= L->n) {
+        return;
+    }
+    L->s[i].fold = fold;
+    L->s[i].smx_n = 0;
+    memset(L->s[i].smx, 0, NPL_SMX_SEC);
+    if (!rows || n < 1) {
+        return;
+    }
+    if (n > NPL_SMX_SEC) {
+        n = NPL_SMX_SEC;
+    }
+    memcpy(L->s[i].smx, rows, (size_t)n);
+    L->s[i].smx_n = (uint8_t)n;
+}
+
+float npl_cube_jaccard(const uint8_t a[64], const uint8_t b[64])
+{
+    int i, both = 0, either = 0;
+    if (!a || !b) {
+        return 0.f;
+    }
+    for (i = 0; i < 64; i++) {
+        unsigned A = a[i], B = b[i], k;
+        for (k = 0; k < 8; k++) {
+            unsigned ba = (A >> k) & 1u, bb = (B >> k) & 1u;
+            both += (int)(ba & bb);
+            either += (int)(ba | bb);
+        }
+    }
+    if (either < 1) {
+        return 0.f;
+    }
+    return (float)both / (float)either;
+}
+
 void npl_del(struct npl *L, int i)
 {
     if (!L || i < 0 || i >= L->n) {
@@ -148,28 +186,49 @@ void npl_score(struct npl *L, const float wave[NPL_NCHAN][NPL_LEN], const float 
 
 void npl_score_cube(struct npl *L, const uint8_t cube[64])
 {
-    int i, b, d;
+    int i;
     if (!L || !cube) {
         return;
     }
     for (i = 0; i < L->n; i++) {
-        float u;
+        float j;
         if (!L->s[i].have_cube) {
             continue;
         }
-        d = 0;
-        for (b = 0; b < 64; b++) {
-            unsigned x = (unsigned)(L->s[i].cube[b] ^ cube[b]);
-            while (x) {
-                d += (int)(x & 1u);
-                x >>= 1;
+        /* Occupied-cell Jaccard. Two empty cubes are 0, not unity. */
+        j = npl_cube_jaccard(L->s[i].cube, cube);
+        L->score[i] = 0.25f * L->score[i] + 0.75f * j;
+        if (L->best < 0 || L->score[i] > L->score[L->best]) {
+            L->best = i;
+        }
+    }
+}
+
+void npl_score_smx(struct npl *L, const uint8_t *rows, int n)
+{
+    int i, t, lim, agree, tot;
+    if (!L || !rows || n < 1) {
+        return;
+    }
+    for (i = 0; i < L->n; i++) {
+        float u;
+        if (L->s[i].smx_n < 1) {
+            continue;
+        }
+        lim = n < (int)L->s[i].smx_n ? n : (int)L->s[i].smx_n;
+        agree = 0;
+        tot = lim * 8;
+        for (t = 0; t < lim; t++) {
+            unsigned x = (unsigned)(L->s[i].smx[L->s[i].smx_n - 1 - t] ^ rows[n - 1 - t]);
+            int b;
+            for (b = 0; b < 8; b++) {
+                if (((x >> b) & 1u) == 0) {
+                    agree++;
+                }
             }
         }
-        u = 1.f - (float)d / 512.f;
-        if (u < 0.f) {
-            u = 0.f;
-        }
-        L->score[i] = 0.70f * L->score[i] + 0.30f * u;
+        u = tot > 0 ? (float)agree / (float)tot : 0.f;
+        L->score[i] = 0.65f * L->score[i] + 0.35f * u;
         if (L->best < 0 || L->score[i] > L->score[L->best]) {
             L->best = i;
         }
@@ -178,8 +237,8 @@ void npl_score_cube(struct npl *L, const uint8_t cube[64])
 
 int npl_bound(void)
 {
-    /* v2: + have_cube + 64 cube bits per sample */
-    return 6 + NPL_MAX * (NPL_NAME + 1 + 1 + 64 +
+    /* v3: cube + smx seconds + fold */
+    return 6 + NPL_MAX * (NPL_NAME + 1 + 1 + 64 + NPL_SMX_SEC + 2 +
                           (int)sizeof(float) * (NPL_NCHAN + NPL_NCHAN * NPL_LEN));
 }
 
@@ -198,7 +257,7 @@ int npl_export(const struct npl *L, void *buf, int cap)
 {
     unsigned char *p = (unsigned char *)buf;
     int left = cap, i;
-    unsigned char ver = 2, n;
+    unsigned char ver = 3, n;
     if (!L || !buf) {
         return -1;
     }
@@ -210,7 +269,9 @@ int npl_export(const struct npl *L, void *buf, int cap)
         if (put(&p, &left, L->s[i].name, NPL_NAME) || put(&p, &left, &L->s[i].mask, 1) ||
             put(&p, &left, L->s[i].rms, (int)sizeof(L->s[i].rms)) ||
             put(&p, &left, L->s[i].wave, (int)sizeof(L->s[i].wave)) ||
-            put(&p, &left, &L->s[i].have_cube, 1) || put(&p, &left, L->s[i].cube, 64)) {
+            put(&p, &left, &L->s[i].have_cube, 1) || put(&p, &left, L->s[i].cube, 64) ||
+            put(&p, &left, L->s[i].smx, NPL_SMX_SEC) || put(&p, &left, &L->s[i].smx_n, 1) ||
+            put(&p, &left, &L->s[i].fold, 1)) {
             return -1;
         }
     }
@@ -227,7 +288,7 @@ int npl_import(struct npl *L, const void *buf, int n)
     }
     ver = p[4];
     cnt = p[5];
-    if ((ver != 1 && ver != 2) || cnt > NPL_MAX) {
+    if ((ver != 1 && ver != 2 && ver != 3) || cnt > NPL_MAX) {
         return -1;
     }
     p += 6;
@@ -236,8 +297,11 @@ int npl_import(struct npl *L, const void *buf, int n)
     L->n = cnt;
     for (i = 0; i < L->n; i++) {
         int need = NPL_NAME + 1 + (int)sizeof(L->s[i].rms) + (int)sizeof(L->s[i].wave);
-        if (ver == 2) {
+        if (ver >= 2) {
             need += 1 + 64;
+        }
+        if (ver >= 3) {
+            need += NPL_SMX_SEC + 2;
         }
         if (n < need) {
             npl_init(L);
@@ -250,13 +314,25 @@ int npl_import(struct npl *L, const void *buf, int n)
         p += sizeof(L->s[i].rms);
         memcpy(L->s[i].wave, p, sizeof(L->s[i].wave));
         p += sizeof(L->s[i].wave);
-        if (ver == 2) {
+        L->s[i].smx_n = 0;
+        L->s[i].fold = 0;
+        memset(L->s[i].smx, 0, NPL_SMX_SEC);
+        if (ver >= 2) {
             L->s[i].have_cube = *p++;
             memcpy(L->s[i].cube, p, 64);
             p += 64;
         } else {
             L->s[i].have_cube = 0;
             memset(L->s[i].cube, 0, 64);
+        }
+        if (ver >= 3) {
+            memcpy(L->s[i].smx, p, NPL_SMX_SEC);
+            p += NPL_SMX_SEC;
+            L->s[i].smx_n = *p++;
+            L->s[i].fold = *p++;
+            if (L->s[i].smx_n > NPL_SMX_SEC) {
+                L->s[i].smx_n = NPL_SMX_SEC;
+            }
         }
         n -= need;
         L->s[i].name[NPL_NAME - 1] = 0;
