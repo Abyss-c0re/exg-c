@@ -225,6 +225,14 @@ Java_com_abysscore_exgc_ExgNative_color(JNIEnv *env, jclass cls, jint ch)
 }
 
 JNIEXPORT void JNICALL
+Java_com_abysscore_exgc_ExgNative_cycleColor(JNIEnv *env, jclass cls, jint ch)
+{
+    (void)env;
+    (void)cls;
+    np_host_cycle_color(ch);
+}
+
+JNIEXPORT void JNICALL
 Java_com_abysscore_exgc_ExgNative_noiseArm(JNIEnv *env, jclass cls)
 {
     (void)env;

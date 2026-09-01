@@ -464,6 +464,13 @@
                         android:text="algo detect" />
                 </LinearLayout>
 
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:paddingTop="12dp"
+                    android:text="Channels — tap ch# to cycle color"
+                    android:textColor="@color/muted" />
+
                 <LinearLayout
                     android:id="@+id/chGrid"
                     android:layout_width="match_parent"

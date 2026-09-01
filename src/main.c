@@ -5295,6 +5295,11 @@ void np_host_color(int ch, int *r, int *gcol, int *b)
         *b = g.chrgb[ch][2];
     }
 }
+void np_host_cycle_color(int ch)
+{
+    chcol_cycle(ch);
+    cfg_save();
+}
 void np_host_noise_arm(void)
 {
     g.cal_arm = 1;

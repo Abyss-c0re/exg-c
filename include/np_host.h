@@ -31,6 +31,7 @@ int np_host_active(int ch);
 int np_host_rld(int ch);
 int np_host_gain(int ch);
 void np_host_color(int ch, int *r, int *g, int *b);
+void np_host_cycle_color(int ch);
 
 void np_host_noise_arm(void);
 void np_host_noise_ok(void);

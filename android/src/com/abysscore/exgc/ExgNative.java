@@ -29,6 +29,7 @@ public final class ExgNative {
     public static native boolean rld(int ch);
     public static native int gain(int ch);
     public static native int color(int ch);
+    public static native void cycleColor(int ch);
     public static native void noiseArm();
     public static native void noiseOk();
     public static native void calm();

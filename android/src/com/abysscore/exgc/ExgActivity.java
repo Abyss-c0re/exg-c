@@ -592,10 +592,12 @@ public class ExgActivity extends Activity {
             final int ch = c;
             LinearLayout row = new LinearLayout(this);
             row.setOrientation(LinearLayout.HORIZONTAL);
-            TextView lab = new TextView(this);
+            Button lab = new Button(this);
             lab.setText("ch" + (c + 1));
-            lab.setTextColor(ExgNative.color(c));
-            lab.setPadding(8, 16, 16, 16);
+            lab.setOnClickListener(v -> {
+                ExgNative.cycleColor(ch);
+                refreshChannels();
+            });
             Button on = new Button(this);
             Button rld = new Button(this);
             Button gn = new Button(this);
@@ -632,7 +634,12 @@ public class ExgActivity extends Activity {
             on.setText(ExgNative.active(ch) ? "ON" : "off");
             rld.setText(ExgNative.rld(ch) ? "RLD" : "rld");
             gn.setText("g" + ExgNative.gain(ch));
-            ((TextView) row.getChildAt(0)).setTextColor(ExgNative.color(ch) | 0xFF000000);
+            Button lab = (Button) row.getChildAt(0);
+            int col = ExgNative.color(ch) | 0xFF000000;
+            lab.setTextColor(col);
+            int r = (col >> 16) & 255, gc = (col >> 8) & 255, b = col & 255;
+            lab.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
+                    0xFF000000 | ((r / 4) << 16) | ((gc / 4) << 8) | (b / 4)));
         }
     }
 
