@@ -32,6 +32,8 @@ debug keystore. The native library is `libexg.so` (no SDL2).
 3. Grant the USB permission dialog.
 4. Open **exg-c**. It lists the device. Tap **Connect**.
 5. First session: **NOISE** (desk) → **OK** → wear headset → **CALM** → leave **CLN** on.
+6. **ID** should read `still`. Hard blink → `blink`. Jaw clench → `clench`.
+   Then type that name and **Record** — it snaps 1 s at the burst, not 2 s of mixed noise.
 
 Do not hammer Disconnect / Connect. Each DTR pulse resets the Nano; wait
 for frames instead.

@@ -60,7 +60,8 @@
 #else
 #define NP_TOUCH 0
 #endif
-#define REC_MS 2000
+#define REC_MS 4000
+#define LEARN_S 1.0f
 #define WAVE_TOP 8
 #define OPEN_UV 3000.f
 #define QMAX 48
@@ -434,13 +435,78 @@ static void learn_write_cube(const uint8_t bits[NP_NCHAN], uint8_t cube[64])
     np_cube_pack_bin(&g.smx, cube);
 }
 
-/* Pull the live window through nplearn. Does not reject rail — that was
- * why Save said "nothing to learn" on a perfectly live stream. */
+static int site_is_fp(int ch)
+{
+    const char *n;
+    if (ch < 0 || ch >= NP_NCHAN) {
+        return 0;
+    }
+    if (g.elec[ch].site < 0) {
+        return ch == 0 || ch == 1;
+    }
+    n = np_1010_name(g.elec[ch].site);
+    return n && n[0] == 'F' && n[1] == 'p';
+}
+
+/* Last ~0.5 s vs worn CALM. This is the identifier — not the 64-sample template. */
+static int stream_id(float *ratio)
+{
+    float rms[NP_NCHAN], calm[NP_NCHAN];
+    int fp[NP_NCHAN];
+    uint8_t mask = 0;
+    int c;
+    uint32_t want = (uint32_t)(0.50f * design_sps());
+
+    if (ratio) {
+        *ratio = 0.f;
+    }
+    if (want < 32) {
+        want = 32;
+    }
+    memset(rms, 0, sizeof(rms));
+    memset(calm, 0, sizeof(calm));
+    memset(fp, 0, sizeof(fp));
+    for (c = 0; c < NP_NCHAN; c++) {
+        float buf[NP_RING], dc = 0, pk = 0;
+        uint32_t n;
+        if (!g.active[c]) {
+            continue;
+        }
+        n = np_ring_copy(&g.ring, c, buf, want);
+        if (n < 16) {
+            continue;
+        }
+        apply_filt(c, buf, n);
+        ch_stats(buf, n, &dc, &rms[c], &pk);
+        calm[c] = g.calm.have ? g.calm.rms[c] : 0.f;
+        fp[c] = site_is_fp(c);
+        mask |= (uint8_t)(1u << c);
+    }
+    return np_id_event(rms, calm, fp, mask, g.calm.have, ratio);
+}
+
+static void id_label(char *out, int n)
+{
+    float r = 0.f;
+    int id = stream_id(&r);
+    if (id == NP_ID_NEED) {
+        snprintf(out, (size_t)n, "ID need CALM");
+    } else if (id == NP_ID_RAIL) {
+        snprintf(out, (size_t)n, "ID rail");
+    } else if (id == NP_ID_NONE) {
+        snprintf(out, (size_t)n, "ID —");
+    } else {
+        snprintf(out, (size_t)n, "ID %s %.1fx", np_id_name(id), (double)r);
+    }
+}
+
+/* One second around the gesture — not the plot window. Packing 8 s of
+ * mixed still+noise is why MATCH could not tell a blink from leftover. */
 static int learn_capture(float wave[NPL_NCHAN][NPL_LEN], float rms[NPL_NCHAN], uint8_t *mask)
 {
     int c, have = 0;
-    uint32_t want = (uint32_t)(g.window_s * (g.sps > 1.f ? g.sps : NP_DEFAULT_SPS));
     float sps = g.sps > 1.f ? g.sps : (float)NP_DEFAULT_SPS;
+    uint32_t want = (uint32_t)(LEARN_S * sps);
     float notch = notch_hz_eff();
     *mask = 0;
     memset(wave, 0, (size_t)NPL_NCHAN * NPL_LEN * sizeof(float));
@@ -473,12 +539,15 @@ static int learn_capture(float wave[NPL_NCHAN][NPL_LEN], float rms[NPL_NCHAN], u
     return have ? -2 : -1;
 }
 
+static void learn_hold_tick(void);
+
 static void learn_tick(void)
 {
     static uint32_t last;
     float wave[NPL_NCHAN][NPL_LEN], rms[NPL_NCHAN];
     uint8_t mask;
     uint32_t now = SDL_GetTicks();
+    learn_hold_tick();
     if (!g.learn.match || g.learn.n <= 0) {
         g.learn.best = -1;
         return;
@@ -577,11 +646,11 @@ static void learn_save_named(void)
                 }
             }
             if (rail) {
-                set_status(1, "saved '%s'  %d ch  matrix %s  (open/rail)", g.namebuf, nc,
-                           np_algo_name(g.algo));
+                set_status(1, "saved '%s'  %d ch  (open/rail)", g.namebuf, nc);
             } else {
-                set_status(1, "saved '%s'  %d ch  matrix %s  %ds", g.namebuf, nc,
-                           np_algo_name(g.algo), g.learn.s[r].smx_n);
+                char id[40];
+                id_label(id, sizeof(id));
+                set_status(1, "saved '%s'  %d ch  1s snap  %s", g.namebuf, nc, id);
             }
         }
     }
@@ -608,7 +677,33 @@ static void learn_start_hold(void)
         fold = learn_fold_byte(bits);
         rec_smx[rec_smx_n++] = fold;
     }
-    set_status(1, "hold - recording matrix '%s'...", g.namebuf);
+    set_status(1, "do a blink or jaw clench now  ('%s')", g.namebuf);
+}
+
+static void learn_hold_tick(void)
+{
+    uint32_t now;
+    int dt, id;
+    float ratio = 0.f;
+    if (!g.rec_t0) {
+        return;
+    }
+    now = SDL_GetTicks();
+    dt = (int)(now - g.rec_t0);
+    id = stream_id(&ratio);
+    if (dt >= 280 &&
+        (id == NP_ID_BLINK || id == NP_ID_CLENCH || id == NP_ID_BURST)) {
+        g.rec_t0 = 0;
+        learn_save_named();
+        return;
+    }
+    if (dt >= (int)REC_MS) {
+        g.rec_t0 = 0;
+        learn_save_named();
+        if (id == NP_ID_STILL || id == NP_ID_NEED) {
+            set_status(0, "saved leftover — no burst. Blink hard or clench.");
+        }
+    }
 }
 
 static void typing_set(int on)
@@ -3586,12 +3681,7 @@ static void draw_learn(int x, int y, int w, int h)
 
     if (g.rec_t0) {
         int dt = (int)(now - g.rec_t0);
-        if (dt >= (int)REC_MS) {
-            g.rec_t0 = 0;
-            learn_save_named();
-            now = SDL_GetTicks();
-            saved_ago = 0;
-        } else {
+        if (dt < (int)REC_MS) {
             holding = 1;
             left_ms = (int)REC_MS - dt;
         }
@@ -3710,7 +3800,7 @@ static void draw_learn(int x, int y, int w, int h)
         fillw = (int)((REC_MS - left_ms) * (barw - 4) / REC_MS);
         fill(x + 480, y + 6, barw, 14, 40, 32, 20);
         fill(x + 482, y + 8, fillw > 0 ? fillw : 1, 10, 230, 160, 50);
-        text(x + 484, y + 8, "hold still", 20, 16, 10, 1);
+        text(x + 484, y + 8, "blink or clench", 20, 16, 10, 1);
     } else if (saved_ago < 2500) {
         snprintf(lab, sizeof(lab), "saved '%s'  -  again or watch match", g.namebuf);
         text(x + 480, y + 8, lab, 80, 220, 140, 1);
@@ -3719,9 +3809,11 @@ static void draw_learn(int x, int y, int w, int h)
         snprintf(lab, sizeof(lab), "now: %s  %d%%", g.learn.s[g.learn.best].name, pct);
         text(x + 480, y + 8, lab, pct >= 55 ? 80 : 200, pct >= 55 ? 230 : 170, 120, 1);
     } else if (!g.namebuf[0]) {
-        text(x + 480, y + 8, "name, then Record", 120, 128, 140, 1);
+        text(x + 480, y + 8, "name, then Record — blink or clench", 120, 128, 140, 1);
     } else {
-        text(x + 480, y + 8, "Record holds the matrix 2s", 140, 180, 150, 1);
+        char id[40];
+        id_label(id, sizeof(id));
+        text(x + 480, y + 8, id, 140, 180, 150, 1);
     }
 
     nshow = g.learn.n > 8 ? 8 : g.learn.n;
@@ -5280,6 +5372,33 @@ int np_host_prof_import(const char *path)
     cfg_save();
     set_status(1, "loaded profile file");
     return 0;
+}
+
+void np_host_id(char *out, int n)
+{
+    if (!out || n < 4) {
+        return;
+    }
+    if (!host_ready) {
+        snprintf(out, (size_t)n, "ID —");
+        return;
+    }
+    id_label(out, n);
+}
+
+int np_host_rec_ms(void)
+{
+    uint32_t now;
+    int dt;
+    if (!g.rec_t0) {
+        return 0;
+    }
+    now = SDL_GetTicks();
+    dt = (int)(now - g.rec_t0);
+    if (dt >= (int)REC_MS) {
+        return 0;
+    }
+    return (int)REC_MS - dt;
 }
 
 static void usage(const char *a0)

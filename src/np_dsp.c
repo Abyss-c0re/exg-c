@@ -440,3 +440,91 @@ int np_detect(float raw_rms, float resid_rms, float noise_rms, float calm_rms, f
     /* No worn CALM plate → do not invent SIGNAL from leftover rail. */
     return NP_DET_NONE;
 }
+
+const char *np_id_name(int id)
+{
+    static const char *n[] = {"none", "need CALM", "rail", "still", "blink", "clench",
+                              "burst"};
+    if (id < 0 || id > NP_ID_BURST) {
+        return "none";
+    }
+    return n[id];
+}
+
+int np_id_event(const float *rms, const float *calm, const int *fp, uint8_t mask,
+                int have_calm, float *ratio)
+{
+    int c, n = 0, nfp = 0, nfp_hot = 0, nhot = 0;
+    float maxr = 0.f, fpr = 0.f, restmax = 0.f;
+
+    if (ratio) {
+        *ratio = 0.f;
+    }
+    if (!rms) {
+        return NP_ID_NONE;
+    }
+    for (c = 0; c < 8; c++) {
+        float base, r;
+        int isfp;
+        if (!(mask & (uint8_t)(1u << c))) {
+            continue;
+        }
+        n++;
+        if (rms[c] > 250000.f) {
+            if (ratio) {
+                *ratio = rms[c];
+            }
+            return NP_ID_RAIL;
+        }
+        if (!have_calm) {
+            continue;
+        }
+        base = (calm && calm[c] > 1.f) ? calm[c] : 25.f;
+        r = rms[c] / base;
+        if (r > maxr) {
+            maxr = r;
+        }
+        isfp = fp && fp[c];
+        if (isfp) {
+            nfp++;
+            if (r > fpr) {
+                fpr = r;
+            }
+            if (r >= 2.50f) {
+                nfp_hot++;
+            }
+        } else {
+            if (r > restmax) {
+                restmax = r;
+            }
+            if (r >= 2.50f) {
+                nhot++;
+            }
+        }
+    }
+    if (ratio) {
+        *ratio = maxr;
+    }
+    if (n < 1) {
+        return NP_ID_NONE;
+    }
+    if (!have_calm) {
+        return NP_ID_NEED;
+    }
+    if (maxr < 1.80f) {
+        return NP_ID_STILL;
+    }
+    if (nfp >= 1 && nfp_hot >= (nfp >= 2 ? 2 : 1) && fpr >= 2.50f && restmax < 2.20f) {
+        return NP_ID_BLINK;
+    }
+    if (nfp >= 2 && nfp_hot >= 2 && fpr >= 2.20f && restmax < fpr * 0.70f) {
+        return NP_ID_BLINK;
+    }
+    if (nhot + nfp_hot >= 4) {
+        return NP_ID_CLENCH;
+    }
+    if (maxr >= 2.50f) {
+        return NP_ID_BURST;
+    }
+    return NP_ID_STILL;
+}

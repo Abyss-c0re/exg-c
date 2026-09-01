@@ -79,4 +79,7 @@ public final class ExgNative {
     public static native int smxFold();
     public static native int profExport(String path);
     public static native int profImport(String path);
+    public static native String idLine();
+    public static native int recMs();
+    public static native String matchLine();
 }

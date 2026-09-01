@@ -682,4 +682,43 @@ Java_com_abysscore_exgc_ExgNative_profImport(JNIEnv *env, jclass cls, jstring pa
     jstr_to(env, path, buf, sizeof(buf));
     return np_host_prof_import(buf);
 }
+
+JNIEXPORT jstring JNICALL
+Java_com_abysscore_exgc_ExgNative_idLine(JNIEnv *env, jclass cls)
+{
+    char buf[64];
+    (void)cls;
+    np_host_id(buf, sizeof(buf));
+    return jstr_from(env, buf);
+}
+
+JNIEXPORT jint JNICALL
+Java_com_abysscore_exgc_ExgNative_recMs(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    return np_host_rec_ms();
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_abysscore_exgc_ExgNative_matchLine(JNIEnv *env, jclass cls)
+{
+    char buf[64];
+    int i, pct;
+    (void)cls;
+    if (!np_host_match()) {
+        return jstr_from(env, "");
+    }
+    i = np_host_learn_best();
+    if (i < 0) {
+        return jstr_from(env, "");
+    }
+    np_host_learn_name(i, buf, 24);
+    pct = (int)(np_host_learn_score(i) * 100.f);
+    {
+        char line[64];
+        snprintf(line, sizeof(line), "now %s %d%%", buf, pct);
+        return jstr_from(env, line);
+    }
+}
 #endif

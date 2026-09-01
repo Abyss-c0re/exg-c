@@ -69,8 +69,11 @@ More phone notes: [android/README.md](android/README.md).
 2. Headset **off** the head. **NOISE**, then **OK**. That is the desk / open-input plate, not EEG.
 3. Wear the headset. Sit still. **CALM**.
 4. Leave **CLN** on. The plot is leftover after that plate + calm DC.
-5. **Cube** → **viz** for the live 8³ sample, **map** to assign 10-10 sites.
-6. **Settings** — type a name (`motor`) and **Save**. On Android, **Export…** writes that profile as a file you can keep.
+5. The **ID** line should say `still`. Hard **blink** → `blink`. Jaw **clench** → `clench`.
+   That is the proof the stream is on a head, not rail. Do not use Record until ID flips.
+6. Type `blink` or `clench` → **Record** → do that gesture. It snaps 1 s at the burst.
+7. **Cube** → **viz** for the live 8³ sample, **map** to assign 10-10 sites.
+8. **Settings** — type a name (`motor`) and **Save**. On Android, **Export…** writes that profile as a file you can keep.
 
 ## Compatible boards
 

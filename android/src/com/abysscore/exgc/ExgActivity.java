@@ -32,7 +32,9 @@ public class ExgActivity extends Activity {
     private View settings;
     private View learnBar;
     private TextView status;
+    private TextView idLine;
     private TextView profList;
+    private Button record;
     private Button connect;
     private Button port;
     private Button tabMain, tabCube, tabSet;
@@ -89,7 +91,9 @@ public class ExgActivity extends Activity {
         settings = findViewById(R.id.settings);
         learnBar = findViewById(R.id.learnBar);
         status = findViewById(R.id.status);
+        idLine = findViewById(R.id.idLine);
         profList = findViewById(R.id.profList);
+        record = findViewById(R.id.record);
         connect = findViewById(R.id.connect);
         port = findViewById(R.id.port);
         tabMain = findViewById(R.id.tabMain);
@@ -161,9 +165,10 @@ public class ExgActivity extends Activity {
             ExgNative.toggleClean();
             refreshChrome();
         });
-        findViewById(R.id.record).setOnClickListener(v -> {
+        record.setOnClickListener(v -> {
             ExgNative.setName(learnName.getText().toString().trim());
             ExgNative.record();
+            refreshChrome();
         });
         match.setOnClickListener(v -> {
             ExgNative.toggleMatch();
@@ -303,6 +308,19 @@ public class ExgActivity extends Activity {
         status.setTextColor(ExgNative.statusOk() ? 0xFF3CB46E : 0xFFF0A040);
         clean.setText(ExgNative.cleanOn() ? "CLN" : "cln");
         match.setText(ExgNative.matchOn() ? "MATCH" : "match");
+        String id = ExgNative.idLine();
+        String now = ExgNative.matchLine();
+        int rec = ExgNative.recMs();
+        if (rec > 0) {
+            idLine.setText("do blink or clench…  " + ((rec + 99) / 1000) + "s  " + id);
+            idLine.setTextColor(0xFFF0A040);
+            record.setText("…");
+        } else {
+            idLine.setText(now.length() > 0 ? id + "   " + now : id);
+            idLine.setTextColor(id.contains("clench") || id.contains("blink")
+                    ? 0xFF3CB46E : 0xFF8B93A0);
+            record.setText("Record");
+        }
         int nh = ExgNative.notch();
         notch.setText(nh < 0 ? "notch AUTO" : (nh == 0 ? "notch off" : "notch " + nh));
         hp.setText(ExgNative.hp() == 0 ? "hp off" : "hp " + ExgNative.hp() + "Hz");

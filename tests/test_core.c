@@ -718,6 +718,36 @@ static void test_profile_format(void)
     expect(gain1 == 8 && active3 == 0 && rld2 == 1, "profile keeps gain on/rld");
 }
 
+static void test_id_event(void)
+{
+    float rms[8], calm[8];
+    int fp[8] = {1, 1, 0, 0, 0, 0, 0, 0};
+    uint8_t mask = 0xFF;
+    float r = 0.f;
+    int i;
+
+    for (i = 0; i < 8; i++) {
+        calm[i] = 20.f;
+        rms[i] = 22.f;
+    }
+    expect(np_id_event(rms, calm, fp, mask, 0, &r) == NP_ID_NEED, "id: no plate is need CALM");
+    expect(np_id_event(rms, calm, fp, mask, 1, &r) == NP_ID_STILL, "id: worn still");
+    rms[0] = 80.f;
+    rms[1] = 90.f;
+    expect(np_id_event(rms, calm, fp, mask, 1, &r) == NP_ID_BLINK, "id: Fp pair is blink");
+    for (i = 0; i < 8; i++) {
+        rms[i] = 120.f;
+    }
+    expect(np_id_event(rms, calm, fp, mask, 1, &r) == NP_ID_CLENCH, "id: all-ch is clench");
+    for (i = 0; i < 8; i++) {
+        rms[i] = 22.f;
+    }
+    rms[4] = 90.f;
+    expect(np_id_event(rms, calm, fp, mask, 1, &r) == NP_ID_BURST, "id: one hot is burst");
+    rms[4] = 400000.f;
+    expect(np_id_event(rms, calm, fp, mask, 1, &r) == NP_ID_RAIL, "id: open rail");
+}
+
 int main(void)
 {
     test_cmds();
@@ -734,6 +764,7 @@ int main(void)
     test_cube3();
     test_algo();
     test_profile_format();
+    test_id_event();
     if (fails) {
         fprintf(stderr, "%d FAIL\n", fails);
         return 1;

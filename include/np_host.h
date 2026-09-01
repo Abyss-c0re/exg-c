@@ -92,4 +92,7 @@ unsigned int np_host_smx_fold(void);
 int np_host_prof_export(const char *path);
 int np_host_prof_import(const char *path);
 
+void np_host_id(char *out, int n);
+int np_host_rec_ms(void);
+
 #endif

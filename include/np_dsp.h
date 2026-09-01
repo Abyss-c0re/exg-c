@@ -38,4 +38,16 @@ void np_sub_dc(float *x, int n, float dc);
 #define NP_DET_SIGNAL 3
 int np_detect(float raw_rms, float resid_rms, float noise_rms, float calm_rms, float *ratio);
 
+/* Short-window event ID. Needs a worn CALM plate (except RAIL). */
+#define NP_ID_NONE 0
+#define NP_ID_NEED 1
+#define NP_ID_RAIL 2
+#define NP_ID_STILL 3
+#define NP_ID_BLINK 4
+#define NP_ID_CLENCH 5
+#define NP_ID_BURST 6
+int np_id_event(const float *rms, const float *calm, const int *fp, uint8_t mask,
+                int have_calm, float *ratio);
+const char *np_id_name(int id);
+
 #endif

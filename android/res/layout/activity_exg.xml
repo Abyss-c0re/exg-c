@@ -337,6 +337,15 @@
         android:orientation="vertical"
         android:padding="8dp">
 
+        <TextView
+            android:id="@+id/idLine"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingBottom="4dp"
+            android:text="ID — NOISE (desk) → CALM (still) → blink or clench"
+            android:textColor="@color/muted"
+            android:textSize="14sp" />
+
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content">
