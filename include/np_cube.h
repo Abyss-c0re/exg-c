@@ -31,6 +31,8 @@ int np_cube_get(const struct np_smx *m, int x, int y, int z);
 void np_cube_set(struct np_smx *m, int x, int y, int z, int on, int kind);
 void np_cube_clear_kind(struct np_smx *m, int kind);
 int np_cube_pack(const struct np_smx *m, char *out, int cap);
+int np_cube_pack_bin(const struct np_smx *m, uint8_t out[64]);
+int np_cube_hamming(const uint8_t a[64], const uint8_t b[64]);
 
 /* 10-10 site → outer-shell cell. x 0=left..7=right, y 0=down..7=up, z 0=back..7=front. */
 int np_1010_ijk(int site, int *x, int *y, int *z);

@@ -36,6 +36,7 @@ A local 8-channel USB host for a Knight-class ADS1299 board. Pure C, SDL2 plot, 
 | 8³ cube | Fp1/Cz/O1 on shell faces; plugin cannot take shell; IMU lights interior; pack = 512 bits |
 | Channel color | glowing cell uses per-channel RGB |
 | Profile format | INI keeps UI scale, notch, sites (Fp1…O2), gain, on/RLD |
+| Algocube 0/1 | detect/sign/mean/energy/delta/fold/proton; fold majority; proton +energy |
 
 ## Live table-top (`make test-live`)
 

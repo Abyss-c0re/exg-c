@@ -51,8 +51,19 @@ int npl_add(struct npl *L, const char *name, const float wave[NPL_NCHAN][NPL_LEN
     L->s[slot].mask = mask;
     memcpy(L->s[slot].rms, rms, sizeof(L->s[slot].rms));
     memcpy(L->s[slot].wave, wave, sizeof(L->s[slot].wave));
+    L->s[slot].have_cube = 0;
+    memset(L->s[slot].cube, 0, sizeof(L->s[slot].cube));
     L->sel = slot;
     return slot;
+}
+
+void npl_set_cube(struct npl *L, int i, const uint8_t cube[64])
+{
+    if (!L || i < 0 || i >= L->n || !cube) {
+        return;
+    }
+    memcpy(L->s[i].cube, cube, 64);
+    L->s[i].have_cube = 1;
 }
 
 void npl_del(struct npl *L, int i)
@@ -135,10 +146,41 @@ void npl_score(struct npl *L, const float wave[NPL_NCHAN][NPL_LEN], const float 
     }
 }
 
+void npl_score_cube(struct npl *L, const uint8_t cube[64])
+{
+    int i, b, d;
+    if (!L || !cube) {
+        return;
+    }
+    for (i = 0; i < L->n; i++) {
+        float u;
+        if (!L->s[i].have_cube) {
+            continue;
+        }
+        d = 0;
+        for (b = 0; b < 64; b++) {
+            unsigned x = (unsigned)(L->s[i].cube[b] ^ cube[b]);
+            while (x) {
+                d += (int)(x & 1u);
+                x >>= 1;
+            }
+        }
+        u = 1.f - (float)d / 512.f;
+        if (u < 0.f) {
+            u = 0.f;
+        }
+        L->score[i] = 0.70f * L->score[i] + 0.30f * u;
+        if (L->best < 0 || L->score[i] > L->score[L->best]) {
+            L->best = i;
+        }
+    }
+}
+
 int npl_bound(void)
 {
-    /* magic4 + ver1 + n1 + NPL_MAX * (name + mask + rms + wave) */
-    return 6 + NPL_MAX * (NPL_NAME + 1 + (int)sizeof(float) * (NPL_NCHAN + NPL_NCHAN * NPL_LEN));
+    /* v2: + have_cube + 64 cube bits per sample */
+    return 6 + NPL_MAX * (NPL_NAME + 1 + 1 + 64 +
+                          (int)sizeof(float) * (NPL_NCHAN + NPL_NCHAN * NPL_LEN));
 }
 
 static int put(unsigned char **p, int *left, const void *src, int n)
@@ -156,7 +198,7 @@ int npl_export(const struct npl *L, void *buf, int cap)
 {
     unsigned char *p = (unsigned char *)buf;
     int left = cap, i;
-    unsigned char ver = 1, n;
+    unsigned char ver = 2, n;
     if (!L || !buf) {
         return -1;
     }
@@ -167,7 +209,8 @@ int npl_export(const struct npl *L, void *buf, int cap)
     for (i = 0; i < L->n; i++) {
         if (put(&p, &left, L->s[i].name, NPL_NAME) || put(&p, &left, &L->s[i].mask, 1) ||
             put(&p, &left, L->s[i].rms, (int)sizeof(L->s[i].rms)) ||
-            put(&p, &left, L->s[i].wave, (int)sizeof(L->s[i].wave))) {
+            put(&p, &left, L->s[i].wave, (int)sizeof(L->s[i].wave)) ||
+            put(&p, &left, &L->s[i].have_cube, 1) || put(&p, &left, L->s[i].cube, 64)) {
             return -1;
         }
     }
@@ -184,7 +227,7 @@ int npl_import(struct npl *L, const void *buf, int n)
     }
     ver = p[4];
     cnt = p[5];
-    if (ver != 1 || cnt > NPL_MAX) {
+    if ((ver != 1 && ver != 2) || cnt > NPL_MAX) {
         return -1;
     }
     p += 6;
@@ -193,6 +236,9 @@ int npl_import(struct npl *L, const void *buf, int n)
     L->n = cnt;
     for (i = 0; i < L->n; i++) {
         int need = NPL_NAME + 1 + (int)sizeof(L->s[i].rms) + (int)sizeof(L->s[i].wave);
+        if (ver == 2) {
+            need += 1 + 64;
+        }
         if (n < need) {
             npl_init(L);
             return -1;
@@ -204,6 +250,14 @@ int npl_import(struct npl *L, const void *buf, int n)
         p += sizeof(L->s[i].rms);
         memcpy(L->s[i].wave, p, sizeof(L->s[i].wave));
         p += sizeof(L->s[i].wave);
+        if (ver == 2) {
+            L->s[i].have_cube = *p++;
+            memcpy(L->s[i].cube, p, 64);
+            p += 64;
+        } else {
+            L->s[i].have_cube = 0;
+            memset(L->s[i].cube, 0, 64);
+        }
         n -= need;
         L->s[i].name[NPL_NAME - 1] = 0;
     }

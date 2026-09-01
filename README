@@ -33,6 +33,9 @@ Or `./np-exg --cli --port /dev/ttyUSB1 --seconds 8` with no window.
    glows in that channel’s color when leftover looks like SIGNAL.
 6. Open **Settings**. Type a profile name (for example `motor`) and
    click **Save**. **Load** brings it back later.
+7. On Cube or Settings, click **algo …** to pick how each cell becomes
+   0 or 1 (detect, sign, mean, energy, delta, fold, proton). Optional.
+   Learn Record stores the whole 8³ matrix with that fold.
 
 ## What the tabs do
 

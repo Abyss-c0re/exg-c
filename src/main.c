@@ -5,6 +5,7 @@
 #include "nplearn.h"
 #include "np_ring.h"
 #include "np_serial.h"
+#include "np_algo.h"
 #include "np_cube.h"
 #include "np_smx.h"
 #include "sdl2_min.h"
@@ -128,6 +129,7 @@ struct np_app {
     float cube_yaw, cube_pitch;
     struct np_elec elec[NP_NCHAN];
     int elec_sel; /* 0..7 or -1 */
+    int algo;     /* NP_ALGO_* 0/1 fold for cube + learn */
     char prof[NP_PROF_NAME];
     char profiles[NP_MAX_PROF][NP_PROF_NAME];
     int nprof;
@@ -307,6 +309,11 @@ static void learn_tick(void)
         return;
     }
     npl_score(&g.learn, wave, rms, mask);
+    {
+        uint8_t cube[64];
+        np_cube_pack_bin(&g.smx, cube);
+        npl_score_cube(&g.learn, cube);
+    }
 }
 
 static void learn_save_named(void)
@@ -328,6 +335,11 @@ static void learn_save_named(void)
         return;
     }
     r = npl_add(&g.learn, g.namebuf, wave, rms, mask);
+    if (r >= 0) {
+        uint8_t cube[64];
+        np_cube_pack_bin(&g.smx, cube);
+        npl_set_cube(&g.learn, r, cube);
+    }
     if (r == -2) {
         set_status(0, "learn full (%d)", NPL_MAX);
         return;
@@ -346,7 +358,7 @@ static void learn_save_named(void)
         }
         g.saved_t0 = SDL_GetTicks();
         g.rec_t0 = 0;
-        set_status(1, "saved '%s'  %d ch  hold another pose or watch match", g.namebuf, nc);
+        set_status(1, "saved '%s'  %d ch + 8^3 %s", g.namebuf, nc, np_algo_name(g.algo));
     }
 }
 
@@ -452,6 +464,7 @@ static int cfg_write(const char *path)
     fprintf(f, "detrend=%d\n", g.detrend);
     fprintf(f, "cal_cut=%d\n", g.cal_cut);
     fprintf(f, "board=%d\n", (int)g.board);
+    fprintf(f, "algo=%d\n", g.algo);
     fprintf(f, "\n[cube]\n");
     fprintf(f, "yaw=%.4f\n", (double)g.cube_yaw);
     fprintf(f, "pitch=%.4f\n", (double)g.cube_pitch);
@@ -510,6 +523,8 @@ static int cfg_read(const char *path)
             g.cal_cut = v;
         } else if (sscanf(line, "board=%d", &v) == 1) {
             g.board = v ? NP_BOARD_KNIGHT_IMU : NP_BOARD_KNIGHT;
+        } else if (sscanf(line, "algo=%d", &v) == 1 && v >= 0 && v < NP_ALGO_N) {
+            g.algo = v;
         } else if (sscanf(line, "scale=%d", &v) == 1 && v >= 1) {
             if (v == 1) {
                 g.ui_scale = 10;
@@ -1011,7 +1026,7 @@ static void smx_tick(void)
             det = np_detect(raw_rms > 1.f ? raw_rms : rms, rms,
                             g.cal.have ? g.cal.rms[c] : 0.f,
                             g.calm.have ? g.calm.rms[c] : 0.f, &rr);
-            bits[nch] = (det == NP_DET_SIGNAL) ? 1 : 0;
+            bits[nch] = (uint8_t)np_algo_bit(g.algo, buf, (int)n, det == NP_DET_SIGNAL);
         }
         nch++;
     }
@@ -2711,6 +2726,9 @@ static void draw_side(int x)
         y += 26;
         btn(x + 12, y, 130, 22, "Save profile", 0, 41, 0, 28, 80, 48);
         btn(x + 146, y, 130, 22, "Load profile", 0, 42, 0, 28, 80, 48);
+        y += 26;
+        snprintf(b, sizeof(b), "algo %s", np_algo_name(g.algo));
+        btn(x + 12, y, sidew() - 24, 22, b, g.algo != 0, 44, 0, 36, 40, 48);
         return;
     }
     if (g.tab == 1) {
@@ -2736,6 +2754,9 @@ static void draw_side(int x)
         y += 28;
         text(x + 12, y, "keeps UI, gain, filters, sites", 100, 108, 116, 1);
         y += 16;
+        snprintf(b, sizeof(b), "algo %s", np_algo_name(g.algo));
+        btn(x + 12, y, sidew() - 24, 22, b, g.algo != 0, 44, 0, 36, 40, 48);
+        y += 28;
         text(x + 12, y, "UI", 140, 148, 160, 1);
         y += 14;
         snprintf(b, sizeof(b), "UI %.1fx", (double)ui_f());
@@ -3133,6 +3154,11 @@ static void click(int x, int y)
         case 43:
             typing_set(0);
             prof_cycle();
+            break;
+        case 44:
+            g.algo = (g.algo + 1) % NP_ALGO_N;
+            cfg_save();
+            set_status(1, "algo %s  - each cell is 0 or 1", np_algo_name(g.algo));
             break;
         case 17:
             typing_set(0);

@@ -27,6 +27,8 @@ struct npl_sample {
     uint8_t mask;
     float rms[NPL_NCHAN];
     float wave[NPL_NCHAN][NPL_LEN];
+    uint8_t cube[64]; /* packed 8^3 State Matrix */
+    uint8_t have_cube;
 };
 
 struct npl {
@@ -52,9 +54,11 @@ void npl_pack(float *dst, const float *src, int n);
 
 int npl_add(struct npl *L, const char *name, const float wave[NPL_NCHAN][NPL_LEN],
             const float rms[NPL_NCHAN], uint8_t mask);
+void npl_set_cube(struct npl *L, int i, const uint8_t cube[64]);
 void npl_del(struct npl *L, int i);
 void npl_score(struct npl *L, const float wave[NPL_NCHAN][NPL_LEN],
                const float rms[NPL_NCHAN], uint8_t mask);
+void npl_score_cube(struct npl *L, const uint8_t cube[64]);
 
 /* Blob for flash / EEPROM. npl_bound() is the max byte size. */
 int npl_bound(void);

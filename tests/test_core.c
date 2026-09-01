@@ -2,6 +2,7 @@
 #include "np_dsp.h"
 #include "np_knight.h"
 #include "np_ring.h"
+#include "np_algo.h"
 #include "np_cube.h"
 #include "np_smx.h"
 #include "nplearn.h"
@@ -593,6 +594,25 @@ static void test_cube3(void)
     expect(np_cube_get(&m, 0, 0, 0) == 0, "IMU tick does not keep a shell bit");
 }
 
+static void test_algo(void)
+{
+    float hi[32], mix[32], z[32];
+    int i;
+    for (i = 0; i < 32; i++) {
+        z[i] = 0.f;
+        hi[i] = 2.f;
+        mix[i] = (i & 1) ? 1.f : -1.f;
+    }
+    expect(np_algo_bit(NP_ALGO_DETECT, hi, 32, 1) == 1, "algo detect passthrough");
+    expect(np_algo_bit(NP_ALGO_SIGN, hi, 32, 0) == 1, "algo sign +");
+    expect(np_algo_bit(NP_ALGO_SIGN, z, 32, 0) == 0, "algo sign flat");
+    expect(np_algo_bit(NP_ALGO_FOLD, hi, 32, 0) == 1, "algo fold majority high");
+    expect(np_algo_bit(NP_ALGO_FOLD, mix, 32, 0) == 0, "algo fold split is 0");
+    expect(np_algo_bit(NP_ALGO_PROTON, hi, 32, 0) == 1, "algo proton +energy");
+    expect(np_algo_bit(NP_ALGO_DELTA, z, 32, 0) == 0, "algo delta still");
+    expect(strcmp(np_algo_name(NP_ALGO_FOLD), "fold") == 0, "algo name fold");
+}
+
 static void test_profile_format(void)
 {
     const char *path = "/tmp/exg-c-profile-mock.ini";
@@ -658,6 +678,7 @@ int main(void)
     test_smx();
     test_elec_view();
     test_cube3();
+    test_algo();
     test_profile_format();
     if (fails) {
         fprintf(stderr, "%d FAIL\n", fails);

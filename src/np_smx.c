@@ -105,6 +105,37 @@ int np_cube_pack(const struct np_smx *m, char *out, int cap)
     return n;
 }
 
+int np_cube_pack_bin(const struct np_smx *m, uint8_t out[64])
+{
+    int i;
+    if (!m || !out) {
+        return 0;
+    }
+    memset(out, 0, 64);
+    for (i = 0; i < NP_CUBE3_N; i++) {
+        if (m->cube[i]) {
+            out[i >> 3] |= (uint8_t)(1u << (i & 7));
+        }
+    }
+    return 64;
+}
+
+int np_cube_hamming(const uint8_t a[64], const uint8_t b[64])
+{
+    int i, d = 0;
+    if (!a || !b) {
+        return 512;
+    }
+    for (i = 0; i < 64; i++) {
+        unsigned x = (unsigned)(a[i] ^ b[i]);
+        while (x) {
+            d += (int)(x & 1u);
+            x >>= 1;
+        }
+    }
+    return d;
+}
+
 void np_ijk_world(int x, int y, int z, float *wx, float *wy, float *wz)
 {
     if (wx) {
