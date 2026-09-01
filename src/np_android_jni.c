@@ -233,6 +233,94 @@ Java_com_abysscore_exgc_ExgNative_cycleColor(JNIEnv *env, jclass cls, jint ch)
 }
 
 JNIEXPORT void JNICALL
+Java_com_abysscore_exgc_ExgNative_setColor(JNIEnv *env, jclass cls, jint ch, jint rgb)
+{
+    (void)env;
+    (void)cls;
+    np_host_set_color(ch, (rgb >> 16) & 255, (rgb >> 8) & 255, rgb & 255);
+}
+
+JNIEXPORT void JNICALL
+Java_com_abysscore_exgc_ExgNative_setScaleUv(JNIEnv *env, jclass cls, jint uv)
+{
+    (void)env;
+    (void)cls;
+    np_host_set_scale_uv(uv);
+}
+
+JNIEXPORT void JNICALL
+Java_com_abysscore_exgc_ExgNative_setWindowS(JNIEnv *env, jclass cls, jint s)
+{
+    (void)env;
+    (void)cls;
+    np_host_set_window_s(s);
+}
+
+JNIEXPORT void JNICALL
+Java_com_abysscore_exgc_ExgNative_setNotch(JNIEnv *env, jclass cls, jint hz)
+{
+    (void)env;
+    (void)cls;
+    np_host_set_notch(hz);
+}
+
+JNIEXPORT void JNICALL
+Java_com_abysscore_exgc_ExgNative_setHp(JNIEnv *env, jclass cls, jint hz)
+{
+    (void)env;
+    (void)cls;
+    np_host_set_hp(hz);
+}
+
+JNIEXPORT void JNICALL
+Java_com_abysscore_exgc_ExgNative_setLp(JNIEnv *env, jclass cls, jint hz)
+{
+    (void)env;
+    (void)cls;
+    np_host_set_lp(hz);
+}
+
+JNIEXPORT void JNICALL
+Java_com_abysscore_exgc_ExgNative_setBand(JNIEnv *env, jclass cls, jint band)
+{
+    (void)env;
+    (void)cls;
+    np_host_set_band(band);
+}
+
+JNIEXPORT void JNICALL
+Java_com_abysscore_exgc_ExgNative_setAlgo(JNIEnv *env, jclass cls, jint id)
+{
+    (void)env;
+    (void)cls;
+    np_host_set_algo(id);
+}
+
+JNIEXPORT void JNICALL
+Java_com_abysscore_exgc_ExgNative_setUiScale(JNIEnv *env, jclass cls, jint tenths)
+{
+    (void)env;
+    (void)cls;
+    np_host_set_ui_scale(tenths);
+}
+
+JNIEXPORT void JNICALL
+Java_com_abysscore_exgc_ExgNative_setBoardImu(JNIEnv *env, jclass cls, jboolean imu)
+{
+    (void)env;
+    (void)cls;
+    np_host_set_board_imu(imu ? 1 : 0);
+}
+
+JNIEXPORT void JNICALL
+Java_com_abysscore_exgc_ExgNative_setGain(JNIEnv *env, jclass cls, jint ch, jint gain)
+{
+    (void)env;
+    (void)cls;
+    np_host_set_gain(ch, gain);
+}
+
+JNIEXPORT void JNICALL
 Java_com_abysscore_exgc_ExgNative_noiseArm(JNIEnv *env, jclass cls)
 {
     (void)env;
@@ -396,6 +484,14 @@ Java_com_abysscore_exgc_ExgNative_cyclePort(JNIEnv *env, jclass cls)
     (void)env;
     (void)cls;
     np_host_cycle_port();
+}
+
+JNIEXPORT void JNICALL
+Java_com_abysscore_exgc_ExgNative_setPortI(JNIEnv *env, jclass cls, jint i)
+{
+    (void)env;
+    (void)cls;
+    np_host_set_port_i(i);
 }
 
 JNIEXPORT void JNICALL

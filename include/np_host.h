@@ -19,19 +19,23 @@ unsigned int np_host_frames(void);
 int np_host_copy_wave(int ch, float *dst, int max);
 int np_host_scale_uv(void);
 void np_host_cycle_scale(void);
+void np_host_set_scale_uv(int uv);
 int np_host_window_s(void);
 void np_host_cycle_window(void);
+void np_host_set_window_s(int s);
 int np_host_paused(void);
 void np_host_toggle_pause(void);
 
 void np_host_set_active(int ch, int on);
 void np_host_set_rld(int ch, int on);
 void np_host_cycle_gain(int ch);
+void np_host_set_gain(int ch, int gain);
 int np_host_active(int ch);
 int np_host_rld(int ch);
 int np_host_gain(int ch);
 void np_host_color(int ch, int *r, int *g, int *b);
 void np_host_cycle_color(int ch);
+void np_host_set_color(int ch, int r, int g, int b);
 
 void np_host_noise_arm(void);
 void np_host_noise_ok(void);
@@ -63,13 +67,17 @@ void np_host_prof_at(int i, char *out, int n);
 
 void np_host_ports(char *out, int n);
 void np_host_cycle_port(void);
+void np_host_set_port_i(int i);
 void np_host_copy_cube(unsigned char dst[512]);
 int np_host_notch(void);
 int np_host_hp(void);
 void np_host_cycle_notch(void);
+void np_host_set_notch(int hz);
 void np_host_cycle_hp(void);
+void np_host_set_hp(int hz);
 int np_host_lp(void);
 void np_host_cycle_lp(void);
+void np_host_set_lp(int hz);
 int np_host_car(void);
 void np_host_toggle_car(void);
 int np_host_detrend(void);
@@ -78,10 +86,12 @@ int np_host_envelope(void);
 void np_host_toggle_envelope(void);
 int np_host_band(void);
 void np_host_cycle_band(void);
+void np_host_set_band(int band);
 int np_host_ch_clip(int ch);
 
 int np_host_algo(void);
 void np_host_cycle_algo(void);
+void np_host_set_algo(int id);
 void np_host_algo_name(char *out, int n);
 
 int np_host_cube_view(void);
@@ -117,7 +127,9 @@ int np_host_rec_ms(void);
 int np_host_imu(float acc[3], float gyr[3], float mag[3]);
 int np_host_board_imu(void);
 void np_host_cycle_board(void);
+void np_host_set_board_imu(int imu);
 int np_host_ui_scale(void);
 void np_host_cycle_ui_scale(void);
+void np_host_set_ui_scale(int tenths);
 
 #endif

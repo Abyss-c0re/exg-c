@@ -1,6 +1,7 @@
 package com.abysscore.exgc;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
@@ -149,10 +150,6 @@ public class ExgActivity extends Activity {
             }
             refreshChrome();
         });
-        port.setOnClickListener(v -> {
-            ExgNative.cyclePort();
-            refreshChrome();
-        });
         tabMain.setOnClickListener(v -> showTab(0));
         tabCube.setOnClickListener(v -> showTab(1));
         tabPoses.setOnClickListener(v -> showTab(2));
@@ -176,11 +173,6 @@ public class ExgActivity extends Activity {
         findViewById(R.id.cubeFront).setOnClickListener(v -> {
             ExgNative.cubeFront();
             cube.resetCam();
-        });
-        cubeAlgo.setOnClickListener(v -> {
-            ExgNative.cycleAlgo();
-            refreshCubeChrome();
-            refreshChrome();
         });
         findViewById(R.id.sitePrev).setOnClickListener(v -> {
             ExgNative.siteStep(-1);
@@ -246,26 +238,40 @@ public class ExgActivity extends Activity {
             it.setType("*/*");
             startActivityForResult(it, REQ_IMPORT);
         });
-        notch.setOnClickListener(v -> {
-            ExgNative.cycleNotch();
-            refreshChrome();
-        });
-        hp.setOnClickListener(v -> {
-            ExgNative.cycleHp();
-            refreshChrome();
-        });
-        scale.setOnClickListener(v -> {
-            ExgNative.cycleScale();
-            refreshChrome();
-        });
-        win.setOnClickListener(v -> {
-            ExgNative.cycleWindow();
-            refreshChrome();
-        });
-        band.setOnClickListener(v -> {
-            ExgNative.cycleBand();
-            refreshChrome();
-        });
+        notch.setOnClickListener(v -> pick("Notch",
+                new String[] {"off", "50 Hz", "60 Hz", "AUTO"},
+                notchIndex(), i -> {
+                    int[] hz = {0, 50, 60, -1};
+                    ExgNative.setNotch(hz[i]);
+                    refreshChrome();
+                }));
+        hp.setOnClickListener(v -> pick("High-pass",
+                new String[] {"off", "1 Hz", "2 Hz", "5 Hz", "20 Hz"},
+                hpIndex(), i -> {
+                    int[] hz = {0, 1, 2, 5, 20};
+                    ExgNative.setHp(hz[i]);
+                    refreshChrome();
+                }));
+        scale.setOnClickListener(v -> pick("Scale",
+                new String[] {"±50 µV", "±100 µV", "±200 µV", "±500 µV",
+                        "±1000 µV", "±2000 µV", "±5000 µV"},
+                scaleIndex(), i -> {
+                    int[] uv = {50, 100, 200, 500, 1000, 2000, 5000};
+                    ExgNative.setScaleUv(uv[i]);
+                    refreshChrome();
+                }));
+        win.setOnClickListener(v -> pick("Time window",
+                new String[] {"1 s", "2 s", "4 s", "8 s"},
+                winIndex(), i -> {
+                    ExgNative.setWindowS(new int[] {1, 2, 4, 8}[i]);
+                    refreshChrome();
+                }));
+        band.setOnClickListener(v -> pick("Band preset",
+                new String[] {"raw", "line-kill", "EEG", "EMG"},
+                ExgNative.band(), i -> {
+                    ExgNative.setBand(i);
+                    refreshChrome();
+                }));
         car.setOnClickListener(v -> {
             ExgNative.toggleCar();
             refreshChrome();
@@ -278,24 +284,28 @@ public class ExgActivity extends Activity {
             ExgNative.toggleEnvelope();
             refreshChrome();
         });
-        lp.setOnClickListener(v -> {
-            ExgNative.cycleLp();
-            refreshChrome();
-        });
-        algo.setOnClickListener(v -> {
-            ExgNative.cycleAlgo();
-            refreshChrome();
-            refreshCubeChrome();
-        });
-        uiScale.setOnClickListener(v -> {
-            ExgNative.cycleUiScale();
-            applyUiScale();
-            refreshChrome();
-        });
-        board.setOnClickListener(v -> {
-            ExgNative.cycleBoard();
-            refreshChrome();
-        });
+        lp.setOnClickListener(v -> pick("Low-pass",
+                new String[] {"off", "20 Hz", "40 Hz"},
+                lpIndex(), i -> {
+                    ExgNative.setLp(new int[] {0, 20, 40}[i]);
+                    refreshChrome();
+                }));
+        algo.setOnClickListener(v -> pickAlgo());
+        uiScale.setOnClickListener(v -> pick("UI scale",
+                new String[] {"1.0×", "1.5×", "2.0×"},
+                uiIndex(), i -> {
+                    ExgNative.setUiScale(new int[] {10, 15, 20}[i]);
+                    applyUiScale();
+                    refreshChrome();
+                }));
+        board.setOnClickListener(v -> pick("Board",
+                new String[] {"8-ch + IMU", "8-ch EXG"},
+                ExgNative.boardImu() ? 0 : 1, i -> {
+                    ExgNative.setBoardImu(i == 0);
+                    refreshChrome();
+                }));
+        port.setOnClickListener(v -> pickPort());
+        cubeAlgo.setOnClickListener(v -> pickAlgo());
         buildChannels();
         profName.setText(ExgNative.getProfile());
         refreshProfiles();
@@ -595,8 +605,11 @@ public class ExgActivity extends Activity {
             Button lab = new Button(this);
             lab.setText("ch" + (c + 1));
             lab.setOnClickListener(v -> {
-                ExgNative.cycleColor(ch);
-                refreshChannels();
+                ColorPick.show(this, "ch" + (ch + 1) + " color",
+                        ExgNative.color(ch), rgb -> {
+                            ExgNative.setColor(ch, rgb);
+                            refreshChannels();
+                        });
             });
             Button on = new Button(this);
             Button rld = new Button(this);
@@ -609,10 +622,12 @@ public class ExgActivity extends Activity {
                 ExgNative.setRld(ch, !ExgNative.rld(ch));
                 refreshChannels();
             });
-            gn.setOnClickListener(v -> {
-                ExgNative.cycleGain(ch);
-                refreshChannels();
-            });
+            gn.setOnClickListener(v -> pick("ch" + (ch + 1) + " gain",
+                    new String[] {"1", "2", "3", "4", "6", "8", "12"},
+                    gainIndex(ch), i -> {
+                        ExgNative.setGain(ch, new int[] {1, 2, 3, 4, 6, 8, 12}[i]);
+                        refreshChannels();
+                    }));
             row.addView(lab);
             row.addView(on);
             row.addView(rld);
@@ -766,6 +781,135 @@ public class ExgActivity extends Activity {
             boolean hit = matching && i == best && pct >= 55;
             lab.setTextColor(hit ? 0xFF3CB46E : (i == sel ? 0xFFF0A040 : 0xFFE8EAF0));
         }
+    }
+
+    private void pick(String title, String[] items, int selected, java.util.function.IntConsumer on) {
+        if (selected < 0 || selected >= items.length) {
+            selected = 0;
+        }
+        new AlertDialog.Builder(this)
+                .setTitle(title)
+                .setSingleChoiceItems(items, selected, (d, which) -> {
+                    on.accept(which);
+                    d.dismiss();
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    private void pickAlgo() {
+        String[] names = {"detect", "sign", "mean", "energy", "delta", "fold", "proton"};
+        pick("Cube algorithm", names, ExgNative.algo(), i -> {
+            ExgNative.setAlgo(i);
+            refreshChrome();
+            refreshCubeChrome();
+        });
+    }
+
+    private void pickPort() {
+        String raw = ExgNative.ports();
+        String[] items = (raw == null || raw.length() == 0) ? new String[0] : raw.split("\n");
+        if (items.length == 0) {
+            new AlertDialog.Builder(this)
+                    .setTitle("Port")
+                    .setMessage("no USB serial")
+                    .setPositiveButton("OK", null)
+                    .show();
+            return;
+        }
+        pick("Port", items, 0, i -> {
+            ExgNative.setPortI(i);
+            refreshChrome();
+        });
+    }
+
+    private int notchIndex() {
+        int n = ExgNative.notch();
+        if (n < 0) {
+            return 3;
+        }
+        if (n == 50) {
+            return 1;
+        }
+        if (n == 60) {
+            return 2;
+        }
+        return 0;
+    }
+
+    private int hpIndex() {
+        int h = ExgNative.hp();
+        if (h == 1) {
+            return 1;
+        }
+        if (h == 2) {
+            return 2;
+        }
+        if (h == 5) {
+            return 3;
+        }
+        if (h == 20) {
+            return 4;
+        }
+        return 0;
+    }
+
+    private int lpIndex() {
+        int l = ExgNative.lp();
+        if (l == 20) {
+            return 1;
+        }
+        if (l == 40) {
+            return 2;
+        }
+        return 0;
+    }
+
+    private int scaleIndex() {
+        int s = ExgNative.scaleUv();
+        int[] uv = {50, 100, 200, 500, 1000, 2000, 5000};
+        for (int i = 0; i < uv.length; i++) {
+            if (uv[i] == s) {
+                return i;
+            }
+        }
+        return 2;
+    }
+
+    private int winIndex() {
+        int w = ExgNative.windowS();
+        if (w <= 1) {
+            return 0;
+        }
+        if (w <= 2) {
+            return 1;
+        }
+        if (w <= 4) {
+            return 2;
+        }
+        return 3;
+    }
+
+    private int uiIndex() {
+        int u = ExgNative.uiScale();
+        if (u == 10) {
+            return 0;
+        }
+        if (u == 20) {
+            return 2;
+        }
+        return 1;
+    }
+
+    private int gainIndex(int ch) {
+        int g = ExgNative.gain(ch);
+        int[] gs = {1, 2, 3, 4, 6, 8, 12};
+        for (int i = 0; i < gs.length; i++) {
+            if (gs[i] == g) {
+                return i;
+            }
+        }
+        return 6;
     }
 
     private abstract static class SimpleWatch implements TextWatcher {

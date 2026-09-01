@@ -30,6 +30,17 @@ public final class ExgNative {
     public static native int gain(int ch);
     public static native int color(int ch);
     public static native void cycleColor(int ch);
+    public static native void setColor(int ch, int rgb);
+    public static native void setScaleUv(int uv);
+    public static native void setWindowS(int s);
+    public static native void setNotch(int hz);
+    public static native void setHp(int hz);
+    public static native void setLp(int hz);
+    public static native void setBand(int band);
+    public static native void setAlgo(int id);
+    public static native void setUiScale(int tenths);
+    public static native void setBoardImu(boolean imu);
+    public static native void setGain(int ch, int gain);
     public static native void noiseArm();
     public static native void noiseOk();
     public static native void calm();
@@ -49,6 +60,7 @@ public final class ExgNative {
     public static native String[] profiles();
     public static native String ports();
     public static native void cyclePort();
+    public static native void setPortI(int i);
     public static native void copyCube(byte[] dst);
     public static native void cycleNotch();
     public static native void cycleHp();

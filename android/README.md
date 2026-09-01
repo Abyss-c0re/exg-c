@@ -58,8 +58,8 @@ or `8-ch EXG`. Disconnect before switching board.
 channels. **envelope** plots 150 ms RMS. **detrend** hides DC.
 Record refuses a **CLIP** window (≥ 4 mV).
 
-Tap **ch1**…**ch8** in Settings to cycle that trace’s color (same 12-color
-palette as Linux).
+Tap **ch1**…**ch8** in Settings for an RGB color picker. Other Settings
+buttons open a list — they no longer cycle on each tap.
 
 **algo** (Cube tab and Settings) cycles how each headset cell becomes 0 or 1:
 `detect` `sign` `mean` `energy` `delta` `fold` `proton`. Same as Linux.

@@ -5209,6 +5209,18 @@ void np_host_cycle_scale(void)
     }
     g.scale_uv = 200;
 }
+void np_host_set_scale_uv(int uv)
+{
+    if (uv <= 0) {
+        g.autoscale = 1;
+        g.og = 0;
+    } else {
+        g.scale_uv = uv;
+        g.autoscale = 0;
+        g.og = 0;
+    }
+    cfg_save();
+}
 int np_host_window_s(void)
 {
     return g.window_s < 1 ? 2 : g.window_s;
@@ -5224,6 +5236,17 @@ void np_host_cycle_window(void)
         }
     }
     g.window_s = 2;
+    cfg_save();
+}
+void np_host_set_window_s(int s)
+{
+    if (s < 1) {
+        s = 1;
+    }
+    if (s > 8) {
+        s = 8;
+    }
+    g.window_s = s;
     cfg_save();
 }
 int np_host_paused(void)
@@ -5268,6 +5291,30 @@ void np_host_cycle_gain(int ch)
     }
     cfg_save();
 }
+void np_host_set_gain(int ch, int gain)
+{
+    int i, ok = 0;
+    if (ch < 0 || ch >= NP_NCHAN) {
+        return;
+    }
+    for (i = 0; i < NP_NGAINS; i++) {
+        if (NP_GAINS[i] == gain) {
+            ok = 1;
+            break;
+        }
+    }
+    if (!ok) {
+        return;
+    }
+    g.gain[ch] = gain;
+    pthread_mutex_lock(&g.parse_mu);
+    np_parser_set_gain(&g.parser, ch + 1, g.gain[ch]);
+    pthread_mutex_unlock(&g.parse_mu);
+    if (g.connected && g.active[ch]) {
+        cmd_push(CMD_CHON, ch + 1, g.gain[ch]);
+    }
+    cfg_save();
+}
 int np_host_active(int ch)
 {
     return (ch >= 0 && ch < NP_NCHAN) ? g.active[ch] : 0;
@@ -5298,6 +5345,34 @@ void np_host_color(int ch, int *r, int *gcol, int *b)
 void np_host_cycle_color(int ch)
 {
     chcol_cycle(ch);
+    cfg_save();
+}
+void np_host_set_color(int ch, int r, int gc, int b)
+{
+    if (ch < 0 || ch >= NP_NCHAN) {
+        return;
+    }
+    if (r < 0) {
+        r = 0;
+    }
+    if (r > 255) {
+        r = 255;
+    }
+    if (gc < 0) {
+        gc = 0;
+    }
+    if (gc > 255) {
+        gc = 255;
+    }
+    if (b < 0) {
+        b = 0;
+    }
+    if (b > 255) {
+        b = 255;
+    }
+    g.chrgb[ch][0] = r;
+    g.chrgb[ch][1] = gc;
+    g.chrgb[ch][2] = b;
     cfg_save();
 }
 void np_host_noise_arm(void)
@@ -5464,6 +5539,20 @@ void np_host_cycle_port(void)
         g.port_i = (g.port_i + 1) % g.nports;
     }
 }
+void np_host_set_port_i(int i)
+{
+    g.nports = np_list_ports(g.ports, NP_MAX_PORTS);
+    if (g.nports < 1) {
+        return;
+    }
+    if (i < 0) {
+        i = 0;
+    }
+    if (i >= g.nports) {
+        i = g.nports - 1;
+    }
+    g.port_i = i;
+}
 void np_host_copy_cube(unsigned char dst[512])
 {
     memcpy(dst, g.smx.cube, 512);
@@ -5490,6 +5579,15 @@ void np_host_cycle_notch(void)
     filt_reset();
     cfg_save();
 }
+void np_host_set_notch(int hz)
+{
+    if (hz != 0 && hz != 50 && hz != 60 && hz != -1) {
+        hz = 50;
+    }
+    g.notch_hz = hz;
+    filt_reset();
+    cfg_save();
+}
 void np_host_cycle_hp(void)
 {
     static const int hp[] = {0, 1, 2, 5, 20};
@@ -5503,6 +5601,15 @@ void np_host_cycle_hp(void)
         }
     }
     g.hp_hz = 1;
+}
+void np_host_set_hp(int hz)
+{
+    if (hz != 0 && hz != 1 && hz != 2 && hz != 5 && hz != 20) {
+        hz = 1;
+    }
+    g.hp_hz = hz;
+    filt_reset();
+    cfg_save();
 }
 int np_host_lp(void)
 {
@@ -5521,6 +5628,15 @@ void np_host_cycle_lp(void)
         }
     }
     g.lp_hz = 0;
+}
+void np_host_set_lp(int hz)
+{
+    if (hz != 0 && hz != 20 && hz != 40) {
+        hz = 0;
+    }
+    g.lp_hz = hz;
+    filt_reset();
+    cfg_save();
 }
 int np_host_car(void)
 {
@@ -5559,6 +5675,10 @@ void np_host_cycle_band(void)
 {
     band_apply((g.band + 1) % NP_BAND_N);
 }
+void np_host_set_band(int band)
+{
+    band_apply(band);
+}
 int np_host_ch_clip(int ch)
 {
     if (ch < 0 || ch >= NP_NCHAN) {
@@ -5577,6 +5697,15 @@ int np_host_algo(void)
 void np_host_cycle_algo(void)
 {
     g.algo = (g.algo + 1) % NP_ALGO_N;
+    cfg_save();
+    set_status(1, "algo %s  — cube node is 0 or 1", np_algo_name(g.algo));
+}
+void np_host_set_algo(int id)
+{
+    if (id < 0 || id >= NP_ALGO_N) {
+        id = 0;
+    }
+    g.algo = id;
     cfg_save();
     set_status(1, "algo %s  — cube node is 0 or 1", np_algo_name(g.algo));
 }
@@ -5839,6 +5968,16 @@ void np_host_cycle_board(void)
     cfg_save();
     set_status(1, g.board == NP_BOARD_KNIGHT_IMU ? "8-ch + IMU" : "8-ch EXG");
 }
+void np_host_set_board_imu(int imu)
+{
+    if (g.connected) {
+        set_status(0, "disconnect before switching IMU / EXG");
+        return;
+    }
+    g.board = imu ? NP_BOARD_KNIGHT_IMU : NP_BOARD_KNIGHT;
+    cfg_save();
+    set_status(1, g.board == NP_BOARD_KNIGHT_IMU ? "8-ch + IMU" : "8-ch EXG");
+}
 int np_host_ui_scale(void)
 {
     if (g.ui_scale != 10 && g.ui_scale != 15 && g.ui_scale != 20) {
@@ -5855,6 +5994,14 @@ void np_host_cycle_ui_scale(void)
     } else {
         g.ui_scale = 10;
     }
+    cfg_save();
+}
+void np_host_set_ui_scale(int tenths)
+{
+    if (tenths != 10 && tenths != 15 && tenths != 20) {
+        tenths = 15;
+    }
+    g.ui_scale = tenths;
     cfg_save();
 }
 
