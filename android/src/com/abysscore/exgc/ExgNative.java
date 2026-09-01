@@ -64,6 +64,9 @@ public final class ExgNative {
     public static native int band();
     public static native void cycleBand();
     public static native boolean clipped(int ch);
+    public static native int algo();
+    public static native void cycleAlgo();
+    public static native String algoName();
     public static native void togglePause();
 
     public static native int cubeView();

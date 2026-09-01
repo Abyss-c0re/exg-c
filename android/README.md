@@ -56,6 +56,9 @@ Settings **win Ns** button.
 channels. **envelope** plots 150 ms RMS. **detrend** hides DC.
 Record refuses a **CLIP** window (≥ 4 mV).
 
+**algo** (Cube tab and Settings) cycles how each headset cell becomes 0 or 1:
+`detect` `sign` `mean` `energy` `delta` `fold` `proton`. Same as Linux.
+
 Names: letters, digits, `-`, `_`.
 
 ## Storage

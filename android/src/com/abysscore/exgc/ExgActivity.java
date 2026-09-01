@@ -27,7 +27,7 @@ public class ExgActivity extends Activity {
     private View cubePane;
     private View cubeMapTools;
     private LinearLayout cubeChRow;
-    private Button cubeViz, cubeMap;
+    private Button cubeViz, cubeMap, cubeAlgo;
     private TextView siteLabel;
     private View settings;
     private View learnBar;
@@ -49,6 +49,7 @@ public class ExgActivity extends Activity {
     private Button detrend;
     private Button env;
     private Button lp;
+    private Button algo;
     private EditText profName;
     private EditText learnName;
     private LinearLayout chGrid;
@@ -92,6 +93,7 @@ public class ExgActivity extends Activity {
         cubeChRow = findViewById(R.id.cubeChRow);
         cubeViz = findViewById(R.id.cubeViz);
         cubeMap = findViewById(R.id.cubeMap);
+        cubeAlgo = findViewById(R.id.cubeAlgo);
         siteLabel = findViewById(R.id.siteLabel);
         settings = findViewById(R.id.settings);
         learnBar = findViewById(R.id.learnBar);
@@ -115,6 +117,7 @@ public class ExgActivity extends Activity {
         detrend = findViewById(R.id.detrend);
         env = findViewById(R.id.env);
         lp = findViewById(R.id.lp);
+        algo = findViewById(R.id.algo);
         profName = findViewById(R.id.profName);
         learnName = findViewById(R.id.learnName);
         chGrid = findViewById(R.id.chGrid);
@@ -154,6 +157,11 @@ public class ExgActivity extends Activity {
         findViewById(R.id.cubeFront).setOnClickListener(v -> {
             ExgNative.cubeFront();
             cube.resetCam();
+        });
+        cubeAlgo.setOnClickListener(v -> {
+            ExgNative.cycleAlgo();
+            refreshCubeChrome();
+            refreshChrome();
         });
         findViewById(R.id.sitePrev).setOnClickListener(v -> {
             ExgNative.siteStep(-1);
@@ -254,6 +262,11 @@ public class ExgActivity extends Activity {
             ExgNative.cycleLp();
             refreshChrome();
         });
+        algo.setOnClickListener(v -> {
+            ExgNative.cycleAlgo();
+            refreshChrome();
+            refreshCubeChrome();
+        });
         buildChannels();
         profName.setText(ExgNative.getProfile());
         refreshProfiles();
@@ -317,6 +330,7 @@ public class ExgActivity extends Activity {
         cubeMap.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
                 map == 1 ? 0xFF5A2810 : 0xFF2A3038));
         cubeMapTools.setVisibility(map == 1 ? View.VISIBLE : View.GONE);
+        cubeAlgo.setText("algo " + ExgNative.algoName());
         siteLabel.setText(ExgNative.siteFocusLabel());
         int sel = ExgNative.elecSel();
         for (int i = 0; i < cubeChRow.getChildCount(); i++) {
@@ -368,6 +382,7 @@ public class ExgActivity extends Activity {
         detrend.setText(ExgNative.detrend() ? "detrend" : "raw DC");
         env.setText(ExgNative.envelope() ? "envelope" : "wave");
         lp.setText(ExgNative.lp() == 0 ? "lp off" : "lp " + ExgNative.lp() + "Hz");
+        algo.setText("algo " + ExgNative.algoName());
     }
 
     @Override

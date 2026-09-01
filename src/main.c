@@ -4279,9 +4279,7 @@ static void click(int x, int y)
             prof_cycle();
             break;
         case 44:
-            g.algo = (g.algo + 1) % NP_ALGO_N;
-            cfg_save();
-            set_status(1, "algo %s  - each cell is 0 or 1", np_algo_name(g.algo));
+            np_host_cycle_algo();
             break;
         case 17:
             typing_set(0);
@@ -5534,6 +5532,24 @@ int np_host_ch_clip(int ch)
         return 0;
     }
     return last_clip[ch];
+}
+
+int np_host_algo(void)
+{
+    if (g.algo < 0 || g.algo >= NP_ALGO_N) {
+        return 0;
+    }
+    return g.algo;
+}
+void np_host_cycle_algo(void)
+{
+    g.algo = (g.algo + 1) % NP_ALGO_N;
+    cfg_save();
+    set_status(1, "algo %s  — cube node is 0 or 1", np_algo_name(g.algo));
+}
+void np_host_algo_name(char *out, int n)
+{
+    snprintf(out, (size_t)n, "%s", np_algo_name(np_host_algo()));
 }
 
 int np_host_cube_view(void)

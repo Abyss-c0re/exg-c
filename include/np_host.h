@@ -76,6 +76,10 @@ int np_host_band(void);
 void np_host_cycle_band(void);
 int np_host_ch_clip(int ch);
 
+int np_host_algo(void);
+void np_host_cycle_algo(void);
+void np_host_algo_name(char *out, int n);
+
 int np_host_cube_view(void);
 void np_host_set_cube_view(int map);
 void np_host_cube_spin(float dyaw, float dpitch);

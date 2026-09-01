@@ -522,6 +522,31 @@ Java_com_abysscore_exgc_ExgNative_clipped(JNIEnv *env, jclass cls, jint ch)
     return np_host_ch_clip(ch) ? JNI_TRUE : JNI_FALSE;
 }
 
+JNIEXPORT jint JNICALL
+Java_com_abysscore_exgc_ExgNative_algo(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    return np_host_algo();
+}
+
+JNIEXPORT void JNICALL
+Java_com_abysscore_exgc_ExgNative_cycleAlgo(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    np_host_cycle_algo();
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_abysscore_exgc_ExgNative_algoName(JNIEnv *env, jclass cls)
+{
+    char buf[16];
+    (void)cls;
+    np_host_algo_name(buf, sizeof(buf));
+    return jstr_from(env, buf);
+}
+
 JNIEXPORT void JNICALL
 Java_com_abysscore_exgc_ExgNative_togglePause(JNIEnv *env, jclass cls)
 {

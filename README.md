@@ -12,7 +12,7 @@ Not a medical device. Not affiliated with NeuroPawn.
 
 - Live 8-channel plot at 125 SPS
 - **NOISE** / **CALM** / **CLEAN** so the leftover is usable
-- **Cube** — live 8³ visualization, or a 10-10 map you can assign
+- **Cube** — live 8³ visualization, or a 10-10 map you can assign. **algo** picks the 0/1 fold (`detect` … `proton`).
 - Named profiles (export / import as files on Android)
 - Settings: time window, scale, notch, high-pass, **CAR**, **low-pass**, **detrend**, **envelope**
 - Band presets: `raw` / `line-kill` / `EEG` / `EMG`

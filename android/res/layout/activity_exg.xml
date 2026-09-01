@@ -139,6 +139,12 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="front" />
+
+                <Button
+                    android:id="@+id/cubeAlgo"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="algo detect" />
             </LinearLayout>
 
             <LinearLayout
@@ -373,6 +379,13 @@
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:text="lp off" />
+
+                    <Button
+                        android:id="@+id/algo"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="algo detect" />
                 </LinearLayout>
 
                 <LinearLayout
