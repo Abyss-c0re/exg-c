@@ -103,4 +103,10 @@ public final class ExgNative {
     public static native int learnSel();
     public static native void learnSelect(int i);
     public static native void learnDel(int i);
+    public static native boolean imuOk();
+    public static native void imu(float[] dst);
+    public static native boolean boardImu();
+    public static native void cycleBoard();
+    public static native int uiScale();
+    public static native void cycleUiScale();
 }

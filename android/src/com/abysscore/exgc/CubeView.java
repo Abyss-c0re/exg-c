@@ -75,6 +75,17 @@ public class CubeView extends View {
         ink.setColor(0xFFF22647);
     }
 
+    public void setLabelScale(float f) {
+        if (f < 0.8f) {
+            f = 0.8f;
+        }
+        if (f > 2.2f) {
+            f = 2.2f;
+        }
+        ink.setTextSize(26f * f);
+        invalidate();
+    }
+
     public void resetCam() {
         yaw = 0.55f;
         pitch = 0.40f;

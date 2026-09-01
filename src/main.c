@@ -5814,6 +5814,45 @@ int np_host_rec_ms(void)
     return (int)REC_MS - dt;
 }
 
+int np_host_imu(float acc[3], float gyr[3], float mag[3])
+{
+    int ok = 0;
+    np_ring_imu(&g.ring, acc, gyr, mag, &ok);
+    return ok;
+}
+int np_host_board_imu(void)
+{
+    return g.board == NP_BOARD_KNIGHT_IMU;
+}
+void np_host_cycle_board(void)
+{
+    if (g.connected) {
+        set_status(0, "disconnect before switching IMU / EXG");
+        return;
+    }
+    g.board = g.board == NP_BOARD_KNIGHT ? NP_BOARD_KNIGHT_IMU : NP_BOARD_KNIGHT;
+    cfg_save();
+    set_status(1, g.board == NP_BOARD_KNIGHT_IMU ? "8-ch + IMU" : "8-ch EXG");
+}
+int np_host_ui_scale(void)
+{
+    if (g.ui_scale != 10 && g.ui_scale != 15 && g.ui_scale != 20) {
+        return 15;
+    }
+    return g.ui_scale;
+}
+void np_host_cycle_ui_scale(void)
+{
+    if (g.ui_scale == 10) {
+        g.ui_scale = 15;
+    } else if (g.ui_scale == 15) {
+        g.ui_scale = 20;
+    } else {
+        g.ui_scale = 10;
+    }
+    cfg_save();
+}
+
 static void usage(const char *a0)
 {
     fprintf(stderr,

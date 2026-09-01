@@ -8,6 +8,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.text.Editable;
 import android.text.TextWatcher;
+import android.util.TypedValue;
 import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
@@ -32,6 +33,7 @@ public class ExgActivity extends Activity {
     private View settings;
     private View learnBar;
     private TextView status;
+    private TextView imuLine;
     private TextView idLine;
     private TextView profList;
     private Button record;
@@ -50,6 +52,9 @@ public class ExgActivity extends Activity {
     private Button env;
     private Button lp;
     private Button algo;
+    private Button uiScale;
+    private Button board;
+    private final float[] imu = new float[9];
     private EditText profName;
     private EditText learnName;
     private LinearLayout chGrid;
@@ -100,6 +105,7 @@ public class ExgActivity extends Activity {
         settings = findViewById(R.id.settings);
         learnBar = findViewById(R.id.learnBar);
         status = findViewById(R.id.status);
+        imuLine = findViewById(R.id.imuLine);
         idLine = findViewById(R.id.idLine);
         profList = findViewById(R.id.profList);
         record = findViewById(R.id.record);
@@ -120,6 +126,8 @@ public class ExgActivity extends Activity {
         env = findViewById(R.id.env);
         lp = findViewById(R.id.lp);
         algo = findViewById(R.id.algo);
+        uiScale = findViewById(R.id.uiScale);
+        board = findViewById(R.id.board);
         profName = findViewById(R.id.profName);
         learnName = findViewById(R.id.learnName);
         chGrid = findViewById(R.id.chGrid);
@@ -271,12 +279,22 @@ public class ExgActivity extends Activity {
             refreshChrome();
             refreshCubeChrome();
         });
+        uiScale.setOnClickListener(v -> {
+            ExgNative.cycleUiScale();
+            applyUiScale();
+            refreshChrome();
+        });
+        board.setOnClickListener(v -> {
+            ExgNative.cycleBoard();
+            refreshChrome();
+        });
         buildChannels();
         profName.setText(ExgNative.getProfile());
         refreshProfiles();
         showTab(0);
         lastLearnN = -1;
         refreshLearnChips();
+        applyUiScale();
         h.post(tick);
         h.postDelayed(() -> {
             if (!ExgNative.connected()) {
@@ -401,6 +419,34 @@ public class ExgActivity extends Activity {
         env.setText(ExgNative.envelope() ? "envelope" : "wave");
         lp.setText(ExgNative.lp() == 0 ? "lp off" : "lp " + ExgNative.lp() + "Hz");
         algo.setText("algo " + ExgNative.algoName());
+        int us = ExgNative.uiScale();
+        uiScale.setText("UI " + (us == 10 ? "1.0x" : (us == 20 ? "2.0x" : "1.5x")));
+        board.setText(ExgNative.boardImu() ? "8-ch + IMU" : "8-ch EXG");
+        if (ExgNative.boardImu()) {
+            imuLine.setVisibility(View.VISIBLE);
+            if (ExgNative.imuOk()) {
+                ExgNative.imu(imu);
+                imuLine.setText(String.format(java.util.Locale.US,
+                        "IMU  acc %+5.2f %+5.2f %+5.2f   gyr %+5.2f %+5.2f %+5.2f   mag %+5.2f %+5.2f %+5.2f",
+                        imu[0], imu[1], imu[2], imu[3], imu[4], imu[5], imu[6], imu[7], imu[8]));
+                imuLine.setTextColor(0xFFB4C878);
+            } else {
+                imuLine.setText("IMU  waiting for 57-byte frames");
+                imuLine.setTextColor(0xFF8B93A0);
+            }
+        } else {
+            imuLine.setText("8-ch EXG — tap board for IMU");
+            imuLine.setTextColor(0xFF8B93A0);
+        }
+    }
+
+    private void applyUiScale() {
+        float f = ExgNative.uiScale() / 10f;
+        status.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f * f);
+        imuLine.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f * f);
+        idLine.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f * f);
+        traces.setLabelScale(f);
+        cube.setLabelScale(f);
     }
 
     @Override

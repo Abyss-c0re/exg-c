@@ -113,4 +113,10 @@ int np_host_prof_import(const char *path);
 void np_host_id(char *out, int n);
 int np_host_rec_ms(void);
 
+int np_host_imu(float acc[3], float gyr[3], float mag[3]);
+int np_host_board_imu(void);
+void np_host_cycle_board(void);
+int np_host_ui_scale(void);
+void np_host_cycle_ui_scale(void);
+
 #endif

@@ -50,8 +50,9 @@ USB again, tap **Connect** once.
 **Export…** / **Import…** use the system document picker so you can put a
 profile on Downloads, Drive, or a USB stick — still no storage permission.
 
-**win** cycles the plot window (1 / 2 / 4 / 8 s), same as the Linux
-Settings **win Ns** button.
+**win** cycles the plot window (1 / 2 / 4 / 8 s). **UI** is 1.0 / 1.5 / 2.0×
+text. **board** is `8-ch + IMU` (57-byte frames, acc/gyr/mag on the strip)
+or `8-ch EXG`. Disconnect before switching board.
 
 **band** cycles `raw` → `line-kill` (notch+CAR+hp1) → `EEG` (+lp 40) →
 `EMG` (hp 20 + envelope). **CAR** subtracts the mean of non-clip

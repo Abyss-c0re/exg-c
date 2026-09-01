@@ -891,4 +891,63 @@ Java_com_abysscore_exgc_ExgNative_learnDel(JNIEnv *env, jclass cls, jint i)
     (void)cls;
     np_host_learn_del(i);
 }
+
+JNIEXPORT jboolean JNICALL
+Java_com_abysscore_exgc_ExgNative_imuOk(JNIEnv *env, jclass cls)
+{
+    float a[3], gyr[3], mag[3];
+    (void)env;
+    (void)cls;
+    return np_host_imu(a, gyr, mag) ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT void JNICALL
+Java_com_abysscore_exgc_ExgNative_imu(JNIEnv *env, jclass cls, jfloatArray dst)
+{
+    float a[3], gyr[3], mag[3], v[9];
+    int k;
+    (void)cls;
+    if (!dst || (*env)->GetArrayLength(env, dst) < 9) {
+        return;
+    }
+    np_host_imu(a, gyr, mag);
+    for (k = 0; k < 3; k++) {
+        v[k] = a[k];
+        v[3 + k] = gyr[k];
+        v[6 + k] = mag[k];
+    }
+    (*env)->SetFloatArrayRegion(env, dst, 0, 9, v);
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_abysscore_exgc_ExgNative_boardImu(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    return np_host_board_imu() ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT void JNICALL
+Java_com_abysscore_exgc_ExgNative_cycleBoard(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    np_host_cycle_board();
+}
+
+JNIEXPORT jint JNICALL
+Java_com_abysscore_exgc_ExgNative_uiScale(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    return np_host_ui_scale();
+}
+
+JNIEXPORT void JNICALL
+Java_com_abysscore_exgc_ExgNative_cycleUiScale(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    np_host_cycle_ui_scale();
+}
 #endif

@@ -14,7 +14,8 @@ Not a medical device. Not affiliated with NeuroPawn.
 - **NOISE** / **CALM** / **CLEAN** so the leftover is usable
 - **Cube** — live 8³ visualization, or a 10-10 map you can assign. **algo** picks the 0/1 fold (`detect` … `proton`).
 - Named profiles (export / import as files on Android)
-- Settings: time window, scale, notch, high-pass, **CAR**, **low-pass**, **detrend**, **envelope**
+- Settings: time window, µV scale, **UI 1 / 1.5 / 2×**, notch, high-pass, **CAR**, **low-pass**, **detrend**, **envelope**
+- IMU acc / gyr / mag on 57-byte Knight boards (`8-ch + IMU`)
 - Band presets: `raw` / `line-kill` / `EEG` / `EMG`
 - CLIP gate — Record will not save a saturated window
 - Learn: **Record** a named pose, **MATCH** scores the live stream against those chips (green ≥ 55%)

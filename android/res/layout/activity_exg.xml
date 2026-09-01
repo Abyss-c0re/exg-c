@@ -52,6 +52,19 @@
         android:textColor="@color/ok"
         android:textSize="13sp" />
 
+    <TextView
+        android:id="@+id/imuLine"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="#12141A"
+        android:fontFamily="monospace"
+        android:paddingLeft="8dp"
+        android:paddingRight="8dp"
+        android:paddingBottom="6dp"
+        android:text="IMU —"
+        android:textColor="@color/muted"
+        android:textSize="13sp" />
+
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -303,6 +316,25 @@
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:text="scale" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content">
+
+                    <Button
+                        android:id="@+id/uiScale"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="UI 1.5x" />
+
+                    <Button
+                        android:id="@+id/board"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="8-ch + IMU" />
                 </LinearLayout>
 
                 <TextView

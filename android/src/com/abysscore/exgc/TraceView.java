@@ -20,6 +20,7 @@ public class TraceView extends View {
     private final Paint lab = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Path path = new Path();
     private int scaleUv = 200;
+    private float labelSp = 28f;
 
     public TraceView(Context c) {
         super(c);
@@ -39,10 +40,22 @@ public class TraceView extends View {
         grid.setColor(0x22FFFFFF);
         grid.setStrokeWidth(1f);
         lab.setColor(0xFFB8C0CC);
-        lab.setTextSize(28f);
+        lab.setTextSize(labelSp);
         for (int i = 0; i < NCHAN; i++) {
             col[i] = 0xFF80C8FF;
         }
+    }
+
+    public void setLabelScale(float f) {
+        if (f < 0.8f) {
+            f = 0.8f;
+        }
+        if (f > 2.2f) {
+            f = 2.2f;
+        }
+        labelSp = 28f * f;
+        lab.setTextSize(labelSp);
+        invalidate();
     }
 
     public void pull() {
