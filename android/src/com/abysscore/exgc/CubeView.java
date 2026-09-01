@@ -3,25 +3,34 @@ package com.abysscore.exgc;
 import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Paint;
-import android.graphics.Path;
+import android.graphics.RadialGradient;
+import android.graphics.Shader;
+import android.os.SystemClock;
 import android.util.AttributeSet;
 import android.view.MotionEvent;
 import android.view.View;
 
 /**
- * viz — crimson sample cube (ON cells + channel labels).
+ * viz — Cube Experience / crimson lattice (N=8, spike #FF141A, levitate).
  * map — 10-10 assign: tap a channel, then a site on the scalp map or cube.
  */
 public class CubeView extends View {
     private static final int NCHAN = 8;
+    private static final int N = 8;
+    private static final int NCELL = N * N * N;
     private static final int MAX_CELL = 40;
     private static final int MAX_SITE = 80;
+    private static final int SPIKE = 0xFFFF141A;
+    private static final int VOID = 0xFF060001;
 
     private int mode; /* 0 viz 1 map */
     private int ncell;
     private final float[] cellXyz = new float[MAX_CELL * 3];
     private final float[] cellS = new float[MAX_CELL];
     private final int[] cellRgba = new int[MAX_CELL];
+    private final byte[] cubeBits = new byte[NCELL];
+    private final byte[] prevBits = new byte[NCELL];
+    private final float[] impulse = new float[NCELL];
     private int nsite;
     private final String[] siteName = new String[MAX_SITE];
     private final float[] siteFx = new float[MAX_SITE];
@@ -41,8 +50,12 @@ public class CubeView extends View {
     private int smxSeq;
     private int smxFold;
     private float yaw = 0.55f, pitch = 0.40f, zoom = 1.0f;
+    private float autoYaw;
+    private float t;
+    private long lastMs;
     private float lastX, lastY;
     private boolean spinning;
+    private int onCount;
 
     private final int[] siteSx = new int[MAX_SITE];
     private final int[] siteSy = new int[MAX_SITE];
@@ -55,7 +68,6 @@ public class CubeView extends View {
     private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint stroke = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint ink = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Path path = new Path();
 
     public CubeView(Context c) {
         super(c);
@@ -68,11 +80,11 @@ public class CubeView extends View {
     }
 
     private void init() {
-        setBackgroundColor(0xFF040206);
+        setBackgroundColor(VOID);
         stroke.setStyle(Paint.Style.STROKE);
         stroke.setStrokeWidth(2f);
         ink.setTextSize(26f);
-        ink.setColor(0xFFF22647);
+        ink.setColor(SPIKE);
     }
 
     public void setLabelScale(float f) {
@@ -107,6 +119,23 @@ public class CubeView extends View {
     public void pull() {
         mode = ExgNative.cubeView();
         ncell = ExgNative.vizCells(cellXyz, cellS, cellRgba);
+        ExgNative.copyCube(cubeBits);
+        onCount = 0;
+        for (int i = 0; i < NCELL; i++) {
+            boolean on = cubeBits[i] != 0;
+            if (on) {
+                onCount++;
+            }
+            if (on && prevBits[i] == 0) {
+                impulse[i] = 1f;
+            } else {
+                impulse[i] *= 0.88f;
+                if (impulse[i] < 0.02f) {
+                    impulse[i] = 0f;
+                }
+            }
+            prevBits[i] = cubeBits[i];
+        }
         smxSeq = ExgNative.smxSeq();
         smxFold = ExgNative.smxFold();
         nsite = Math.min(MAX_SITE, ExgNative.siteN());
@@ -137,15 +166,44 @@ public class CubeView extends View {
         postInvalidateOnAnimation();
     }
 
+    private void tickViz() {
+        long now = SystemClock.uptimeMillis();
+        float dt = lastMs == 0 ? 0.016f : (now - lastMs) / 1000f;
+        if (dt > 0.08f) {
+            dt = 0.016f;
+        }
+        lastMs = now;
+        t += dt;
+        if (!spinning) {
+            /* cube_gl --levitate: 8.5 deg/s drift */
+            autoYaw += 0.148f * dt;
+        }
+    }
+
     private void project(float x, float y, float z, float cx, float cy, float k, float[] out) {
-        float cyaw = (float) Math.cos(yaw), syaw = (float) Math.sin(yaw);
+        float yawUse = yaw + (mode == 0 ? autoYaw : 0f);
+        float yy = y;
+        if (mode == 0) {
+            yy += 0.06f * (float) Math.sin(t * 1.4);
+        }
+        float cyaw = (float) Math.cos(yawUse), syaw = (float) Math.sin(yawUse);
         float cp = (float) Math.cos(pitch), sp = (float) Math.sin(pitch);
         float x1 = cyaw * x + syaw * z;
         float z1 = -syaw * x + cyaw * z;
-        float oy = cp * y - sp * z1;
-        out[0] = cx + x1 * k;
-        out[1] = cy - oy * k;
-        out[2] = sp * y + cp * z1;
+        float oy = cp * yy - sp * z1;
+        float oz = sp * yy + cp * z1;
+        if (mode == 0) {
+            float f = 3.6f / (3.6f + oz + 2.2f);
+            out[0] = cx + x1 * f * k;
+            out[1] = cy - oy * f * k;
+            out[2] = oz;
+            out[3] = f;
+        } else {
+            out[0] = cx + x1 * k;
+            out[1] = cy - oy * k;
+            out[2] = oz;
+            out[3] = 1f;
+        }
     }
 
     @Override
@@ -248,11 +306,13 @@ public class CubeView extends View {
         if (k < 50) {
             k = 50;
         }
-        drawWire(c, cx, cy, k);
-        drawCells(c, cx, cy, k);
         if (mode == 0) {
+            tickViz();
+            drawGlow(c, w, cubeB);
+            drawWire(c, cx, cy, k);
+            drawLattice(c, cx, cy, k);
             drawCore(c, cx, cy, k);
-            ink.setColor(0xFFF22647);
+            ink.setColor(SPIKE);
             ink.setTextSize(28f);
             String bits = "";
             for (int b = 0; b < 8; b++) {
@@ -260,7 +320,10 @@ public class CubeView extends View {
             }
             c.drawText("viz  seq " + smxSeq + "  " + bits + "  ·  drag", 16, 36, ink);
             drawSot(c, w, h);
+            postInvalidateOnAnimation();
         } else {
+            drawWire(c, cx, cy, k);
+            drawCells(c, cx, cy, k);
             drawFocusCell(c, cx, cy, k);
             drawSiteLabels(c, cx, cy, k);
             ink.setColor(0xFFF22647);
@@ -273,14 +336,35 @@ public class CubeView extends View {
         }
     }
 
+    private void drawGlow(Canvas c, int w, int h) {
+        float g = 0.15f + Math.min(0.85f, onCount / 28f);
+        if (g < 0.2f) {
+            return;
+        }
+        float rad = Math.min(w, h) * (0.28f + 0.22f * g);
+        int a = (int) (40 + 140 * g);
+        RadialGradient grad = new RadialGradient(w * 0.5f, h * 0.5f, rad,
+                new int[] {(a << 24) | 0x00FF141A, ((int) (a * 0.35f) << 24) | 0x00B40810, 0},
+                new float[] {0f, 0.55f, 1f}, Shader.TileMode.CLAMP);
+        fill.setShader(grad);
+        c.drawRect(0, 0, w, h, fill);
+        fill.setShader(null);
+    }
+
     private void drawWire(Canvas c, float cx, float cy, float k) {
         float[][] p = {{-1, -1, -1}, {1, -1, -1}, {-1, 1, -1}, {1, 1, -1},
                 {-1, -1, 1}, {1, -1, 1}, {-1, 1, 1}, {1, 1, 1}};
         int[][] e = {{0, 1}, {1, 3}, {3, 2}, {2, 0}, {4, 5}, {5, 7}, {7, 6}, {6, 4},
                 {0, 4}, {1, 5}, {2, 6}, {3, 7}};
-        float[] a = new float[3], b = new float[3];
-        stroke.setColor(0xFF5A1220);
-        stroke.setStrokeWidth(3f);
+        float[] a = new float[4], b = new float[4];
+        float glow = mode == 0 ? (0.15f + Math.min(0.85f, onCount / 28f)) : 0f;
+        if (mode == 0) {
+            stroke.setColor(0xA08C050D);
+            stroke.setStrokeWidth(1.4f + 2.2f * glow);
+        } else {
+            stroke.setColor(0xFF5A1220);
+            stroke.setStrokeWidth(3f);
+        }
         for (int i = 0; i < 12; i++) {
             project(p[e[i][0]][0], p[e[i][0]][1], p[e[i][0]][2], cx, cy, k, a);
             project(p[e[i][1]][0], p[e[i][1]][1], p[e[i][1]][2], cx, cy, k, b);
@@ -288,9 +372,115 @@ public class CubeView extends View {
         }
     }
 
+    private void drawLattice(Canvas c, float cx, float cy, float k) {
+        /* shell nodes + live ON voxels, far first */
+        int max = 296 + NCELL;
+        float[] depth = new float[max];
+        float[] px = new float[max];
+        float[] py = new float[max];
+        float[] pf = new float[max];
+        int[] kind = new int[max]; /* 0 lattice 1 on 2 impulse */
+        int[] edgeN = new int[max];
+        int n = 0;
+        float[] p = new float[4];
+        float pulse = 0.5f + 0.5f * (float) Math.sin(t * 3.2);
+        float glow = 0.15f + Math.min(0.85f, onCount / 28f);
+        for (int iz = 0; iz < N; iz++) {
+            for (int iy = 0; iy < N; iy++) {
+                for (int ix = 0; ix < N; ix++) {
+                    boolean shell = ix == 0 || ix == N - 1 || iy == 0 || iy == N - 1
+                            || iz == 0 || iz == N - 1;
+                    int idx = ix + N * iy + N * N * iz;
+                    boolean on = cubeBits[idx] != 0;
+                    float imp = impulse[idx];
+                    if (!shell && !on && imp < 0.08f) {
+                        continue;
+                    }
+                    float wx = (ix - 3.5f) / 3.5f;
+                    float wy = (iy - 3.5f) / 3.5f;
+                    float wz = (iz - 3.5f) / 3.5f;
+                    project(wx, wy, wz, cx, cy, k, p);
+                    if (n >= max) {
+                        continue;
+                    }
+                    px[n] = p[0];
+                    py[n] = p[1];
+                    pf[n] = p[3];
+                    depth[n] = p[2];
+                    edgeN[n] = (ix == 0 || ix == N - 1 ? 1 : 0)
+                            + (iy == 0 || iy == N - 1 ? 1 : 0)
+                            + (iz == 0 || iz == N - 1 ? 1 : 0);
+                    if (imp > 0.08f) {
+                        kind[n] = 2;
+                    } else if (on) {
+                        kind[n] = 1;
+                    } else {
+                        kind[n] = 0;
+                    }
+                    n++;
+                }
+            }
+        }
+        int[] order = new int[n];
+        for (int i = 0; i < n; i++) {
+            order[i] = i;
+        }
+        for (int i = 0; i < n; i++) {
+            for (int j = i + 1; j < n; j++) {
+                if (depth[order[i]] > depth[order[j]]) {
+                    int tmpi = order[i];
+                    order[i] = order[j];
+                    order[j] = tmpi;
+                }
+            }
+        }
+        fill.setStyle(Paint.Style.FILL);
+        for (int oi = 0; oi < n; oi++) {
+            int i = order[oi];
+            float f = pf[i];
+            if (f < 0.15f) {
+                f = 0.15f;
+            }
+            if (kind[i] == 0) {
+                boolean hot = edgeN[i] >= 2;
+                float size = (2.0f + (hot ? 3.5f : 1.2f) * f) * (1.0f + 0.9f * glow);
+                if (hot) {
+                    size *= 1.0f + 0.35f * pulse * glow;
+                }
+                int alpha = (int) ((hot ? 70 + 160 * glow : 35 + 80 * glow) * f);
+                if (alpha < 20) {
+                    alpha = 20;
+                }
+                if (alpha > 230) {
+                    alpha = 230;
+                }
+                fill.setColor((alpha << 24) | 0x00FF141A);
+                c.drawCircle(px[i], py[i], size, fill);
+            } else {
+                float flash = kind[i] == 2 ? impulse[i] : 0.35f;
+                float size = (6.5f + 10f * f) * (1.0f + 0.55f * flash);
+                int alpha = kind[i] == 2 ? (int) (220 * flash + 40) : 210;
+                fill.setColor((alpha << 24) | 0x00FF141A);
+                c.drawCircle(px[i], py[i], size, fill);
+                if (kind[i] == 2) {
+                    float jit = 8f + 18f * flash;
+                    float ang = t * 40f + i;
+                    stroke.setColor((int) (0xF2000000 | 0x00FF0D14));
+                    stroke.setStrokeWidth(2.4f);
+                    c.drawLine(px[i], py[i],
+                            px[i] + (float) Math.sin(ang) * jit,
+                            py[i] + (float) Math.cos(ang * 1.3) * jit, stroke);
+                    stroke.setStrokeWidth(1.4f);
+                    c.drawLine(px[i], py[i],
+                            px[i] + (float) Math.cos(ang * 1.7) * jit * 1.3f,
+                            py[i] + (float) Math.sin(ang * 2.1) * jit * 1.3f, stroke);
+                }
+            }
+        }
+    }
+
     private void drawCells(Canvas c, float cx, float cy, float k) {
-        float[] p = new float[3];
-        /* farther first: sort by depth */
+        float[] p = new float[4];
         int[] order = new int[ncell];
         float[] depth = new float[ncell];
         for (int i = 0; i < ncell; i++) {
@@ -301,9 +491,9 @@ public class CubeView extends View {
         for (int i = 0; i < ncell; i++) {
             for (int j = i + 1; j < ncell; j++) {
                 if (depth[order[i]] > depth[order[j]]) {
-                    int t = order[i];
+                    int tord = order[i];
                     order[i] = order[j];
-                    order[j] = t;
+                    order[j] = tord;
                 }
             }
         }
@@ -325,18 +515,22 @@ public class CubeView extends View {
     }
 
     private void drawCore(Canvas c, float cx, float cy, float k) {
-        float[] p = new float[3];
+        float[] p = new float[4];
         project(0, 0, 0, cx, cy, k, p);
-        fill.setColor(0xDCF22647);
-        float r = 0.14f * k;
-        c.drawRect(p[0] - r, p[1] - r, p[0] + r, p[1] + r, fill);
+        fill.setColor(0xD0FF141A);
+        float r = (mode == 0 ? 0.10f : 0.14f) * k * (mode == 0 ? p[3] : 1f);
+        if (mode == 0) {
+            c.drawCircle(p[0], p[1], r, fill);
+        } else {
+            c.drawRect(p[0] - r, p[1] - r, p[0] + r, p[1] + r, fill);
+        }
     }
 
     private void drawFocusCell(Canvas c, float cx, float cy, float k) {
         if (siteFocus < 0 || siteFocus >= nsite) {
             return;
         }
-        float[] p = new float[3];
+        float[] p = new float[4];
         project(siteX[siteFocus], siteY[siteFocus], siteZ[siteFocus], cx, cy, k, p);
         fill.setColor(0xFFFFD246);
         float r = 0.16f * k;
@@ -344,7 +538,7 @@ public class CubeView extends View {
     }
 
     private void drawSiteLabels(Canvas c, float cx, float cy, float k) {
-        float[] p = new float[3];
+        float[] p = new float[4];
         ink.setTextSize(22f);
         for (int i = 0; i < nsite; i++) {
             project(siteX[i], siteY[i], siteZ[i], cx, cy, k, p);
@@ -362,7 +556,7 @@ public class CubeView extends View {
     }
 
     private void drawElecLabels(Canvas c, float cx, float cy, float k) {
-        float[] p = new float[3];
+        float[] p = new float[4];
         ink.setTextSize(24f);
         for (int ch = 0; ch < NCHAN; ch++) {
             project(elecX[ch], elecY[ch], elecZ[ch], cx, cy, k, p);
@@ -417,7 +611,7 @@ public class CubeView extends View {
         for (int ch = 0; ch < 8; ch++) {
             int x = 16 + ch * (cell + 6);
             boolean on = ((smxFold >> ch) & 1) != 0;
-            fill.setColor(on ? (elecCol[ch] | 0xFF000000) : 0xFF2A1014);
+            fill.setColor(on ? SPIKE : 0xFF2A0508);
             c.drawRect(x, y, x + cell, y + cell, fill);
             ink.setColor(0xFFFFFFFF);
             ink.setTextSize(20f);
