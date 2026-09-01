@@ -471,5 +471,17 @@
                 android:layout_height="wrap_content"
                 android:text="MATCH" />
         </LinearLayout>
+
+        <HorizontalScrollView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingTop="4dp">
+
+            <LinearLayout
+                android:id="@+id/learnChips"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal" />
+        </HorizontalScrollView>
     </LinearLayout>
 </LinearLayout>

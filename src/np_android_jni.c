@@ -834,4 +834,61 @@ Java_com_abysscore_exgc_ExgNative_matchLine(JNIEnv *env, jclass cls)
         return jstr_from(env, line);
     }
 }
+
+JNIEXPORT jint JNICALL
+Java_com_abysscore_exgc_ExgNative_learnN(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    return np_host_learn_n();
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_abysscore_exgc_ExgNative_learnName(JNIEnv *env, jclass cls, jint i)
+{
+    char buf[24];
+    (void)cls;
+    np_host_learn_name(i, buf, sizeof(buf));
+    return jstr_from(env, buf);
+}
+
+JNIEXPORT jfloat JNICALL
+Java_com_abysscore_exgc_ExgNative_learnScore(JNIEnv *env, jclass cls, jint i)
+{
+    (void)env;
+    (void)cls;
+    return np_host_learn_score(i);
+}
+
+JNIEXPORT jint JNICALL
+Java_com_abysscore_exgc_ExgNative_learnBest(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    return np_host_learn_best();
+}
+
+JNIEXPORT jint JNICALL
+Java_com_abysscore_exgc_ExgNative_learnSel(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    return np_host_learn_sel();
+}
+
+JNIEXPORT void JNICALL
+Java_com_abysscore_exgc_ExgNative_learnSelect(JNIEnv *env, jclass cls, jint i)
+{
+    (void)env;
+    (void)cls;
+    np_host_learn_select(i);
+}
+
+JNIEXPORT void JNICALL
+Java_com_abysscore_exgc_ExgNative_learnDel(JNIEnv *env, jclass cls, jint i)
+{
+    (void)env;
+    (void)cls;
+    np_host_learn_del(i);
+}
 #endif

@@ -669,6 +669,7 @@ static void learn_save_named(void)
         return;
     }
     learn_persist();
+    g.learn.match = 1;
     {
         int nc = 0, b;
         for (b = 0; b < NPL_NCHAN; b++) {
@@ -5352,6 +5353,12 @@ void np_host_toggle_match(void)
     g.learn.match = !g.learn.match;
     if (!g.learn.match) {
         g.learn.best = -1;
+        set_status(1, "MATCH off — scores frozen");
+    } else if (g.learn.n < 1) {
+        set_status(0, "MATCH on — Record a pose first");
+    } else {
+        set_status(1, "MATCH on — scoring %d pose%s", g.learn.n,
+                   g.learn.n == 1 ? "" : "s");
     }
 }
 int np_host_match(void)
@@ -5380,6 +5387,27 @@ float np_host_learn_score(int i)
         return 0.f;
     }
     return g.learn.score[i];
+}
+int np_host_learn_sel(void)
+{
+    return g.learn.sel;
+}
+void np_host_learn_select(int i)
+{
+    if (i < 0 || i >= g.learn.n) {
+        return;
+    }
+    g.learn.sel = i;
+    snprintf(g.namebuf, sizeof(g.namebuf), "%s", g.learn.s[i].name);
+}
+void np_host_learn_del(int i)
+{
+    if (i < 0 || i >= g.learn.n) {
+        return;
+    }
+    npl_del(&g.learn, i);
+    learn_persist();
+    set_status(1, "deleted pose");
 }
 void np_host_set_profile(const char *s)
 {

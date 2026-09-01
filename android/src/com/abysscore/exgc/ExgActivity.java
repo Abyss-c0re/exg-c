@@ -54,6 +54,8 @@ public class ExgActivity extends Activity {
     private EditText learnName;
     private LinearLayout chGrid;
     private LinearLayout profChips;
+    private LinearLayout learnChips;
+    private int lastLearnN = -1;
     private int tab;
     private boolean running = true;
     private static final int REQ_EXPORT = 71;
@@ -122,6 +124,7 @@ public class ExgActivity extends Activity {
         learnName = findViewById(R.id.learnName);
         chGrid = findViewById(R.id.chGrid);
         profChips = findViewById(R.id.profChips);
+        learnChips = findViewById(R.id.learnChips);
 
         connect.setOnClickListener(v -> {
             if (ExgNative.connected()) {
@@ -186,6 +189,7 @@ public class ExgActivity extends Activity {
         record.setOnClickListener(v -> {
             ExgNative.setName(learnName.getText().toString().trim());
             ExgNative.record();
+            lastLearnN = -1;
             refreshChrome();
         });
         match.setOnClickListener(v -> {
@@ -271,6 +275,8 @@ public class ExgActivity extends Activity {
         profName.setText(ExgNative.getProfile());
         refreshProfiles();
         showTab(0);
+        lastLearnN = -1;
+        refreshLearnChips();
         h.post(tick);
         h.postDelayed(() -> {
             if (!ExgNative.connected()) {
@@ -357,20 +363,32 @@ public class ExgActivity extends Activity {
         status.setText(st);
         status.setTextColor(ExgNative.statusOk() ? 0xFF3CB46E : 0xFFF0A040);
         clean.setText(ExgNative.cleanOn() ? "CLN" : "cln");
-        match.setText(ExgNative.matchOn() ? "MATCH" : "match");
+        boolean matching = ExgNative.matchOn();
+        match.setText(matching ? "MATCH on" : "MATCH off");
+        match.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
+                matching ? 0xFF2E8A58 : 0xFF2A3038));
         String id = ExgNative.idLine();
         String now = ExgNative.matchLine();
         int rec = ExgNative.recMs();
+        int ln = ExgNative.learnN();
         if (rec > 0) {
             idLine.setText("do blink or clench…  " + ((rec + 99) / 1000) + "s  " + id);
             idLine.setTextColor(0xFFF0A040);
             record.setText("…");
         } else {
-            idLine.setText(now.length() > 0 ? id + "   " + now : id);
-            idLine.setTextColor(id.contains("clench") || id.contains("blink")
-                    ? 0xFF3CB46E : 0xFF8B93A0);
+            String extra = now.length() > 0 ? "   " + now
+                    : (ln == 0 ? "   type a name, Record a pose" : "");
+            idLine.setText(id + extra);
+            int best = ExgNative.learnBest();
+            float sc = best >= 0 ? ExgNative.learnScore(best) : 0f;
+            idLine.setTextColor(matching && sc >= 0.55f ? 0xFF3CB46E : 0xFF8B93A0);
             record.setText("Record");
         }
+        if (ln != lastLearnN) {
+            lastLearnN = ln;
+            rebuildLearnChips();
+        }
+        refreshLearnChips();
         int nh = ExgNative.notch();
         notch.setText(nh < 0 ? "notch AUTO" : (nh == 0 ? "notch off" : "notch " + nh));
         hp.setText(ExgNative.hp() == 0 ? "hp off" : "hp " + ExgNative.hp() + "Hz");
@@ -516,6 +534,63 @@ public class ExgActivity extends Activity {
             rld.setText(ExgNative.rld(ch) ? "RLD" : "rld");
             gn.setText("g" + ExgNative.gain(ch));
             ((TextView) row.getChildAt(0)).setTextColor(ExgNative.color(ch) | 0xFF000000);
+        }
+    }
+
+    private void rebuildLearnChips() {
+        learnChips.removeAllViews();
+        int n = ExgNative.learnN();
+        if (n < 1) {
+            TextView empty = new TextView(this);
+            empty.setText("no poses — type clench, Record, MATCH scores live vs that");
+            empty.setTextColor(0xFF8B93A0);
+            empty.setPadding(8, 16, 8, 8);
+            learnChips.addView(empty);
+            return;
+        }
+        for (int i = 0; i < n; i++) {
+            final int idx = i;
+            Button b = new Button(this);
+            b.setOnClickListener(v -> {
+                ExgNative.learnSelect(idx);
+                learnName.setText(ExgNative.learnName(idx));
+                refreshLearnChips();
+            });
+            b.setOnLongClickListener(v -> {
+                ExgNative.learnDel(idx);
+                lastLearnN = -1;
+                refreshChrome();
+                return true;
+            });
+            learnChips.addView(b);
+        }
+        refreshLearnChips();
+    }
+
+    private void refreshLearnChips() {
+        int n = ExgNative.learnN();
+        if (n < 1 || learnChips.getChildCount() != n) {
+            return;
+        }
+        boolean matching = ExgNative.matchOn();
+        int best = ExgNative.learnBest();
+        int sel = ExgNative.learnSel();
+        for (int i = 0; i < n; i++) {
+            android.view.View child = learnChips.getChildAt(i);
+            if (!(child instanceof Button)) {
+                continue;
+            }
+            Button b = (Button) child;
+            String name = ExgNative.learnName(i);
+            int pct = (int) (ExgNative.learnScore(i) * 100f);
+            if (matching) {
+                b.setText(name + "  " + pct + "%");
+            } else {
+                b.setText(name);
+            }
+            boolean hit = matching && i == best && pct >= 55;
+            int bg = hit ? 0xFF2E8A58 : (i == sel ? 0xFF5A1020 : 0xFF2A3038);
+            b.setBackgroundTintList(android.content.res.ColorStateList.valueOf(bg));
         }
     }
 

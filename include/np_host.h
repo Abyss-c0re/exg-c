@@ -49,6 +49,9 @@ int np_host_learn_n(void);
 int np_host_learn_best(void);
 void np_host_learn_name(int i, char *out, int n);
 float np_host_learn_score(int i);
+int np_host_learn_sel(void);
+void np_host_learn_select(int i);
+void np_host_learn_del(int i);
 
 void np_host_set_profile(const char *s);
 void np_host_get_profile(char *out, int n);

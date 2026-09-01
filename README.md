@@ -17,7 +17,7 @@ Not a medical device. Not affiliated with NeuroPawn.
 - Settings: time window, scale, notch, high-pass, **CAR**, **low-pass**, **detrend**, **envelope**
 - Band presets: `raw` / `line-kill` / `EEG` / `EMG`
 - CLIP gate — Record will not save a saturated window
-- Optional learn / match poses
+- Learn: **Record** a named pose, **MATCH** scores the live stream against those chips (green ≥ 55%)
 
 Default montage: Fp1 Fp2 C3 C4 P3 P4 O1 O2.
 

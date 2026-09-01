@@ -96,4 +96,11 @@ public final class ExgNative {
     public static native String idLine();
     public static native int recMs();
     public static native String matchLine();
+    public static native int learnN();
+    public static native String learnName(int i);
+    public static native float learnScore(int i);
+    public static native int learnBest();
+    public static native int learnSel();
+    public static native void learnSelect(int i);
+    public static native void learnDel(int i);
 }
