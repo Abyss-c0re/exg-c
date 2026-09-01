@@ -1,6 +1,6 @@
 # exg-c
 
-A host app for a **[Knight](https://neuropawn.io)** ADS1299 board — or any USB-serial dongle that speaks the same 8-channel stream (FTDI, CH340, CP210x, CDC ACM).
+A host app for a **[Knight](https://www.neuropawn.tech/)** ADS1299 board — or any USB-serial dongle that speaks the same 8-channel stream (FTDI, CH340, CP210x, CDC ACM).
 
 Plug the board in, watch eight traces, clean line noise, map sites on a cube, save a profile. One C host. Linux window or Android APK.
 
