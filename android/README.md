@@ -1,8 +1,9 @@
 # Android
 
-Same C host as `./np-exg` on Linux: 8-channel Knight EXG, CLEAN / NOISE /
-CALM, nplearn, 8³ cube, profiles. The UI is the desktop layout with
-larger buttons. Serial is USB Host, not `/dev/ttyUSB*`.
+Native Android UI on the same C host as `./np-exg`: 8-channel traces,
+cube, NOISE / CALM / CLEAN, nplearn, profiles. Serial is USB Host.
+Cal plates and profiles write into the **app files directory** — no
+storage permission is required.
 
 ## What you need
 
@@ -42,10 +43,11 @@ USB again, tap **Connect** once.
 
 ## Storage
 
-Linux `~/.config/exg-c*` becomes the app files directory:
+All of this is under `getFilesDir()` (no extra Android permission):
 
-- `exg-c.ini`
-- `exg-c.learn`
+- `exg-c.cal` — NOISE + CALM plates
+- `exg-c.ini` — last session
+- `exg-c.learn` — learn templates
 - `exg-c/profiles/<name>.ini`
 - CSV recordings (`knight-YYYYMMDD-HHMMSS.csv`)
 
@@ -63,7 +65,9 @@ Linux `~/.config/exg-c*` becomes the app files directory:
 | Path | Role |
 |------|------|
 | `CMakeLists.txt` | NDK: same `src/*.c` + `nplearn` + `np_serial_android.c` |
-| `src/com/abysscore/exgc/ExgActivity.java` | SDL activity |
-| `src/com/abysscore/exgc/UsbSerial.java` | USB Host serial (FTDI / CDC / CH340) |
-| `../src/np_serial_android.c` | JNI `np_serial_*` for the C host |
-| `../src/main.c` | Shared UI (`#ifdef __ANDROID__` for touch + paths) |
+| `src/com/abysscore/exgc/ExgActivity.java` | Native Android UI |
+| `src/com/abysscore/exgc/TraceView.java` | 8-channel plot |
+| `src/com/abysscore/exgc/CubeView.java` | 8³ cube |
+| `src/com/abysscore/exgc/ExgNative.java` | JNI to the C host |
+| `src/com/abysscore/exgc/UsbSerial.java` | USB Host serial |
+| `../src/np_android_jni.c` / `np_host.h` | Host API |

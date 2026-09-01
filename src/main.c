@@ -8,7 +8,12 @@
 #include "np_algo.h"
 #include "np_cube.h"
 #include "np_smx.h"
-#ifdef __ANDROID__
+#include "np_host.h"
+#ifdef NP_ANDROID_UI
+#include "sdl2_min.h"
+#include <android/log.h>
+#define NP_ALOG(...) __android_log_print(ANDROID_LOG_INFO, "exg-c", __VA_ARGS__)
+#elif defined(__ANDROID__)
 #include "SDL.h"
 #include "SDL_system.h"
 #include <android/log.h>
@@ -292,15 +297,57 @@ static void filt_reset(void)
     clean_seen = 0;
 }
 
-static void np_cfg_root(char *out, size_t n)
+static char g_files_dir[NP_MAX_PATH];
+
+void np_set_files_dir(const char *p)
 {
-#ifdef __ANDROID__
-    const char *p = SDL_AndroidGetInternalStoragePath();
     if (p && p[0]) {
-        snprintf(out, n, "%s", p);
+        snprintf(g_files_dir, sizeof(g_files_dir), "%s", p);
+    }
+}
+
+static void np_mkdir_p(const char *path)
+{
+    char buf[NP_MAX_PATH];
+    char *s;
+    if (!path || !path[0]) {
         return;
     }
+    snprintf(buf, sizeof(buf), "%s", path);
+    for (s = buf + 1; *s; s++) {
+        if (*s == '/') {
+            *s = 0;
+            mkdir(buf, 0755);
+            *s = '/';
+        }
+    }
+    mkdir(buf, 0755);
+}
+
+static void np_cfg_root(char *out, size_t n)
+{
+    if (g_files_dir[0]) {
+        snprintf(out, n, "%s", g_files_dir);
+        return;
+    }
+#if defined(__ANDROID__) && !defined(NP_ANDROID_UI)
+    {
+        const char *p = SDL_AndroidGetInternalStoragePath();
+        if (p && p[0]) {
+            snprintf(out, n, "%s", p);
+            return;
+        }
+    }
 #endif
+#ifdef __ANDROID__
+    {
+        const char *h = getenv("HOME");
+        if (h && h[0]) {
+            snprintf(out, n, "%s", h);
+            return;
+        }
+    }
+#else
     {
         const char *h = getenv("HOME");
         if (h && h[0]) {
@@ -308,6 +355,7 @@ static void np_cfg_root(char *out, size_t n)
             return;
         }
     }
+#endif
     snprintf(out, n, ".");
 }
 
@@ -2030,21 +2078,10 @@ static void ch_stats(const float *buf, uint32_t n, float *dc, float *rms, float 
 
 static void cal_path(char *out, size_t n)
 {
-    char exe[NP_MAX_PATH];
-    ssize_t k = readlink("/proc/self/exe", exe, sizeof(exe) - 1);
-    if (k > 0) {
-        char *slash;
-        exe[k] = 0;
-        slash = strrchr(exe, '/');
-        if (slash) {
-            *slash = 0;
-            if (strlen(exe) + 11 < n) {
-                snprintf(out, n, "%s/exg-c.cal", exe);
-                return;
-            }
-        }
-    }
-    snprintf(out, n, "exg-c.cal");
+    char root[NP_MAX_PATH];
+    np_cfg_root(root, sizeof(root));
+    np_mkdir_p(root);
+    snprintf(out, n, "%s/exg-c.cal", root);
 }
 
 static int cal_save(void)
@@ -4241,6 +4278,7 @@ static void present_cube(int x, int y, int w, int h)
     }
 }
 
+#ifndef NP_ANDROID_UI
 static int gfx_make_renderer(SDL_Window *win)
 {
     if (cube_tex) {
@@ -4549,6 +4587,7 @@ static int run_gui(void)
     SDL_Quit();
     return 0;
 }
+#endif /* !NP_ANDROID_UI */
 
 static int run_cli(const char *port, int seconds)
 {
@@ -4592,6 +4631,422 @@ static int run_cli(const char *port, int seconds)
     }
     do_disconnect();
     return 0;
+}
+
+static int host_ready;
+
+int np_host_start(const char *files_dir)
+{
+    int i;
+    if (host_ready) {
+        return 0;
+    }
+    np_set_files_dir(files_dir);
+    memset(&g, 0, sizeof(g));
+    g.fd = -1;
+    g.running = 1;
+    g.board = NP_BOARD_KNIGHT_IMU;
+    g.window_s = 2;
+    g.autoscale = 0;
+    g.og = 0;
+    g.scale_uv = 200;
+    g.notch_hz = 50;
+    g.hp_hz = 1;
+    g.detrend = 0;
+    g.cal_cut = 1;
+    g.grid = 1;
+    g.show_uv = 1;
+    g.ui_scale = 15;
+    g.pref_w = 1280;
+    g.pref_h = 720;
+    g.cube_yaw = 0.55f;
+    g.cube_pitch = 0.40f;
+    g.cube_zoom = 1.0f;
+    snprintf(g.prof, sizeof(g.prof), "default");
+    np_elec_default(g.elec);
+    for (i = 0; i < NP_NCHAN; i++) {
+        g.gain[i] = 12;
+        g.active[i] = 1;
+        g.rld[i] = 1;
+        g.chrgb[i][0] = CHCOL[i][0];
+        g.chrgb[i][1] = CHCOL[i][1];
+        g.chrgb[i][2] = CHCOL[i][2];
+    }
+    {
+        char root[NP_MAX_PATH];
+        np_cfg_root(root, sizeof(root));
+        np_mkdir_p(root);
+        np_mkdir_p(root);
+        {
+            char pdir[NP_MAX_PATH];
+            snprintf(pdir, sizeof(pdir), "%s/exg-c/profiles", root);
+            np_mkdir_p(pdir);
+        }
+    }
+    cfg_load();
+    prof_scan();
+    filt_reset();
+    pthread_mutex_init(&g.mu, NULL);
+    pthread_mutex_init(&g.qmu, NULL);
+    pthread_mutex_init(&g.csv_mu, NULL);
+    pthread_mutex_init(&g.parse_mu, NULL);
+    pthread_cond_init(&g.qcv, NULL);
+    np_ring_init(&g.ring);
+    np_smx_init(&g.smx);
+    snprintf(g.cube_ack, sizeof(g.cube_ack), "offer off");
+    npl_init(&g.learn);
+    {
+        char lp[NP_MAX_PATH];
+        learn_path(lp, sizeof(lp));
+        npl_load(&g.learn, lp);
+    }
+    cal_load();
+    if (pthread_create(&g.cmd_thr, NULL, cmd_thread, NULL) != 0) {
+        return -1;
+    }
+    g.nports = np_list_ports(g.ports, NP_MAX_PORTS);
+    host_ready = 1;
+    set_status(1, g.nports ? "ready - tap Connect" : "plug Knight, grant USB, tap Connect");
+    return 0;
+}
+
+void np_host_shutdown(void)
+{
+    if (!host_ready) {
+        return;
+    }
+    g.running = 0;
+    pthread_cond_signal(&g.qcv);
+    pthread_join(g.cmd_thr, NULL);
+    do_disconnect();
+    host_ready = 0;
+}
+
+void np_host_tick(void)
+{
+    if (!host_ready) {
+        return;
+    }
+    learn_tick();
+    if (g.connected && !g.en_running) {
+        uint64_t tot = 0;
+        uint32_t now = SDL_GetTicks();
+        np_ring_stats(&g.ring, &tot, NULL, NULL);
+        if (tot != g.stall_tot) {
+            g.stall_tot = tot;
+            g.stall_t = now;
+            g.stall_n = 0;
+            if (g.recover_n && tot > 50) {
+                g.recover_n = 0;
+            }
+        } else if (g.stall_t && now - g.stall_t > 4000) {
+            stream_recover();
+            g.stall_t = now;
+        }
+    }
+}
+
+int np_host_connect(void)
+{
+    do_connect();
+    return g.connected;
+}
+void np_host_disconnect(void)
+{
+    do_disconnect();
+}
+int np_host_connected(void)
+{
+    return g.connected;
+}
+void np_host_status(char *out, int n)
+{
+    pthread_mutex_lock(&g.mu);
+    snprintf(out, (size_t)n, "%s", g.status);
+    pthread_mutex_unlock(&g.mu);
+}
+int np_host_status_ok(void)
+{
+    return g.status_ok;
+}
+float np_host_sps(void)
+{
+    return g.sps > 1.f ? g.sps : 0.f;
+}
+unsigned int np_host_frames(void)
+{
+    uint64_t tot = 0;
+    np_ring_stats(&g.ring, &tot, NULL, NULL);
+    return (unsigned int)tot;
+}
+int np_host_copy_wave(int ch, float *dst, int max)
+{
+    if (ch < 0 || ch >= NP_NCHAN || !dst || max < 8) {
+        return 0;
+    }
+    return (int)view_copy(ch, dst, (uint32_t)max);
+}
+int np_host_scale_uv(void)
+{
+    return g.scale_uv;
+}
+void np_host_cycle_scale(void)
+{
+    int k;
+    for (k = 0; k < NSCALE; k++) {
+        if (SCALE_UV[k] == g.scale_uv) {
+            g.scale_uv = SCALE_UV[(k + 1) % NSCALE];
+            cfg_save();
+            return;
+        }
+    }
+    g.scale_uv = 200;
+}
+int np_host_paused(void)
+{
+    return g.paused;
+}
+void np_host_toggle_pause(void)
+{
+    g.paused = !g.paused;
+}
+void np_host_set_active(int ch, int on)
+{
+    if (ch < 0 || ch >= NP_NCHAN) {
+        return;
+    }
+    g.active[ch] = on ? 1 : 0;
+    if (g.connected) {
+        cmd_push(g.active[ch] ? CMD_CHON : CMD_CHOFF, ch + 1, g.gain[ch]);
+    }
+}
+void np_host_set_rld(int ch, int on)
+{
+    if (ch < 0 || ch >= NP_NCHAN) {
+        return;
+    }
+    g.rld[ch] = on ? 1 : 0;
+    if (g.connected) {
+        cmd_push(g.rld[ch] ? CMD_RLDADD : CMD_RLDRM, ch + 1, 0);
+    }
+}
+void np_host_cycle_gain(int ch)
+{
+    if (ch < 0 || ch >= NP_NCHAN) {
+        return;
+    }
+    next_gain(ch);
+    pthread_mutex_lock(&g.parse_mu);
+    np_parser_set_gain(&g.parser, ch + 1, g.gain[ch]);
+    pthread_mutex_unlock(&g.parse_mu);
+    if (g.connected && g.active[ch]) {
+        cmd_push(CMD_CHON, ch + 1, g.gain[ch]);
+    }
+    cfg_save();
+}
+int np_host_active(int ch)
+{
+    return (ch >= 0 && ch < NP_NCHAN) ? g.active[ch] : 0;
+}
+int np_host_rld(int ch)
+{
+    return (ch >= 0 && ch < NP_NCHAN) ? g.rld[ch] : 0;
+}
+int np_host_gain(int ch)
+{
+    return (ch >= 0 && ch < NP_NCHAN) ? g.gain[ch] : 12;
+}
+void np_host_color(int ch, int *r, int *gcol, int *b)
+{
+    if (ch < 0 || ch >= NP_NCHAN) {
+        return;
+    }
+    if (r) {
+        *r = g.chrgb[ch][0];
+    }
+    if (gcol) {
+        *gcol = g.chrgb[ch][1];
+    }
+    if (b) {
+        *b = g.chrgb[ch][2];
+    }
+}
+void np_host_noise_arm(void)
+{
+    g.cal_arm = 1;
+    set_status(1, "NOISE: board on desk / headset off, then OK");
+}
+void np_host_noise_ok(void)
+{
+    if (!g.cal_arm) {
+        set_status(0, "tap NOISE first, then OK");
+        return;
+    }
+    cal_capture();
+    g.cal_cut = 1;
+    cfg_save();
+}
+void np_host_calm(void)
+{
+    calm_capture();
+}
+void np_host_toggle_clean(void)
+{
+    g.cal_cut = !g.cal_cut;
+    cfg_save();
+}
+int np_host_cal_have(void)
+{
+    return g.cal.have;
+}
+int np_host_calm_have(void)
+{
+    return g.calm.have;
+}
+int np_host_clean(void)
+{
+    return g.cal_cut;
+}
+void np_host_set_name(const char *s)
+{
+    snprintf(g.namebuf, sizeof(g.namebuf), "%s", s ? s : "");
+}
+void np_host_get_name(char *out, int n)
+{
+    snprintf(out, (size_t)n, "%s", g.namebuf);
+}
+void np_host_record(void)
+{
+    if (g.rec_t0) {
+        g.rec_t0 = 0;
+        set_status(1, "record cancelled");
+    } else {
+        learn_start_hold();
+    }
+}
+void np_host_toggle_match(void)
+{
+    g.learn.match = !g.learn.match;
+    if (!g.learn.match) {
+        g.learn.best = -1;
+    }
+}
+int np_host_match(void)
+{
+    return g.learn.match;
+}
+int np_host_learn_n(void)
+{
+    return g.learn.n;
+}
+int np_host_learn_best(void)
+{
+    return g.learn.best;
+}
+void np_host_learn_name(int i, char *out, int n)
+{
+    if (i < 0 || i >= g.learn.n) {
+        out[0] = 0;
+        return;
+    }
+    snprintf(out, (size_t)n, "%s", g.learn.s[i].name);
+}
+float np_host_learn_score(int i)
+{
+    if (i < 0 || i >= g.learn.n) {
+        return 0.f;
+    }
+    return g.learn.score[i];
+}
+void np_host_set_profile(const char *s)
+{
+    if (s && prof_ok_name(s)) {
+        snprintf(g.prof, sizeof(g.prof), "%s", s);
+    }
+}
+void np_host_get_profile(char *out, int n)
+{
+    snprintf(out, (size_t)n, "%s", g.prof);
+}
+int np_host_prof_save(void)
+{
+    prof_save();
+    return prof_ok_name(g.prof) ? 0 : -1;
+}
+int np_host_prof_load(void)
+{
+    prof_load();
+    return 0;
+}
+int np_host_prof_count(void)
+{
+    prof_scan();
+    return g.nprof;
+}
+void np_host_prof_at(int i, char *out, int n)
+{
+    prof_scan();
+    if (i < 0 || i >= g.nprof) {
+        out[0] = 0;
+        return;
+    }
+    snprintf(out, (size_t)n, "%s", g.profiles[i]);
+}
+void np_host_ports(char *out, int n)
+{
+    int i, off = 0;
+    g.nports = np_list_ports(g.ports, NP_MAX_PORTS);
+    out[0] = 0;
+    for (i = 0; i < g.nports && off < n - 2; i++) {
+        off += snprintf(out + off, (size_t)(n - off), "%s%s", i ? "\n" : "", g.ports[i]);
+    }
+}
+void np_host_cycle_port(void)
+{
+    g.nports = np_list_ports(g.ports, NP_MAX_PORTS);
+    if (g.nports) {
+        g.port_i = (g.port_i + 1) % g.nports;
+    }
+}
+void np_host_copy_cube(unsigned char dst[512])
+{
+    memcpy(dst, g.smx.cube, 512);
+}
+int np_host_notch(void)
+{
+    return g.notch_hz;
+}
+int np_host_hp(void)
+{
+    return g.hp_hz;
+}
+void np_host_cycle_notch(void)
+{
+    if (g.notch_hz == 50) {
+        g.notch_hz = 60;
+    } else if (g.notch_hz == 60) {
+        g.notch_hz = 0;
+    } else if (g.notch_hz == 0) {
+        g.notch_hz = -1;
+    } else {
+        g.notch_hz = 50;
+    }
+    filt_reset();
+    cfg_save();
+}
+void np_host_cycle_hp(void)
+{
+    static const int hp[] = {0, 1, 2, 5};
+    int k;
+    for (k = 0; k < 4; k++) {
+        if (hp[k] == g.hp_hz) {
+            g.hp_hz = hp[(k + 1) % 4];
+            filt_reset();
+            cfg_save();
+            return;
+        }
+    }
+    g.hp_hz = 1;
 }
 
 static void usage(const char *a0)
@@ -4695,8 +5150,15 @@ int main(int argc, char **argv)
         }
     }
 
+#ifdef NP_ANDROID_UI
+    (void)cli;
+    (void)port;
+    (void)seconds;
+    return 0;
+#else
     if (cli) {
         return run_cli(port, seconds);
     }
     return run_gui();
+#endif
 }

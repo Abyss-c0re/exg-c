@@ -1,12 +1,15 @@
 #ifdef __ANDROID__
 #include "np_serial.h"
 
+#ifndef NP_ANDROID_UI
 #include "SDL.h"
 #include "SDL_system.h"
+#endif
 
 #include <android/log.h>
 #include <jni.h>
 #include <pthread.h>
+#include <stdio.h>
 #include <string.h>
 
 #define TAG "exg-c"
@@ -20,6 +23,13 @@ static jmethodID m_list, m_open, m_close, m_read, m_write, m_dtr, m_flush;
 static int bound;
 static int open_ok;
 
+void np_serial_set_vm(JavaVM *vm)
+{
+    if (vm) {
+        jvm = vm;
+    }
+}
+
 static JNIEnv *env_now(void)
 {
     JNIEnv *env = NULL;
@@ -31,10 +41,12 @@ static JNIEnv *env_now(void)
             return env;
         }
     }
+#ifndef NP_ANDROID_UI
     env = (JNIEnv *)SDL_AndroidGetJNIEnv();
     if (env && !jvm) {
         (*env)->GetJavaVM(env, &jvm);
     }
+#endif
     return env;
 }
 

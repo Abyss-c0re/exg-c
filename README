@@ -40,9 +40,10 @@ Desktop entry: `np-exg.desktop` (put `np-exg` on `$PATH`, or edit `Exec=`).
 
 ## Android
 
-Same C host as Linux. UI is the same layout with larger hit targets.
-Serial is Android USB Host (Knight FTDI `0403:6001`, plus CH340 / CP210x /
-CDC ACM). Profiles and learn files live in the app files dir.
+Native Android UI on the same C host. Serial is USB Host (Knight FTDI
+`0403:6001`, plus CH340 / CP210x / CDC ACM). Cal plates (`exg-c.cal`),
+profiles, and learn files live in the **app files directory** — Android
+does not need storage permission for that.
 
 ```
 # Android SDK + NDK + cmake + javac on $PATH (or $ANDROID_HOME)

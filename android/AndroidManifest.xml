@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.abysscore.exgc"
-    android:versionCode="3"
-    android:versionName="1.2-titan">
+    android:versionCode="4"
+    android:versionName="2.0-ui">
 
     <uses-sdk android:minSdkVersion="28" android:targetSdkVersion="34" />
     <uses-feature android:name="android.hardware.usb.host" android:required="false" />
@@ -17,13 +17,12 @@
         android:extractNativeLibs="true"
         android:hardwareAccelerated="true"
         android:usesCleartextTraffic="true"
-        android:theme="@android:style/Theme.NoTitleBar.Fullscreen">
+        android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
 
         <activity
             android:name=".ExgActivity"
             android:exported="true"
             android:launchMode="singleTask"
-            android:screenOrientation="fullSensor"
             android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|uiMode|density"
             android:windowSoftInputMode="adjustResize|stateHidden">
             <intent-filter>

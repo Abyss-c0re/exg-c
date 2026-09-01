@@ -2,18 +2,12 @@ cmake_minimum_required(VERSION 3.18)
 project(exg-c-android C)
 
 set(EXG_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/..")
-set(SDL2_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/SDL2")
 
-set(SDL_SHARED ON CACHE BOOL "" FORCE)
-set(SDL_STATIC OFF CACHE BOOL "" FORCE)
-set(SDL_TEST OFF CACHE BOOL "" FORCE)
-set(SDL2_DISABLE_INSTALL ON CACHE BOOL "" FORCE)
-set(SDL_SENSOR OFF CACHE BOOL "" FORCE)
-add_subdirectory("${SDL2_DIR}" "${CMAKE_BINARY_DIR}/sdl2")
-
-add_library(main SHARED
+add_library(exg SHARED
     ${EXG_ROOT}/src/main.c
     ${EXG_ROOT}/src/np_serial_android.c
+    ${EXG_ROOT}/src/np_android_jni.c
+    ${EXG_ROOT}/src/sdl_stub.c
     ${EXG_ROOT}/src/np_knight.c
     ${EXG_ROOT}/src/np_ring.c
     ${EXG_ROOT}/src/np_dsp.c
@@ -25,28 +19,24 @@ add_library(main SHARED
     ${EXG_ROOT}/nplearn/src/nplearn_posix.c
 )
 
-target_include_directories(main PRIVATE
+target_include_directories(exg PRIVATE
     ${EXG_ROOT}/include
     ${EXG_ROOT}/src
     ${EXG_ROOT}/nplearn/include
 )
 
-target_compile_definitions(main PRIVATE
+target_compile_definitions(exg PRIVATE
     _DEFAULT_SOURCE
     NPL_POSIX
     __ANDROID__
+    NP_ANDROID_UI
 )
 
-target_compile_options(main PRIVATE -std=c11 -O2 -Wall -Wextra -fPIC)
+target_compile_options(exg PRIVATE -std=c11 -O2 -Wall -Wextra -fPIC)
 
-if(TARGET SDL2main)
-    target_link_libraries(main SDL2main)
-endif()
-target_link_libraries(main
-    SDL2
+target_link_libraries(exg
     android
     log
     m
     dl
 )
-target_link_options(main PRIVATE -Wl,-u,SDL_main)

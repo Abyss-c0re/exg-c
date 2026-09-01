@@ -1,0 +1,266 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/bg"
+    android:orientation="vertical">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@color/panel"
+        android:gravity="center_vertical"
+        android:padding="8dp">
+
+        <TextView
+            android:id="@+id/title"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:paddingEnd="12dp"
+            android:text="exg-c"
+            android:textColor="@color/ink"
+            android:textSize="20sp"
+            android:textStyle="bold" />
+
+        <Button
+            android:id="@+id/port"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:backgroundTint="@color/btn"
+            android:text="(no port)"
+            android:textColor="@color/ink" />
+
+        <Button
+            android:id="@+id/connect"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:backgroundTint="@color/ok"
+            android:text="Connect"
+            android:textColor="@color/ink" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/status"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="#12141A"
+        android:ellipsize="end"
+        android:maxLines="2"
+        android:padding="8dp"
+        android:text="starting…"
+        android:textColor="@color/ok"
+        android:textSize="13sp" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@color/panel">
+
+        <Button
+            android:id="@+id/tabMain"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:backgroundTint="#24322C"
+            android:text="Main"
+            android:textColor="@color/ink" />
+
+        <Button
+            android:id="@+id/tabCube"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:backgroundTint="@color/btn"
+            android:text="Cube"
+            android:textColor="@color/ink" />
+
+        <Button
+            android:id="@+id/tabSet"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:backgroundTint="@color/btn"
+            android:text="Settings"
+            android:textColor="@color/ink" />
+    </LinearLayout>
+
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1">
+
+        <com.abysscore.exgc.TraceView
+            android:id="@+id/traces"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent" />
+
+        <com.abysscore.exgc.CubeView
+            android:id="@+id/cube"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:visibility="gone" />
+
+        <ScrollView
+            android:id="@+id/settings"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:visibility="gone">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="12dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Profile (saved in app files, no extra permission)"
+                    android:textColor="@color/muted" />
+
+                <EditText
+                    android:id="@+id/profName"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:hint="e.g. motor"
+                    android:inputType="text"
+                    android:textColor="@color/ink"
+                    android:textColorHint="@color/muted" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content">
+
+                    <Button
+                        android:id="@+id/profSave"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="Save" />
+
+                    <Button
+                        android:id="@+id/profLoad"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="Load" />
+
+                    <Button
+                        android:id="@+id/profNext"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="Next" />
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/profList"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:paddingTop="8dp"
+                    android:textColor="@color/ink" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:paddingTop="12dp">
+
+                    <Button
+                        android:id="@+id/notch"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="notch" />
+
+                    <Button
+                        android:id="@+id/hp"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="hp" />
+
+                    <Button
+                        android:id="@+id/scale"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="scale" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/chGrid"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:paddingTop="12dp" />
+            </LinearLayout>
+        </ScrollView>
+    </FrameLayout>
+
+    <LinearLayout
+        android:id="@+id/learnBar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@color/panel"
+        android:gravity="center_vertical"
+        android:orientation="vertical"
+        android:padding="8dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content">
+
+            <Button
+                android:id="@+id/noise"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="NOISE" />
+
+            <Button
+                android:id="@+id/noiseOk"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="OK" />
+
+            <Button
+                android:id="@+id/calm"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="CALM" />
+
+            <Button
+                android:id="@+id/clean"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="CLN" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content">
+
+            <EditText
+                android:id="@+id/learnName"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:hint="learn name"
+                android:inputType="text"
+                android:textColor="@color/ink"
+                android:textColorHint="@color/muted" />
+
+            <Button
+                android:id="@+id/record"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Record" />
+
+            <Button
+                android:id="@+id/match"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="MATCH" />
+        </LinearLayout>
+    </LinearLayout>
+</LinearLayout>
