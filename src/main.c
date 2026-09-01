@@ -3630,16 +3630,16 @@ static int draw_view_block(int x, int y)
     btn(x + 152, y, 136, bh, g.detrend ? "detrend" : "raw DC", g.detrend, 21, 0, 36, 40, 48);
     y += rh;
     snprintf(b, sizeof(b), "band %s", np_band_name(g.band));
-    btn(x + 12, y, 136, bh, b, g.band != 0, 22, 0, 36, 40, 48);
-    btn(x + 152, y, 136, bh, g.car ? "CAR on" : "CAR off", g.car, 23, 0, 36, 40, 48);
+    btn(x + 12, y, 136, bh, b, g.band != 0, 60, 0, 36, 40, 48);
+    btn(x + 152, y, 136, bh, g.car ? "CAR on" : "CAR off", g.car, 61, 0, 36, 40, 48);
     y += rh;
     if (g.lp_hz) {
         snprintf(b, sizeof(b), "lp %dHz", g.lp_hz);
     } else {
         snprintf(b, sizeof(b), "lp off");
     }
-    btn(x + 12, y, 136, bh, b, g.lp_hz != 0, 24, 0, 36, 40, 48);
-    btn(x + 152, y, 136, bh, g.envelope ? "envelope" : "wave", g.envelope, 25, 0, 36, 40, 48);
+    btn(x + 12, y, 136, bh, b, g.lp_hz != 0, 62, 0, 36, 40, 48);
+    btn(x + 152, y, 136, bh, g.envelope ? "envelope" : "wave", g.envelope, 63, 0, 36, 40, 48);
     return y + rh;
 }
 
@@ -4231,16 +4231,16 @@ static void click(int x, int y)
         case 12:
             np_host_cycle_hp();
             break;
-        case 22:
+        case 60:
             np_host_cycle_band();
             break;
-        case 23:
+        case 61:
             np_host_toggle_car();
             break;
-        case 24:
+        case 62:
             np_host_cycle_lp();
             break;
-        case 25:
+        case 63:
             np_host_toggle_envelope();
             break;
         case 13:
