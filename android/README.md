@@ -49,7 +49,12 @@ USB again, tap **Connect** once.
 profile on Downloads, Drive, or a USB stick — still no storage permission.
 
 **win** cycles the plot window (1 / 2 / 4 / 8 s), same as the Linux
-Settings **win Ns** button. Scale, notch, and high-pass sit next to it.
+Settings **win Ns** button.
+
+**band** cycles `raw` → `line-kill` (notch+CAR+hp1) → `EEG` (+lp 40) →
+`EMG` (hp 20 + envelope). **CAR** subtracts the mean of non-clip
+channels. **envelope** plots 150 ms RMS. **detrend** hides DC.
+Record refuses a **CLIP** window (≥ 4 mV).
 
 Names: letters, digits, `-`, `_`.
 

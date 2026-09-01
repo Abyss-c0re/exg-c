@@ -434,6 +434,94 @@ Java_com_abysscore_exgc_ExgNative_hp(JNIEnv *env, jclass cls)
     return np_host_hp();
 }
 
+JNIEXPORT jint JNICALL
+Java_com_abysscore_exgc_ExgNative_lp(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    return np_host_lp();
+}
+
+JNIEXPORT void JNICALL
+Java_com_abysscore_exgc_ExgNative_cycleLp(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    np_host_cycle_lp();
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_abysscore_exgc_ExgNative_car(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    return np_host_car() ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT void JNICALL
+Java_com_abysscore_exgc_ExgNative_toggleCar(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    np_host_toggle_car();
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_abysscore_exgc_ExgNative_detrend(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    return np_host_detrend() ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT void JNICALL
+Java_com_abysscore_exgc_ExgNative_toggleDetrend(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    np_host_toggle_detrend();
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_abysscore_exgc_ExgNative_envelope(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    return np_host_envelope() ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT void JNICALL
+Java_com_abysscore_exgc_ExgNative_toggleEnvelope(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    np_host_toggle_envelope();
+}
+
+JNIEXPORT jint JNICALL
+Java_com_abysscore_exgc_ExgNative_band(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    return np_host_band();
+}
+
+JNIEXPORT void JNICALL
+Java_com_abysscore_exgc_ExgNative_cycleBand(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    np_host_cycle_band();
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_abysscore_exgc_ExgNative_clipped(JNIEnv *env, jclass cls, jint ch)
+{
+    (void)env;
+    (void)cls;
+    return np_host_ch_clip(ch) ? JNI_TRUE : JNI_FALSE;
+}
+
 JNIEXPORT void JNICALL
 Java_com_abysscore_exgc_ExgNative_togglePause(JNIEnv *env, jclass cls)
 {

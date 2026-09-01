@@ -111,6 +111,10 @@ struct np_app {
     int scale_uv;
     int notch_hz;
     int hp_hz;
+    int lp_hz;
+    int car;
+    int envelope;
+    int band;
     int grid;
     int paused;
     int show_uv;
@@ -120,6 +124,8 @@ struct np_app {
     struct timespec sps_t;
     struct np_hp hp[NP_NCHAN];
     struct np_notch notch[NP_NCHAN];
+    struct np_lp lp[NP_NCHAN];
+    struct np_lp env[NP_NCHAN];
     struct npl learn;
     int typing;
     char namebuf[NPL_NAME];
@@ -226,6 +232,8 @@ static float ui_f(void)
 static void set_status(int ok, const char *fmt, ...);
 static void typing_set(int on);
 static void apply_filt(int ch, float *buf, uint32_t n);
+static void cook_all(float buf[NP_NCHAN][NP_RING], uint32_t nn[NP_NCHAN], uint32_t want);
+static void band_apply(int band);
 static void present_cube(int x, int y, int w, int h);
 static void ch_stats(const float *buf, uint32_t n, float *dc, float *rms, float *pk);
 static void cmd_push(int op, int ch, int gain);
@@ -271,6 +279,7 @@ static uint64_t live_seen;
 static int live_sig = -1;
 static uint32_t live_wr;
 static float live_ch[NP_NCHAN][NP_RING];
+static int last_clip[NP_NCHAN];
 static uint32_t clean_t;
 static uint64_t clean_seen;
 static uint32_t clean_n[NP_NCHAN];
@@ -278,7 +287,8 @@ static float clean_ch[NP_NCHAN][NP_RING];
 
 static int filt_sig(void)
 {
-    return g.hp_hz + (g.notch_hz + 3) * 97 + (int)(notch_hz_eff() * 10.f) + g.cal_cut * 10007;
+    return g.hp_hz + (g.notch_hz + 3) * 97 + (int)(notch_hz_eff() * 10.f) + g.cal_cut * 10007 +
+           g.lp_hz * 13 + g.car * 17 + g.envelope * 19 + g.band * 23;
 }
 
 static void filt_reset(void)
@@ -290,6 +300,8 @@ static void filt_reset(void)
         np_hp_init(&g.hp[i], (float)g.hp_hz, sps);
         /* AUTO uses the cal tone as a cheap IIR — not a per-frame LS fit. */
         np_notch_init(&g.notch[i], nh > 1.f ? nh : 0.f, sps, 30.f);
+        np_lp_init(&g.lp[i], (float)g.lp_hz, sps);
+        np_env_init(&g.env[i], 0.15f, sps);
     }
     live_seen = 0;
     live_wr = 0;
@@ -452,9 +464,11 @@ static int site_is_fp(int ch)
 static int stream_id(float *ratio)
 {
     float rms[NP_NCHAN], calm[NP_NCHAN];
+    float buf[NP_NCHAN][NP_RING];
+    uint32_t nn[NP_NCHAN];
     int fp[NP_NCHAN];
     uint8_t mask = 0;
-    int c;
+    int c, nclip = 0;
     uint32_t want = (uint32_t)(0.50f * design_sps());
 
     if (ratio) {
@@ -466,18 +480,29 @@ static int stream_id(float *ratio)
     memset(rms, 0, sizeof(rms));
     memset(calm, 0, sizeof(calm));
     memset(fp, 0, sizeof(fp));
+    memset(nn, 0, sizeof(nn));
     for (c = 0; c < NP_NCHAN; c++) {
-        float buf[NP_RING], dc = 0, pk = 0;
-        uint32_t n;
         if (!g.active[c]) {
             continue;
         }
-        n = np_ring_copy(&g.ring, c, buf, want);
-        if (n < 16) {
+        nn[c] = np_ring_copy(&g.ring, c, buf[c], want);
+        if (nn[c] >= 16 && np_window_clip(buf[c], (int)nn[c])) {
+            nclip++;
+        }
+    }
+    if (nclip >= 1) {
+        if (ratio) {
+            *ratio = (float)nclip;
+        }
+        return NP_ID_CLIP;
+    }
+    cook_all(buf, nn, want);
+    for (c = 0; c < NP_NCHAN; c++) {
+        float dc = 0, pk = 0;
+        if (!g.active[c] || nn[c] < 16) {
             continue;
         }
-        apply_filt(c, buf, n);
-        ch_stats(buf, n, &dc, &rms[c], &pk);
+        ch_stats(buf[c], nn[c], &dc, &rms[c], &pk);
         calm[c] = g.calm.have ? g.calm.rms[c] : 0.f;
         fp[c] = site_is_fp(c);
         mask |= (uint8_t)(1u << c);
@@ -493,6 +518,8 @@ static void id_label(char *out, int n)
         snprintf(out, (size_t)n, "ID need CALM");
     } else if (id == NP_ID_RAIL) {
         snprintf(out, (size_t)n, "ID rail");
+    } else if (id == NP_ID_CLIP) {
+        snprintf(out, (size_t)n, "ID CLIP");
     } else if (id == NP_ID_NONE) {
         snprintf(out, (size_t)n, "ID —");
     } else {
@@ -504,10 +531,12 @@ static void id_label(char *out, int n)
  * mixed still+noise is why MATCH could not tell a blink from leftover. */
 static int learn_capture(float wave[NPL_NCHAN][NPL_LEN], float rms[NPL_NCHAN], uint8_t *mask)
 {
-    int c, have = 0;
+    int c, have = 0, clip = 0;
     float sps = g.sps > 1.f ? g.sps : (float)NP_DEFAULT_SPS;
     uint32_t want = (uint32_t)(LEARN_S * sps);
     float notch = notch_hz_eff();
+    float buf[NP_NCHAN][NP_RING];
+    uint32_t nn[NP_NCHAN];
     *mask = 0;
     memset(wave, 0, (size_t)NPL_NCHAN * NPL_LEN * sizeof(float));
     memset(rms, 0, NPL_NCHAN * sizeof(float));
@@ -518,18 +547,25 @@ static int learn_capture(float wave[NPL_NCHAN][NPL_LEN], float rms[NPL_NCHAN], u
         want = NP_RING;
     }
     for (c = 0; c < NPL_NCHAN; c++) {
-        float buf[NP_RING];
-        uint32_t n;
+        nn[c] = 0;
         if (!g.active[c]) {
             continue;
         }
         have = 1;
-        n = np_ring_copy(&g.ring, c, buf, want);
-        if (n < 16) {
+        nn[c] = np_ring_copy(&g.ring, c, buf[c], want);
+        if (nn[c] >= 16 && np_window_clip(buf[c], (int)nn[c])) {
+            clip = 1;
+        }
+    }
+    if (clip) {
+        return -3;
+    }
+    cook_all(buf, nn, want);
+    for (c = 0; c < NPL_NCHAN; c++) {
+        if (nn[c] < 16) {
             continue;
         }
-        apply_filt(c, buf, n);
-        if (npl_prep(wave[c], &rms[c], buf, (int)n, sps, notch) == 0) {
+        if (npl_prep(wave[c], &rms[c], buf[c], (int)nn[c], sps, notch) == 0) {
             *mask |= (uint8_t)(1u << c);
         }
     }
@@ -601,6 +637,10 @@ static void learn_save_named(void)
     err = learn_capture(wave, rms, &mask);
     if (err == -1) {
         set_status(0, "no samples yet - wait for the stream");
+        return;
+    }
+    if (err == -3) {
+        set_status(0, "CLIP — sat. Don't record a rail.");
         return;
     }
     if (err != 0) {
@@ -691,6 +731,13 @@ static void learn_hold_tick(void)
     now = SDL_GetTicks();
     dt = (int)(now - g.rec_t0);
     id = stream_id(&ratio);
+    if (id == NP_ID_CLIP) {
+        if (dt >= (int)REC_MS) {
+            g.rec_t0 = 0;
+            set_status(0, "CLIP — sat. Don't record that.");
+        }
+        return;
+    }
     if (dt >= 280 &&
         (id == NP_ID_BLINK || id == NP_ID_CLENCH || id == NP_ID_BURST)) {
         g.rec_t0 = 0;
@@ -782,6 +829,10 @@ static int cfg_write(const char *path)
     fprintf(f, "scale_uv=%d\n", g.scale_uv);
     fprintf(f, "notch_hz=%d\n", g.notch_hz);
     fprintf(f, "hp_hz=%d\n", g.hp_hz);
+    fprintf(f, "lp_hz=%d\n", g.lp_hz);
+    fprintf(f, "car=%d\n", g.car ? 1 : 0);
+    fprintf(f, "envelope=%d\n", g.envelope ? 1 : 0);
+    fprintf(f, "band=%d\n", g.band);
     fprintf(f, "grid=%d\n", g.grid);
     fprintf(f, "show_uv=%d\n", g.show_uv);
     fprintf(f, "detrend=%d\n", g.detrend);
@@ -838,6 +889,14 @@ static int cfg_read(const char *path)
             g.notch_hz = v;
         } else if (sscanf(line, "hp_hz=%d", &v) == 1) {
             g.hp_hz = v;
+        } else if (sscanf(line, "lp_hz=%d", &v) == 1) {
+            g.lp_hz = v;
+        } else if (sscanf(line, "car=%d", &v) == 1) {
+            g.car = v ? 1 : 0;
+        } else if (sscanf(line, "envelope=%d", &v) == 1) {
+            g.envelope = v ? 1 : 0;
+        } else if (sscanf(line, "band=%d", &v) == 1 && v >= 0 && v < NP_BAND_N) {
+            g.band = v;
         } else if (sscanf(line, "grid=%d", &v) == 1) {
             g.grid = v;
         } else if (sscanf(line, "show_uv=%d", &v) == 1) {
@@ -1102,6 +1161,107 @@ static void apply_filt(int ch, float *buf, uint32_t n)
     }
 }
 
+static void cook_all(float buf[NP_NCHAN][NP_RING], uint32_t nn[NP_NCHAN], uint32_t want)
+{
+    int c, t;
+    uint32_t nmax = 0;
+
+    (void)want;
+    for (c = 0; c < NP_NCHAN; c++) {
+        if (!g.active[c] || nn[c] < 16) {
+            continue;
+        }
+        apply_filt(c, buf[c], nn[c]);
+        if (nn[c] > nmax) {
+            nmax = nn[c];
+        }
+    }
+    if (g.car && nmax > 0) {
+        for (t = 0; t < (int)nmax; t++) {
+            float v[NP_NCHAN];
+            int use[NP_NCHAN];
+            for (c = 0; c < NP_NCHAN; c++) {
+                use[c] = g.active[c] && nn[c] > (uint32_t)t;
+                v[c] = use[c] ? buf[c][t] : 0.f;
+            }
+            np_car_sample(v, use);
+            for (c = 0; c < NP_NCHAN; c++) {
+                if (use[c]) {
+                    buf[c][t] = v[c];
+                }
+            }
+        }
+    }
+    for (c = 0; c < NP_NCHAN; c++) {
+        uint32_t i;
+        if (nn[c] < 16) {
+            continue;
+        }
+        if (g.lp_hz > 0) {
+            struct np_lp lp;
+            np_lp_init(&lp, (float)g.lp_hz, design_sps());
+            for (i = 0; i < nn[c]; i++) {
+                buf[c][i] = np_lp_step(&lp, buf[c][i]);
+            }
+        }
+        if (g.detrend) {
+            np_detrend(buf[c], (int)nn[c]);
+        }
+        if (g.envelope) {
+            struct np_lp ev;
+            np_env_init(&ev, 0.15f, design_sps());
+            for (i = 0; i < nn[c]; i++) {
+                buf[c][i] = np_env_step(&ev, buf[c][i]);
+            }
+        }
+    }
+}
+
+static void band_apply(int band)
+{
+    if (band < 0 || band >= NP_BAND_N) {
+        band = 0;
+    }
+    g.band = band;
+    if (band == NP_BAND_RAW) {
+        g.notch_hz = 0;
+        g.hp_hz = 0;
+        g.lp_hz = 0;
+        g.car = 0;
+        g.envelope = 0;
+        g.detrend = 0;
+    } else if (band == NP_BAND_LINE) {
+        g.notch_hz = g.cal_hz > 1.f ? -1 : 50;
+        g.hp_hz = 1;
+        g.lp_hz = 0;
+        g.car = 1;
+        g.envelope = 0;
+        g.detrend = 1;
+        if (g.cal.have) {
+            g.cal_cut = 1;
+        }
+    } else if (band == NP_BAND_EEG) {
+        g.notch_hz = g.cal_hz > 1.f ? -1 : 50;
+        g.hp_hz = 1;
+        g.lp_hz = 40;
+        g.car = 1;
+        g.envelope = 0;
+        g.detrend = 1;
+        if (g.cal.have) {
+            g.cal_cut = 1;
+        }
+    } else {
+        g.notch_hz = 50;
+        g.hp_hz = 20;
+        g.lp_hz = 0;
+        g.car = 0;
+        g.envelope = 1;
+        g.detrend = 1;
+    }
+    filt_reset();
+    cfg_save();
+}
+
 /* One IIR step per new sample. Display copies this. Never re-filter the window. */
 static void live_sync(void)
 {
@@ -1109,6 +1269,8 @@ static void live_sync(void)
     uint32_t need, c, i;
     int sig = filt_sig();
     float nh = 0.f;
+    float tmp[NP_NCHAN][NP_RING];
+    uint32_t got[NP_NCHAN];
 
     np_ring_stats(&g.ring, &tot, NULL, NULL);
     if (sig != live_sig) {
@@ -1134,18 +1296,33 @@ static void live_sync(void)
         nh = g.cal_hz;
     }
     for (c = 0; c < NP_NCHAN; c++) {
-        float tmp[NP_RING];
-        uint32_t n = np_ring_copy(&g.ring, c, tmp, need);
-        uint32_t off = n < need ? need - n : 0;
-        for (i = 0; i < n; i++) {
-            float v = tmp[i];
+        got[c] = np_ring_copy(&g.ring, c, tmp[c], need);
+    }
+    for (i = 0; i < need; i++) {
+        float v[NP_NCHAN];
+        int use[NP_NCHAN];
+        for (c = 0; c < NP_NCHAN; c++) {
+            float x = (i < got[c]) ? tmp[c][i] : 0.f;
             if (g.hp_hz > 0) {
-                v = np_hp_step(&g.hp[c], v);
+                x = np_hp_step(&g.hp[c], x);
             }
             if (nh > 1.f) {
-                v = np_notch_step(&g.notch[c], v);
+                x = np_notch_step(&g.notch[c], x);
             }
-            live_ch[c][(live_wr + off + i) % NP_RING] = v;
+            v[c] = x;
+            use[c] = g.active[c] && i < got[c];
+        }
+        if (g.car) {
+            np_car_sample(v, use);
+        }
+        for (c = 0; c < NP_NCHAN; c++) {
+            if (g.lp_hz > 0) {
+                v[c] = np_lp_step(&g.lp[c], v[c]);
+            }
+            if (g.envelope) {
+                v[c] = np_env_step(&g.env[c], v[c]);
+            }
+            live_ch[c][(live_wr + i) % NP_RING] = v[c];
         }
     }
     live_wr += need;
@@ -2524,6 +2701,8 @@ static void draw_waves(int x, int y, int w, int h)
                 text(x + 220, y0 + 4, lab, 200, 90, 80, 1);
             } else if (gated) {
                 text(x + 220, y0 + 4, "FROZEN", 200, 140, 70, 1);
+            } else if (np_window_clip(buf, (int)n)) {
+                text(x + 220, y0 + 4, "CLIP", 230, 80, 70, 1);
             } else if (g.cal_cut && g.cal.have) {
                 float rr = 0.f;
                 int det = np_detect(raw_rms > 1.f ? raw_rms : rms, rms, g.cal.rms[c],
@@ -3449,6 +3628,18 @@ static int draw_view_block(int x, int y)
     y += rh;
     btn(x + 12, y, 136, bh, g.show_uv ? "uV on" : "uV off", g.show_uv, 15, 0, 36, 40, 48);
     btn(x + 152, y, 136, bh, g.detrend ? "detrend" : "raw DC", g.detrend, 21, 0, 36, 40, 48);
+    y += rh;
+    snprintf(b, sizeof(b), "band %s", np_band_name(g.band));
+    btn(x + 12, y, 136, bh, b, g.band != 0, 22, 0, 36, 40, 48);
+    btn(x + 152, y, 136, bh, g.car ? "CAR on" : "CAR off", g.car, 23, 0, 36, 40, 48);
+    y += rh;
+    if (g.lp_hz) {
+        snprintf(b, sizeof(b), "lp %dHz", g.lp_hz);
+    } else {
+        snprintf(b, sizeof(b), "lp off");
+    }
+    btn(x + 12, y, 136, bh, b, g.lp_hz != 0, 24, 0, 36, 40, 48);
+    btn(x + 152, y, 136, bh, g.envelope ? "envelope" : "wave", g.envelope, 25, 0, 36, 40, 48);
     return y + rh;
 }
 
@@ -4038,9 +4229,19 @@ static void click(int x, int y)
             cfg_save();
             break;
         case 12:
-            g.hp_hz = g.hp_hz == 0 ? 1 : (g.hp_hz == 1 ? 2 : 0);
-            filt_reset();
-            cfg_save();
+            np_host_cycle_hp();
+            break;
+        case 22:
+            np_host_cycle_band();
+            break;
+        case 23:
+            np_host_toggle_car();
+            break;
+        case 24:
+            np_host_cycle_lp();
+            break;
+        case 25:
+            np_host_toggle_envelope();
             break;
         case 13:
             g.grid = !g.grid;
@@ -4744,6 +4945,10 @@ int np_host_start(const char *files_dir)
     g.scale_uv = 200;
     g.notch_hz = 50;
     g.hp_hz = 1;
+    g.lp_hz = 0;
+    g.car = 0;
+    g.envelope = 0;
+    g.band = 0;
     g.detrend = 0;
     g.cal_cut = 1;
     g.grid = 1;
@@ -4814,6 +5019,100 @@ void np_host_shutdown(void)
     host_ready = 0;
 }
 
+static void live_snap(void)
+{
+    static uint32_t last;
+    static uint64_t last_tot;
+    uint32_t now = SDL_GetTicks(), want;
+    char root[NP_MAX_PATH], path[NP_MAX_PATH], id[48];
+    FILE *f;
+    int c;
+    uint64_t tot = 0;
+    float raw[NP_NCHAN][256];
+    uint32_t n0 = 0;
+
+    if (!g.connected) {
+        return;
+    }
+    if (last && now - last < 800) {
+        return;
+    }
+    last = now;
+    np_ring_stats(&g.ring, &tot, NULL, NULL);
+    np_cfg_root(root, sizeof(root));
+    snprintf(path, sizeof(path), "%s/live-snap.txt", root);
+    f = fopen(path, "w");
+    if (!f) {
+        return;
+    }
+    id_label(id, sizeof(id));
+    fprintf(f, "t_ms=%u frames=%llu dframes=%llu sps=%.1f %s\n", now,
+            (unsigned long long)tot, (unsigned long long)(tot - last_tot),
+            g.sps > 1.f ? g.sps : 0.f, id);
+    last_tot = tot;
+    want = (uint32_t)(0.50f * design_sps());
+    if (want > 256) {
+        want = 256;
+    }
+    fprintf(f, "ch,dc,rms,pk,uniq,n\n");
+    for (c = 0; c < NP_NCHAN; c++) {
+        float dc = 0, rms = 0, pk = 0;
+        uint32_t n, i, uniq = 1;
+        n = np_ring_copy(&g.ring, c, raw[c], want);
+        if (c == 0) {
+            n0 = n;
+        }
+        ch_stats(raw[c], n, &dc, &rms, &pk);
+        for (i = 1; i < n; i++) {
+            if (raw[c][i] != raw[c][i - 1]) {
+                uniq++;
+            }
+        }
+        fprintf(f, "%d,%.3f,%.3f,%.3f,%u,%u\n", c + 1, dc, rms, pk, uniq, n);
+    }
+    fclose(f);
+    snprintf(path, sizeof(path), "%s/live-snap.csv", root);
+    f = fopen(path, "w");
+    if (!f) {
+        return;
+    }
+    fprintf(f, "i,ch1,ch2,ch3,ch4,ch5,ch6,ch7,ch8\n");
+    for (c = 0; (uint32_t)c < n0; c++) {
+        fprintf(f, "%d,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f\n", c, raw[0][c],
+                raw[1][c], raw[2][c], raw[3][c], raw[4][c], raw[5][c], raw[6][c],
+                raw[7][c]);
+    }
+    fclose(f);
+    {
+        float ratio = 0.f;
+        int ev = stream_id(&ratio);
+        static float best;
+        if (g.sps >= 80.f && (ev == NP_ID_CLENCH || ev == NP_ID_BURST) &&
+            ratio >= 2.50f && ratio > best) {
+            best = ratio;
+            snprintf(path, sizeof(path), "%s/clench-live.txt", root);
+            f = fopen(path, "w");
+            if (f) {
+                fprintf(f, "t_ms=%u frames=%llu sps=%.1f %s ratio=%.2f\n", now,
+                        (unsigned long long)tot, g.sps > 1.f ? g.sps : 0.f, id,
+                        (double)ratio);
+                fclose(f);
+            }
+            snprintf(path, sizeof(path), "%s/clench-live.csv", root);
+            f = fopen(path, "w");
+            if (f) {
+                fprintf(f, "i,ch1,ch2,ch3,ch4,ch5,ch6,ch7,ch8\n");
+                for (c = 0; (uint32_t)c < n0; c++) {
+                    fprintf(f, "%d,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f\n", c,
+                            raw[0][c], raw[1][c], raw[2][c], raw[3][c], raw[4][c],
+                            raw[5][c], raw[6][c], raw[7][c]);
+                }
+                fclose(f);
+            }
+        }
+    }
+}
+
 void np_host_tick(void)
 {
     if (!host_ready) {
@@ -4821,6 +5120,7 @@ void np_host_tick(void)
     }
     smx_tick();
     learn_tick();
+    live_snap();
     if (g.connected && !g.en_running) {
         uint64_t tot = 0;
         uint32_t now = SDL_GetTicks();
@@ -4885,7 +5185,14 @@ int np_host_copy_wave(int ch, float *dst, int max)
     if (want > (uint32_t)max) {
         want = (uint32_t)max;
     }
-    return (int)view_copy(ch, dst, want);
+    {
+        int n = (int)view_copy(ch, dst, want);
+        if (g.detrend && n > 4) {
+            np_detrend(dst, n);
+        }
+        last_clip[ch] = np_window_clip(dst, n);
+        return n;
+    }
 }
 int np_host_scale_uv(void)
 {
@@ -5154,17 +5461,79 @@ void np_host_cycle_notch(void)
 }
 void np_host_cycle_hp(void)
 {
-    static const int hp[] = {0, 1, 2, 5};
+    static const int hp[] = {0, 1, 2, 5, 20};
     int k;
-    for (k = 0; k < 4; k++) {
+    for (k = 0; k < 5; k++) {
         if (hp[k] == g.hp_hz) {
-            g.hp_hz = hp[(k + 1) % 4];
+            g.hp_hz = hp[(k + 1) % 5];
             filt_reset();
             cfg_save();
             return;
         }
     }
     g.hp_hz = 1;
+}
+int np_host_lp(void)
+{
+    return g.lp_hz;
+}
+void np_host_cycle_lp(void)
+{
+    static const int lp[] = {0, 20, 40};
+    int k;
+    for (k = 0; k < 3; k++) {
+        if (lp[k] == g.lp_hz) {
+            g.lp_hz = lp[(k + 1) % 3];
+            filt_reset();
+            cfg_save();
+            return;
+        }
+    }
+    g.lp_hz = 0;
+}
+int np_host_car(void)
+{
+    return g.car;
+}
+void np_host_toggle_car(void)
+{
+    g.car = !g.car;
+    filt_reset();
+    cfg_save();
+}
+int np_host_detrend(void)
+{
+    return g.detrend;
+}
+void np_host_toggle_detrend(void)
+{
+    g.detrend = !g.detrend;
+    cfg_save();
+}
+int np_host_envelope(void)
+{
+    return g.envelope;
+}
+void np_host_toggle_envelope(void)
+{
+    g.envelope = !g.envelope;
+    filt_reset();
+    cfg_save();
+}
+int np_host_band(void)
+{
+    return g.band;
+}
+void np_host_cycle_band(void)
+{
+    band_apply((g.band + 1) % NP_BAND_N);
+}
+int np_host_ch_clip(int ch)
+{
+    if (ch < 0 || ch >= NP_NCHAN) {
+        return 0;
+    }
+    return last_clip[ch];
 }
 
 int np_host_cube_view(void)
@@ -5428,6 +5797,10 @@ int main(int argc, char **argv)
     g.scale_uv = 200;
     g.notch_hz = 50;
     g.hp_hz = 1;
+    g.lp_hz = 0;
+    g.car = 0;
+    g.envelope = 0;
+    g.band = 0;
     g.detrend = 0;
     g.cal_cut = 1;
     g.grid = 1;

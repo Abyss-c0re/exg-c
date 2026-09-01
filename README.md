@@ -14,7 +14,9 @@ Not a medical device. Not affiliated with NeuroPawn.
 - **NOISE** / **CALM** / **CLEAN** so the leftover is usable
 - **Cube** — live 8³ visualization, or a 10-10 map you can assign
 - Named profiles (export / import as files on Android)
-- Settings: time window 1 / 2 / 4 / 8 s, scale, notch, high-pass
+- Settings: time window, scale, notch, high-pass, **CAR**, **low-pass**, **detrend**, **envelope**
+- Band presets: `raw` / `line-kill` / `EEG` / `EMG`
+- CLIP gate — Record will not save a saturated window
 - Optional learn / match poses
 
 Default montage: Fp1 Fp2 C3 C4 P3 P4 O1 O2.

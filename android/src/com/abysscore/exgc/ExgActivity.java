@@ -44,6 +44,11 @@ public class ExgActivity extends Activity {
     private Button hp;
     private Button scale;
     private Button win;
+    private Button band;
+    private Button car;
+    private Button detrend;
+    private Button env;
+    private Button lp;
     private EditText profName;
     private EditText learnName;
     private LinearLayout chGrid;
@@ -105,6 +110,11 @@ public class ExgActivity extends Activity {
         hp = findViewById(R.id.hp);
         scale = findViewById(R.id.scale);
         win = findViewById(R.id.win);
+        band = findViewById(R.id.band);
+        car = findViewById(R.id.car);
+        detrend = findViewById(R.id.detrend);
+        env = findViewById(R.id.env);
+        lp = findViewById(R.id.lp);
         profName = findViewById(R.id.profName);
         learnName = findViewById(R.id.learnName);
         chGrid = findViewById(R.id.chGrid);
@@ -224,11 +234,37 @@ public class ExgActivity extends Activity {
             ExgNative.cycleWindow();
             refreshChrome();
         });
+        band.setOnClickListener(v -> {
+            ExgNative.cycleBand();
+            refreshChrome();
+        });
+        car.setOnClickListener(v -> {
+            ExgNative.toggleCar();
+            refreshChrome();
+        });
+        detrend.setOnClickListener(v -> {
+            ExgNative.toggleDetrend();
+            refreshChrome();
+        });
+        env.setOnClickListener(v -> {
+            ExgNative.toggleEnvelope();
+            refreshChrome();
+        });
+        lp.setOnClickListener(v -> {
+            ExgNative.cycleLp();
+            refreshChrome();
+        });
         buildChannels();
         profName.setText(ExgNative.getProfile());
         refreshProfiles();
         showTab(0);
         h.post(tick);
+        h.postDelayed(() -> {
+            if (!ExgNative.connected()) {
+                ExgNative.connect();
+                refreshChrome();
+            }
+        }, 400);
     }
 
     @Override
@@ -326,6 +362,12 @@ public class ExgActivity extends Activity {
         hp.setText(ExgNative.hp() == 0 ? "hp off" : "hp " + ExgNative.hp() + "Hz");
         scale.setText("±" + ExgNative.scaleUv() + " µV");
         win.setText("win " + ExgNative.windowS() + "s");
+        int bd = ExgNative.band();
+        band.setText(bd == 1 ? "band line-kill" : (bd == 2 ? "band EEG" : (bd == 3 ? "band EMG" : "band raw")));
+        car.setText(ExgNative.car() ? "CAR on" : "CAR off");
+        detrend.setText(ExgNative.detrend() ? "detrend" : "raw DC");
+        env.setText(ExgNative.envelope() ? "envelope" : "wave");
+        lp.setText(ExgNative.lp() == 0 ? "lp off" : "lp " + ExgNative.lp() + "Hz");
     }
 
     @Override

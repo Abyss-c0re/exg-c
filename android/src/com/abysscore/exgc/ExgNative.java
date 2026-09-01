@@ -53,6 +53,17 @@ public final class ExgNative {
     public static native void cycleHp();
     public static native int notch();
     public static native int hp();
+    public static native int lp();
+    public static native void cycleLp();
+    public static native boolean car();
+    public static native void toggleCar();
+    public static native boolean detrend();
+    public static native void toggleDetrend();
+    public static native boolean envelope();
+    public static native void toggleEnvelope();
+    public static native int band();
+    public static native void cycleBand();
+    public static native boolean clipped(int ch);
     public static native void togglePause();
 
     public static native int cubeView();

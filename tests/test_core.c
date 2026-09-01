@@ -748,6 +748,41 @@ static void test_id_event(void)
     expect(np_id_event(rms, calm, fp, mask, 1, &r) == NP_ID_RAIL, "id: open rail");
 }
 
+static void test_process(void)
+{
+    float v[8];
+    int use[8];
+    float x[64];
+    struct np_lp lp, ev;
+    int i;
+
+    expect(np_sample_clip(4001.f) && !np_sample_clip(100.f), "clip threshold 4 mV");
+    expect(np_window_clip((float[]){0.f, 10.f, 5000.f}, 3), "window clip");
+    expect(!np_window_clip((float[]){0.f, 10.f, -20.f}, 3), "window clean");
+    for (i = 0; i < 8; i++) {
+        v[i] = 1000.f + (float)i;
+        use[i] = 1;
+    }
+    v[3] = 5000.f;
+    np_car_sample(v, use);
+    expect(v[3] > 4000.f, "CAR leaves a clipped channel");
+    expect(v[0] < 200.f && v[0] > -200.f, "CAR kills common 1 mV");
+    expect(strcmp(np_band_name(2), "EEG") == 0, "band name EEG");
+    np_lp_init(&lp, 8.f, 125.f);
+    {
+        float e_in = 0.f, e_out = 0.f, y;
+        for (i = 0; i < 64; i++) {
+            x[i] = (i % 2) ? 100.f : -100.f;
+            e_in += x[i] * x[i];
+            y = np_lp_step(&lp, x[i]);
+            e_out += y * y;
+        }
+        expect(e_out < e_in * 0.35f, "LP cuts Nyquist square");
+    }
+    np_env_init(&ev, 0.15f, 125.f);
+    expect(np_env_step(&ev, -80.f) >= 0.f, "envelope is unsigned");
+}
+
 int main(void)
 {
     test_cmds();
@@ -765,6 +800,7 @@ int main(void)
     test_algo();
     test_profile_format();
     test_id_event();
+    test_process();
     if (fails) {
         fprintf(stderr, "%d FAIL\n", fails);
         return 1;

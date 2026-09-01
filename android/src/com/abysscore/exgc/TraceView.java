@@ -14,6 +14,7 @@ public class TraceView extends View {
     private final float[][] wave = new float[NCHAN][NSAMP];
     private final int[] got = new int[NCHAN];
     private final int[] col = new int[NCHAN];
+    private final boolean[] clip = new boolean[NCHAN];
     private final Paint line = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint grid = new Paint();
     private final Paint lab = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -49,6 +50,7 @@ public class TraceView extends View {
         for (int c = 0; c < NCHAN; c++) {
             got[c] = ExgNative.copyWave(c, wave[c]);
             col[c] = ExgNative.color(c);
+            clip[c] = ExgNative.clipped(c);
         }
         postInvalidateOnAnimation();
     }
@@ -69,6 +71,10 @@ public class TraceView extends View {
             c.drawLine(0, mid, w, mid, grid);
             lab.setColor(col[ch]);
             c.drawText("ch" + (ch + 1), 12, y0 + 32, lab);
+            if (clip[ch]) {
+                lab.setColor(0xFFE05050);
+                c.drawText("CLIP", w - 140, y0 + 32, lab);
+            }
             int n = got[ch];
             if (n < 2) {
                 continue;

@@ -228,6 +228,98 @@ float np_hp_step(struct np_hp *f, float x)
     return y;
 }
 
+void np_lp_init(struct np_lp *f, float hz, float sps)
+{
+    float rc, dt;
+    memset(f, 0, sizeof(*f));
+    if (hz <= 0.f || sps <= 0.f) {
+        f->a = 1.f;
+        return;
+    }
+    rc = 1.f / (2.f * (float)M_PI * hz);
+    dt = 1.f / sps;
+    f->a = dt / (rc + dt);
+}
+
+float np_lp_step(struct np_lp *f, float x)
+{
+    f->y += f->a * (x - f->y);
+    return f->y;
+}
+
+void np_env_init(struct np_lp *f, float tau_s, float sps)
+{
+    memset(f, 0, sizeof(*f));
+    if (tau_s <= 0.f || sps <= 0.f) {
+        f->a = 1.f;
+        return;
+    }
+    f->a = 1.f / (tau_s * sps + 1.f);
+}
+
+float np_env_step(struct np_lp *f, float x)
+{
+    float p = x * x;
+    f->y += f->a * (p - f->y);
+    if (f->y < 0.f) {
+        f->y = 0.f;
+    }
+    return sqrtf(f->y);
+}
+
+int np_sample_clip(float v)
+{
+    return v > NP_CLIP_UV || v < -NP_CLIP_UV;
+}
+
+int np_window_clip(const float *x, int n)
+{
+    int i;
+    if (!x || n < 1) {
+        return 0;
+    }
+    for (i = 0; i < n; i++) {
+        if (np_sample_clip(x[i])) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+void np_car_sample(float *v, const int *use)
+{
+    int c, n = 0;
+    double s = 0;
+    float m;
+    if (!v) {
+        return;
+    }
+    for (c = 0; c < 8; c++) {
+        if (use && use[c] && !np_sample_clip(v[c])) {
+            s += v[c];
+            n++;
+        }
+    }
+    if (n < 2) {
+        return;
+    }
+    m = (float)(s / (double)n);
+    for (c = 0; c < 8; c++) {
+        if (use && use[c] && !np_sample_clip(v[c])) {
+            v[c] -= m;
+        }
+    }
+}
+
+const char *np_band_name(int id)
+{
+    static const char *n[NP_BAND_N] = {"raw", "line-kill", "EEG", "EMG"};
+    if (id < 0 || id >= NP_BAND_N) {
+        return "raw";
+    }
+    return n[id];
+}
+
 void np_notch_init(struct np_notch *f, float hz, float sps, float q)
 {
     float w, c, r, bw, g, den;
@@ -444,8 +536,8 @@ int np_detect(float raw_rms, float resid_rms, float noise_rms, float calm_rms, f
 const char *np_id_name(int id)
 {
     static const char *n[] = {"none", "need CALM", "rail", "still", "blink", "clench",
-                              "burst"};
-    if (id < 0 || id > NP_ID_BURST) {
+                              "burst", "CLIP"};
+    if (id < 0 || id > NP_ID_CLIP) {
         return "none";
     }
     return n[id];

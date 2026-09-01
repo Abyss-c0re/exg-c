@@ -64,6 +64,17 @@ int np_host_notch(void);
 int np_host_hp(void);
 void np_host_cycle_notch(void);
 void np_host_cycle_hp(void);
+int np_host_lp(void);
+void np_host_cycle_lp(void);
+int np_host_car(void);
+void np_host_toggle_car(void);
+int np_host_detrend(void);
+void np_host_toggle_detrend(void);
+int np_host_envelope(void);
+void np_host_toggle_envelope(void);
+int np_host_band(void);
+void np_host_cycle_band(void);
+int np_host_ch_clip(int ch);
 
 int np_host_cube_view(void);
 void np_host_set_cube_view(int map);
