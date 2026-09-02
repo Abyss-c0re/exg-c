@@ -134,6 +134,31 @@ void np_welch_psd(const float *x, int n, float *psd)
     }
 }
 
+float np_psd_floor(const float *psd)
+{
+    float v[NP_PSD_BINS];
+    int n = 0, i, j;
+    if (!psd) {
+        return 0.f;
+    }
+    for (i = 2; i < NP_PSD_BINS; i++) {
+        v[n++] = psd[i];
+    }
+    if (n < 1) {
+        return 0.f;
+    }
+    for (i = 0; i < n; i++) {
+        for (j = i + 1; j < n; j++) {
+            if (v[j] < v[i]) {
+                float t = v[i];
+                v[i] = v[j];
+                v[j] = t;
+            }
+        }
+    }
+    return v[n / 2];
+}
+
 /* Destroy live bins that match the noise plate (Wiener gain).
  * Covers the whole window (pads the last hop) and divides by the
  * window sum so a 4 s plot does not keep a raw-amplitude tail. */
@@ -153,10 +178,13 @@ void np_plate_destroy(float *x, int n, const float *noise_psd)
     for (i = 0; i < NP_FFT_N; i++) {
         win[i] = 0.5f - 0.5f * cosf(2.f * (float)M_PI * (float)i / (float)(NP_FFT_N - 1));
     }
-    for (k = 2; k < NP_PSD_BINS; k++) {
-        mean += noise_psd[k];
+    mean = np_psd_floor(noise_psd);
+    if (mean < 1e-18f) {
+        for (k = 2; k < NP_PSD_BINS; k++) {
+            mean += noise_psd[k];
+        }
+        mean /= (float)(NP_PSD_BINS - 2);
     }
-    mean /= (float)(NP_PSD_BINS - 2);
     for (start = 0; start < n; start += hop) {
         for (i = 0; i < NP_FFT_N; i++) {
             int t = start + i;
@@ -168,7 +196,7 @@ void np_plate_destroy(float *x, int n, const float *noise_psd)
             float p = re[k] * re[k] + im[k] * im[k];
             float npw = noise_psd[k];
             float g = 1.f;
-            if (k >= 2 && npw > 4.f * mean) {
+            if (k >= 2 && npw > 1.5f * mean) {
                 g = p / (p + 2.f * npw + 1e-12f);
                 if (g < 0.05f) {
                     g = 0.05f;

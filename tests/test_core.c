@@ -287,6 +287,11 @@ static void test_plate_destroy(void)
     np_welch_psd(noise, NP_PLATE_N, psd);
     expect(np_tone_from_psd(psd, 125.f, &hz) == 0 && hz > 48.f && hz < 52.f,
            "welch plate tone ~50");
+    {
+        float fl = np_psd_floor(psd);
+        int bin = (int)(50.f * (float)NP_FFT_N / 125.f);
+        expect(fl > 0.f && psd[bin] > 1.5f * fl, "50 Hz sits above PSD floor");
+    }
 
     synth(live, NP_PLATE_N, 125.f, 50.f, 10.f, 8.f, 3.f);
     for (i = 0; i < NP_PLATE_N; i++) {

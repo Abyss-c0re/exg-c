@@ -321,6 +321,39 @@ Java_com_abysscore_exgc_ExgNative_setGain(JNIEnv *env, jclass cls, jint ch, jint
 }
 
 JNIEXPORT void JNICALL
+Java_com_abysscore_exgc_ExgNative_calStart(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    np_host_cal_start();
+}
+
+JNIEXPORT jint JNICALL
+Java_com_abysscore_exgc_ExgNative_calPhase(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    return np_host_cal_phase();
+}
+
+JNIEXPORT jint JNICALL
+Java_com_abysscore_exgc_ExgNative_calProgress(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    return np_host_cal_progress();
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_abysscore_exgc_ExgNative_calLine(JNIEnv *env, jclass cls)
+{
+    char buf[48];
+    (void)cls;
+    np_host_cal_line(buf, sizeof(buf));
+    return jstr_from(env, buf);
+}
+
+JNIEXPORT void JNICALL
 Java_com_abysscore_exgc_ExgNative_noiseArm(JNIEnv *env, jclass cls)
 {
     (void)env;

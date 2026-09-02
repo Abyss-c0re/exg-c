@@ -41,6 +41,10 @@ public final class ExgNative {
     public static native void setUiScale(int tenths);
     public static native void setBoardImu(boolean imu);
     public static native void setGain(int ch, int gain);
+    public static native void calStart();
+    public static native int calPhase();
+    public static native int calProgress();
+    public static native String calLine();
     public static native void noiseArm();
     public static native void noiseOk();
     public static native void calm();

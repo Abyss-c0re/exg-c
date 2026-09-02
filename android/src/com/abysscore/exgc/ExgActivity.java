@@ -52,6 +52,7 @@ public class ExgActivity extends Activity {
     private LinearLayout poseList;
     private TextView poseHint;
     private Button clean;
+    private Button calibrate;
     private Button match;
     private Button notch;
     private Button hp;
@@ -141,6 +142,7 @@ public class ExgActivity extends Activity {
         poseList = findViewById(R.id.poseList);
         poseHint = findViewById(R.id.poseHint);
         clean = findViewById(R.id.clean);
+        calibrate = findViewById(R.id.calibrate);
         match = findViewById(R.id.match);
         notch = findViewById(R.id.notch);
         hp = findViewById(R.id.hp);
@@ -205,9 +207,10 @@ public class ExgActivity extends Activity {
             refreshCubeChrome();
         });
         buildCubeChannels();
-        findViewById(R.id.noise).setOnClickListener(v -> ExgNative.noiseArm());
-        findViewById(R.id.noiseOk).setOnClickListener(v -> ExgNative.noiseOk());
-        findViewById(R.id.calm).setOnClickListener(v -> ExgNative.calm());
+        findViewById(R.id.calibrate).setOnClickListener(v -> {
+            ExgNative.calStart();
+            refreshChrome();
+        });
         clean.setOnClickListener(v -> {
             ExgNative.toggleClean();
             refreshChrome();
@@ -441,7 +444,22 @@ public class ExgActivity extends Activity {
         }
         status.setText(st);
         status.setTextColor(ExgNative.statusOk() ? 0xFF3CB46E : 0xFFF0A040);
-        clean.setText(ExgNative.cleanOn() ? "CLN" : "cln");
+        {
+            String cl = ExgNative.calLine();
+            int ph = ExgNative.calPhase();
+            int pg = ExgNative.calProgress();
+            if (ph == 1 || ph == 3) {
+                calibrate.setText(cl + "  " + pg + "%");
+            } else {
+                calibrate.setText(cl);
+            }
+            calibrate.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
+                    ph == 4 || (ExgNative.calHave() && ExgNative.calmHave()) ? 0xFF2E8A58
+                            : (ph == 1 || ph == 3 ? 0xFF8A6030 : 0xFF2A3038)));
+        }
+        clean.setText(ExgNative.cleanOn() ? "Cancel noise" : "Noise off");
+        clean.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
+                ExgNative.cleanOn() ? 0xFF2E8A58 : 0xFF2A3038));
         boolean matching = ExgNative.matchOn();
         boolean haveTakes = ExgNative.atomCount() > 0;
         match.setText(haveTakes ? (matching ? "ID on" : "ID off")

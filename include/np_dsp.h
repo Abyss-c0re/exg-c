@@ -28,6 +28,8 @@ struct np_lp {
 
 void np_fft_mag(const float *in, int n, float *mag);
 void np_welch_psd(const float *x, int n, float *psd);
+/* Median of bins 2..end — Wiener threshold, not the mean (DC tails lie). */
+float np_psd_floor(const float *psd);
 void np_plate_destroy(float *x, int n, const float *noise_psd);
 void np_detrend(float *x, int n);
 void np_hp_init(struct np_hp *f, float hz, float sps);

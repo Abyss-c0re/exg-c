@@ -139,7 +139,11 @@ struct np_app {
     int cal_cut;
     float cal_hz; /* line tone from noise plate; 0 = none */
     float noise_psd[NP_PSD_BINS];
+    float noise_psd_ch[NP_NCHAN][NP_PSD_BINS];
     int noise_psd_ok;
+    unsigned noise_psd_ch_ok;
+    int cal_phase;
+    uint32_t cal_t0;
     uint32_t rec_t0;
     uint32_t saved_t0;
     uint64_t stall_tot;
@@ -1134,6 +1138,7 @@ static void typing_set(int on)
 }
 
 static void cfg_save(void);
+static void cal_tick(void);
 static int cfg_write(const char *path);
 static int cfg_write_ex(const char *path, int with_map);
 static int cfg_read(const char *path);
@@ -1583,11 +1588,15 @@ static void apply_filt(int ch, float *buf, uint32_t n)
         }
         buf[i] = v;
     }
-    if (g.cal_cut && g.noise_psd_ok && n >= (uint32_t)NP_FFT_N) {
-        if (n > 512) {
-            np_plate_destroy(buf + (n - 512), 512, g.noise_psd);
-        } else {
-            np_plate_destroy(buf, (int)n, g.noise_psd);
+    if (g.cal_cut && n >= (uint32_t)NP_FFT_N) {
+        const float *psd = NULL;
+        if ((g.noise_psd_ch_ok & (1u << ch)) != 0) {
+            psd = g.noise_psd_ch[ch];
+        } else if (g.noise_psd_ok) {
+            psd = g.noise_psd;
+        }
+        if (psd) {
+            np_plate_destroy(buf, (int)n, psd);
         }
     }
     if (g.cal_cut && g.calm.have) {
@@ -1788,7 +1797,8 @@ static uint32_t view_copy(int ch, float *dst, uint32_t n)
     uint32_t now;
 
     got = live_copy(ch, dst, n);
-    if (!(g.cal_cut && g.noise_psd_ok && got >= (uint32_t)NP_FFT_N)) {
+    if (!(g.cal_cut && (g.noise_psd_ok || g.noise_psd_ch_ok) &&
+          got >= (uint32_t)NP_FFT_N)) {
         if (g.cal_cut && g.calm.have && got > 0) {
             np_sub_dc(dst, (int)got, g.calm.dc[ch]);
         }
@@ -1800,7 +1810,15 @@ static uint32_t view_copy(int ch, float *dst, uint32_t n)
         for (c = 0; c < NP_NCHAN; c++) {
             uint32_t m = live_copy(c, clean_ch[c], n);
             if (m >= (uint32_t)NP_FFT_N) {
-                np_plate_destroy(clean_ch[c], (int)m, g.noise_psd);
+                const float *psd = NULL;
+                if ((g.noise_psd_ch_ok & (1u << c)) != 0) {
+                    psd = g.noise_psd_ch[c];
+                } else if (g.noise_psd_ok) {
+                    psd = g.noise_psd;
+                }
+                if (psd) {
+                    np_plate_destroy(clean_ch[c], (int)m, psd);
+                }
             }
             if (g.calm.have && m > 0) {
                 np_sub_dc(clean_ch[c], (int)m, g.calm.dc[c]);
@@ -2398,6 +2416,11 @@ static void *enable_thread(void *arg)
     cmd_drain(25000);
     if (g.connected) {
         set_status(1, "connected %s", g.nports ? g.ports[g.port_i] : "");
+        if (!g.cal.have) {
+            g.cal_phase = 1;
+            g.cal_t0 = 0;
+            set_status(1, "Leave the headset on the desk…");
+        }
     }
     g.en_running = 0;
     return NULL;
@@ -2886,6 +2909,7 @@ static int cal_load(void)
     if (got > 0) {
         g.cal.have = 1;
         g.cal.n = 1;
+        g.cal_phase = g.calm.have ? 4 : 2;
     }
     return got > 0 ? 0 : -1;
 }
@@ -2902,7 +2926,9 @@ static void cal_capture(void)
     memset(&g.cal, 0, sizeof(g.cal));
     g.cal_hz = 0.f;
     g.noise_psd_ok = 0;
+    g.noise_psd_ch_ok = 0;
     memset(g.noise_psd, 0, sizeof(g.noise_psd));
+    memset(g.noise_psd_ch, 0, sizeof(g.noise_psd_ch));
     {
         float acc[NP_PLATE_N];
         int accn = 0, used = 0;
@@ -2924,6 +2950,10 @@ static void cal_capture(void)
             }
             for (i = 0; i < take; i++) {
                 acc[i] += buf[i];
+            }
+            if (take >= (uint32_t)NP_FFT_N) {
+                np_welch_psd(buf, (int)take, g.noise_psd_ch[c]);
+                g.noise_psd_ch_ok |= 1u << c;
             }
             used++;
         }
@@ -2999,7 +3029,7 @@ static void calm_capture(void)
         set_status(0, "calm captured but could not write exg-c.cal");
         return;
     }
-    set_status(1, "CALM plate  ch1 resid %.0f uV  CLEAN on", g.calm.rms[0]);
+    set_status(1, "Still plate  ch1 resid %.0f uV  noise cancel on", g.calm.rms[0]);
 }
 
 static int live_vs_cal(float *ratio_out)
@@ -4526,13 +4556,14 @@ static void draw_learn(int x, int y, int w, int h)
         btn(x + 376, y + 4, 70, bh, g.learn.match ? "MATCH" : "match", g.learn.match, 18, 0,
             g.learn.match ? 28 : 40, g.learn.match ? 90 : 42, g.learn.match ? 70 : 50);
         btn(x + 452, y + 4, 48, bh, "del", 0, 19, 0, 90, 42, 46);
-        btn(x + 6, y + 46, 56, 32, "NOISE", g.cal_arm || g.cal.have, 25, 0,
-            g.cal_arm ? 110 : 32, g.cal_arm ? 70 : 36, 40);
-        btn(x + 66, y + 46, 36, 32, "OK", g.cal_arm, 26, 0, g.cal_arm ? 28 : 36,
-            g.cal_arm ? 100 : 38, g.cal_arm ? 70 : 46);
-        btn(x + 106, y + 46, 56, 32, "CALM", g.calm.have, 35, 0, g.calm.have ? 28 : 36,
-            g.calm.have ? 80 : 38, g.calm.have ? 70 : 46);
-        btn(x + 166, y + 46, 48, 32, g.cal_cut ? "CLN" : "cln", g.cal_cut && g.cal.have, 27, 0,
+        {
+            char cl[40];
+            np_host_cal_line(cl, sizeof(cl));
+            btn(x + 6, y + 46, 160, 32, cl, g.cal_phase > 0 || g.cal.have, 25, 0,
+                g.cal_phase == 4 ? 28 : 36, g.cal_phase >= 1 ? 90 : 38,
+                g.cal_phase == 3 ? 40 : 46);
+        }
+        btn(x + 170, y + 46, 48, 32, g.cal_cut ? "CLN" : "cln", g.cal_cut && g.cal.have, 27, 0,
             g.cal_cut ? 28 : 36, g.cal_cut ? 80 : 38, g.cal_cut ? 70 : 46);
         if (g.cal_arm) {
             text(x + 222, y + 56, "desk / off, then OK", 230, 190, 90, 1);
@@ -4674,12 +4705,12 @@ static void draw_learn(int x, int y, int w, int h)
         }
     }
 
-    btn(x + 6, y + h - 22, 48, 18, "NOISE", g.cal_arm || g.cal.have, 25, 0,
-        g.cal_arm ? 110 : 32, g.cal_arm ? 70 : 36, 40);
-    btn(x + 58, y + h - 22, 28, 18, "OK", g.cal_arm, 26, 0, g.cal_arm ? 28 : 36,
-        g.cal_arm ? 100 : 38, g.cal_arm ? 70 : 46);
-    btn(x + 90, y + h - 22, 44, 18, "CALM", g.calm.have, 35, 0, g.calm.have ? 28 : 36,
-        g.calm.have ? 80 : 38, g.calm.have ? 70 : 46);
+    {
+        char cl[24];
+        np_host_cal_line(cl, sizeof(cl));
+        btn(x + 6, y + h - 22, 128, 18, cl, g.cal_phase > 0 || g.cal.have, 25, 0,
+            g.cal_phase == 4 ? 28 : 36, g.cal_phase >= 1 ? 90 : 38, 46);
+    }
     btn(x + 138, y + h - 22, 40, 18, g.cal_cut ? "CLN" : "cln",
         g.cal_cut && g.cal.have, 27, 0, g.cal_cut ? 28 : 36, g.cal_cut ? 80 : 38,
         g.cal_cut ? 70 : 46);
@@ -4953,8 +4984,7 @@ static void click(int x, int y)
             snprintf(g.namebuf, sizeof(g.namebuf), "%s", g.learn.s[g.learn.sel].name);
             break;
         case 25:
-            g.cal_arm = 1;
-            set_status(1, "NOISE: board on desk / headset off, then OK");
+            np_host_cal_start();
             break;
         case 26:
             if (!g.cal_arm) {
@@ -4968,7 +4998,7 @@ static void click(int x, int y)
         case 27:
             g.cal_cut = !g.cal_cut;
             cfg_save();
-            set_status(1, g.cal_cut ? "CLEAN on - noise+calm removed" : "CLEAN off - raw plot");
+            set_status(1, g.cal_cut ? "Noise cancel on" : "Noise cancel off");
             break;
         case 28:
             wear_check();
@@ -5771,6 +5801,7 @@ void np_host_tick(void)
     atom_tick();
     learn_tick();
     live_snap();
+    cal_tick();
     if (g.connected && !g.en_running) {
         uint64_t tot = 0;
         uint32_t now = SDL_GetTicks();
@@ -6026,23 +6057,136 @@ void np_host_set_color(int ch, int r, int gc, int b)
     g.chrgb[ch][2] = b;
     cfg_save();
 }
+#define CAL_DESK_MS 8000u
+#define CAL_WEAR_MS 8000u
+
+static void cal_tick(void)
+{
+    uint32_t now, dt;
+    if (g.cal_phase != 1 && g.cal_phase != 3) {
+        return;
+    }
+    if (!g.connected || (g.sps > 0.f && g.sps < 80.f)) {
+        return;
+    }
+    now = SDL_GetTicks();
+    if (!g.cal_t0) {
+        g.cal_t0 = now ? now : 1;
+    }
+    dt = now - g.cal_t0;
+    if (g.cal_phase == 1 && dt >= CAL_DESK_MS) {
+        cal_capture();
+        g.cal_cut = 1;
+        g.cal_phase = 2;
+        cfg_save();
+        set_status(1, "Wear the headset, sit still, tap Calibrate");
+    } else if (g.cal_phase == 3 && dt >= CAL_WEAR_MS) {
+        calm_capture();
+        g.cal_phase = 4;
+        cfg_save();
+        set_status(1, "Calibrated — noise cancel on");
+    }
+}
+
+void np_host_cal_start(void)
+{
+    uint32_t now = SDL_GetTicks();
+    if (!g.connected) {
+        set_status(0, "connect first");
+        return;
+    }
+    if (g.sps > 0.f && g.sps < 80.f) {
+        set_status(0, "wait for 125 sps");
+        return;
+    }
+    if (g.cal_phase == 1 || g.cal_phase == 3) {
+        return;
+    }
+    if (g.cal_phase == 2 || (g.cal.have && !g.calm.have)) {
+        g.cal_phase = 3;
+        g.cal_t0 = now ? now : 1;
+        set_status(1, "Sit still…");
+        return;
+    }
+    g.cal_phase = 1;
+    g.cal_t0 = now ? now : 1;
+    set_status(1, "Leave the headset on the desk…");
+}
+
+int np_host_cal_phase(void)
+{
+    return g.cal_phase;
+}
+
+int np_host_cal_progress(void)
+{
+    uint32_t now, dt, need;
+    if (g.cal_phase != 1 && g.cal_phase != 3) {
+        return g.cal_phase == 4 ? 100 : 0;
+    }
+    now = SDL_GetTicks();
+    dt = now - g.cal_t0;
+    need = g.cal_phase == 1 ? CAL_DESK_MS : CAL_WEAR_MS;
+    if (dt >= need) {
+        return 99;
+    }
+    return (int)(dt * 100u / need);
+}
+
+void np_host_cal_line(char *out, int n)
+{
+    int left;
+    if (!out || n < 4) {
+        return;
+    }
+    if (g.cal_phase == 1) {
+        left = (int)(CAL_DESK_MS / 1000u) - (int)((SDL_GetTicks() - g.cal_t0) / 1000u);
+        if (left < 0) {
+            left = 0;
+        }
+        snprintf(out, (size_t)n, "Desk… %ds  leave it down", left);
+    } else if (g.cal_phase == 2) {
+        snprintf(out, (size_t)n, "Wear it — tap");
+    } else if (g.cal_phase == 3) {
+        left = (int)(CAL_WEAR_MS / 1000u) - (int)((SDL_GetTicks() - g.cal_t0) / 1000u);
+        if (left < 0) {
+            left = 0;
+        }
+        snprintf(out, (size_t)n, "Sit still… %ds", left);
+    } else if (g.cal.have && g.calm.have) {
+        snprintf(out, (size_t)n, "Calibrated");
+    } else {
+        snprintf(out, (size_t)n, "Calibrate");
+    }
+}
+
 void np_host_noise_arm(void)
 {
-    g.cal_arm = 1;
-    set_status(1, "NOISE: board on desk / headset off, then OK");
+    np_host_cal_start();
 }
 void np_host_noise_ok(void)
 {
-    if (!g.cal_arm) {
-        set_status(0, "tap NOISE first, then OK");
+    if (g.cal_phase == 1) {
+        cal_capture();
+        g.cal_cut = 1;
+        g.cal_phase = 2;
+        cfg_save();
+        set_status(1, "Wear the headset, sit still, tap Calibrate");
         return;
     }
-    cal_capture();
-    g.cal_cut = 1;
-    cfg_save();
+    np_host_cal_start();
 }
 void np_host_calm(void)
 {
+    if (g.cal_phase == 2 || g.cal.have) {
+        g.cal_phase = 3;
+        g.cal_t0 = SDL_GetTicks();
+        if (!g.cal_t0) {
+            g.cal_t0 = 1;
+        }
+        set_status(1, "Sit still…");
+        return;
+    }
     calm_capture();
 }
 void np_host_toggle_clean(void)
@@ -6898,10 +7042,19 @@ static void data_recook(void)
     char path[NP_MAX_PATH];
 
     if (raw_load_plate("noise", buf, nn) == 0) {
+        int c;
         plate_stats_from_buf(buf, nn, 0);
         g.cal.have = 1;
         if (g.cal.n < 1) {
             g.cal.n = 1;
+        }
+        g.noise_psd_ch_ok = 0;
+        memset(g.noise_psd_ch, 0, sizeof(g.noise_psd_ch));
+        for (c = 0; c < NP_NCHAN; c++) {
+            if (nn[c] >= (uint32_t)NP_FFT_N) {
+                np_welch_psd(buf[c], (int)nn[c], g.noise_psd_ch[c]);
+                g.noise_psd_ch_ok |= 1u << c;
+            }
         }
     }
     if (raw_load_plate("calm", buf, nn) == 0) {

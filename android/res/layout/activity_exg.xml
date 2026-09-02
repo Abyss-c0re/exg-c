@@ -504,28 +504,17 @@
             android:layout_height="wrap_content">
 
             <Button
-                android:id="@+id/noise"
-                android:layout_width="wrap_content"
+                android:id="@+id/calibrate"
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:text="NOISE" />
-
-            <Button
-                android:id="@+id/noiseOk"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="OK" />
-
-            <Button
-                android:id="@+id/calm"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="CALM" />
+                android:layout_weight="1"
+                android:text="Calibrate" />
 
             <Button
                 android:id="@+id/clean"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="CLN" />
+                android:text="Cancel noise" />
         </LinearLayout>
 
         <LinearLayout
