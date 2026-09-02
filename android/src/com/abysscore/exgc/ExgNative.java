@@ -101,6 +101,11 @@ public final class ExgNative {
     public static native int atomSecs(int i);
     public static native int atomSelect(int i);
     public static native void atomDel(int i);
+    public static native void atomDiscard();
+    public static native void atomPick(int i);
+    public static native String atomPair();
+    public static native String atomSlotA();
+    public static native String atomSlotB();
 
     public static native int cubeView();
     public static native void setCubeView(int map);

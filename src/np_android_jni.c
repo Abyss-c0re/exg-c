@@ -1242,4 +1242,47 @@ Java_com_abysscore_exgc_ExgNative_atomDel(JNIEnv *env, jclass cls, jint i)
     (void)cls;
     np_host_atom_del(i);
 }
+
+JNIEXPORT void JNICALL
+Java_com_abysscore_exgc_ExgNative_atomDiscard(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    np_host_atom_discard();
+}
+
+JNIEXPORT void JNICALL
+Java_com_abysscore_exgc_ExgNative_atomPick(JNIEnv *env, jclass cls, jint i)
+{
+    (void)env;
+    (void)cls;
+    np_host_atom_pick(i);
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_abysscore_exgc_ExgNative_atomPair(JNIEnv *env, jclass cls)
+{
+    char buf[64];
+    (void)cls;
+    np_host_atom_pair(buf, sizeof(buf));
+    return jstr_from(env, buf);
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_abysscore_exgc_ExgNative_atomSlotA(JNIEnv *env, jclass cls)
+{
+    char buf[24];
+    (void)cls;
+    np_host_atom_slot_a(buf, sizeof(buf));
+    return jstr_from(env, buf);
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_abysscore_exgc_ExgNative_atomSlotB(JNIEnv *env, jclass cls)
+{
+    char buf[24];
+    (void)cls;
+    np_host_atom_slot_b(buf, sizeof(buf));
+    return jstr_from(env, buf);
+}
 #endif

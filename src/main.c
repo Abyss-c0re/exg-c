@@ -177,6 +177,9 @@ struct np_app {
     char atom_ref_name[NP_ATOM_NAME];
     float atom_unity;
     unsigned int atom_seq;
+    char atom_a[NP_ATOM_NAME];
+    char atom_b[NP_ATOM_NAME];
+    float atom_ab;
 };
 
 static struct np_app g;
@@ -4579,6 +4582,8 @@ static void click(int x, int y)
             if (g.atom_on) {
                 if (np_host_atom_stop() >= 1 && g.namebuf[0]) {
                     np_host_atom_save();
+                } else {
+                    np_host_atom_discard();
                 }
             } else {
                 np_host_atom_start();
@@ -6348,6 +6353,14 @@ int np_host_fft(float *dst, int max, int *peak_hz)
     return n;
 }
 
+void np_host_atom_discard(void)
+{
+    g.atom_on = 0;
+    g.atom_n = 0;
+    g.atom_wr = 0;
+    set_status(1, "take discarded");
+}
+
 void np_host_atom_start(void)
 {
     g.atom_n = 0;
@@ -6408,11 +6421,13 @@ int np_host_atom_save(void)
     memcpy(g.atom_ref, live, (size_t)n * sizeof(uint64_t));
     g.atom_ref_n = n;
     atom_sanitize(g.atom_ref_name, (int)sizeof(g.atom_ref_name), g.namebuf);
+    snprintf(g.atom_a, sizeof(g.atom_a), "%s", g.atom_ref_name);
+    g.atom_b[0] = 0;
+    g.atom_ab = 0.f;
     atom_score();
-    /* Fresh take after save — next SaveA is not rest+action glued together. */
     g.atom_n = 0;
     g.atom_wr = 0;
-    set_status(1, "ATOM saved %s  %d s  ring cleared", g.atom_ref_name, n);
+    set_status(1, "kept %s  %d s — tap another take to compare", g.atom_ref_name, n);
     return 0;
 }
 
@@ -6448,16 +6463,12 @@ void np_host_atom_line(char *out, int n)
         return;
     }
     if (g.atom_on) {
-        if (g.atom_ref_n > 0) {
-            snprintf(out, (size_t)n, "recording %d s   vs %s %.0f%%", g.atom_n,
-                     g.atom_ref_name, (double)(g.atom_unity * 100.f));
-        } else {
-            snprintf(out, (size_t)n, "recording %d s — Stop, then name", g.atom_n);
-        }
-    } else if (g.atom_n > 0) {
-        snprintf(out, (size_t)n, "%d s unsaved — name it to keep", g.atom_n);
-    } else if (g.atom_ref_n > 0) {
-        snprintf(out, (size_t)n, "comparing to %s — Take to measure", g.atom_ref_name);
+        snprintf(out, (size_t)n, "recording %d s", g.atom_n);
+    } else if (g.atom_a[0] && g.atom_b[0]) {
+        snprintf(out, (size_t)n, "%s vs %s  %.0f%%", g.atom_a, g.atom_b,
+                 (double)(g.atom_ab * 100.f));
+    } else if (g.atom_a[0]) {
+        snprintf(out, (size_t)n, "vs %s — tap another take", g.atom_a);
     } else {
         out[0] = 0;
     }
@@ -6570,9 +6581,95 @@ void np_host_atom_del(int i)
         g.atom_ref_name[0] = 0;
         g.atom_unity = 0.f;
     }
+    if (strcmp(g.atom_a, atom_listed[i]) == 0) {
+        g.atom_a[0] = 0;
+        g.atom_ab = 0.f;
+    }
+    if (strcmp(g.atom_b, atom_listed[i]) == 0) {
+        g.atom_b[0] = 0;
+        g.atom_ab = 0.f;
+    }
     unlink(path);
-    set_status(1, "ATOM deleted %s", atom_listed[i]);
+    set_status(1, "deleted take %s", atom_listed[i]);
     atom_rescan();
+}
+
+static void atom_pair_score(void)
+{
+    uint64_t aa[NP_ATOM_RING], bb[NP_ATOM_RING];
+    char pa[NP_MAX_PATH], pb[NP_MAX_PATH];
+    int na, nb, wa = 0, wb = 0;
+    g.atom_ab = 0.f;
+    if (!g.atom_a[0] || !g.atom_b[0]) {
+        return;
+    }
+    if (atom_path(pa, (int)sizeof(pa), g.atom_a) != 0 ||
+        atom_path(pb, (int)sizeof(pb), g.atom_b) != 0) {
+        return;
+    }
+    na = np_atom_load(pa, aa, NP_ATOM_RING, &wa);
+    nb = np_atom_load(pb, bb, NP_ATOM_RING, &wb);
+    if (na < 1 || nb < 1) {
+        return;
+    }
+    g.atom_ab = np_atom_ring_unity(aa, na, bb, nb);
+}
+
+void np_host_atom_pick(int i)
+{
+    const char *name;
+    if (i < 0 || i >= atom_rescan()) {
+        return;
+    }
+    name = atom_listed[i];
+    if (!g.atom_a[0] || (g.atom_a[0] && g.atom_b[0])) {
+        snprintf(g.atom_a, sizeof(g.atom_a), "%s", name);
+        g.atom_b[0] = 0;
+        g.atom_ab = 0.f;
+        snprintf(g.namebuf, sizeof(g.namebuf), "%s", name);
+        np_host_atom_load();
+        set_status(1, "%s — tap another take to compare", name);
+        return;
+    }
+    if (strcmp(g.atom_a, name) == 0) {
+        g.atom_a[0] = 0;
+        g.atom_b[0] = 0;
+        g.atom_ab = 0.f;
+        set_status(1, "compare cleared");
+        return;
+    }
+    snprintf(g.atom_b, sizeof(g.atom_b), "%s", name);
+    atom_pair_score();
+    set_status(1, "%s vs %s  %.0f%%", g.atom_a, g.atom_b, (double)(g.atom_ab * 100.f));
+}
+
+void np_host_atom_pair(char *out, int n)
+{
+    if (!out || n < 4) {
+        return;
+    }
+    if (g.atom_a[0] && g.atom_b[0]) {
+        snprintf(out, (size_t)n, "%s vs %s  %.0f%%", g.atom_a, g.atom_b,
+                 (double)(g.atom_ab * 100.f));
+    } else if (g.atom_a[0]) {
+        snprintf(out, (size_t)n, "%s — tap a second take", g.atom_a);
+    } else {
+        snprintf(out, (size_t)n, "tap two takes to compare");
+    }
+}
+
+void np_host_atom_slot_a(char *out, int n)
+{
+    if (out && n > 1) {
+        snprintf(out, (size_t)n, "%s", g.atom_a);
+    }
+}
+
+void np_host_atom_slot_b(char *out, int n)
+{
+    if (out && n > 1) {
+        snprintf(out, (size_t)n, "%s", g.atom_b);
+    }
 }
 
 int np_host_imu(float acc[3], float gyr[3], float mag[3])

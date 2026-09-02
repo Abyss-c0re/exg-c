@@ -155,5 +155,10 @@ void np_host_atom_at(int i, char *out, int n);
 int np_host_atom_secs(int i);
 int np_host_atom_select(int i);
 void np_host_atom_del(int i);
+void np_host_atom_discard(void);
+void np_host_atom_pick(int i);
+void np_host_atom_pair(char *out, int n);
+void np_host_atom_slot_a(char *out, int n);
+void np_host_atom_slot_b(char *out, int n);
 
 #endif

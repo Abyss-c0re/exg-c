@@ -244,8 +244,6 @@ public class ExgActivity extends Activity {
                 if (n >= 1) {
                     nameTake(n);
                 }
-            } else if (ExgNative.atomN() >= 1) {
-                nameTake(ExgNative.atomN());
             } else {
                 ExgNative.atomStart();
                 refreshChrome();
@@ -731,7 +729,7 @@ public class ExgActivity extends Activity {
         int n = ExgNative.learnN();
         if (n < 1) {
             TextView empty = new TextView(this);
-            empty.setText("no poses — Record one, manage them on Poses");
+            empty.setText("no 1s poses — Record a blink/clench");
             empty.setTextColor(0xFF8B93A0);
             empty.setPadding(8, 16, 8, 8);
             learnChips.addView(empty);
@@ -747,6 +745,12 @@ public class ExgActivity extends Activity {
                 refreshLearnChips();
                 lastLearnN = -1;
                 refreshChrome();
+            });
+            b.setOnLongClickListener(v -> {
+                ExgNative.learnDel(idx);
+                lastLearnN = -1;
+                refreshChrome();
+                return true;
             });
             learnChips.addView(b);
         }
@@ -788,33 +792,39 @@ public class ExgActivity extends Activity {
     private void rebuildSavedList() {
         poseList.removeAllViews();
         int na = ExgNative.atomCount();
-        int np = ExgNative.learnN();
-        String ref = ExgNative.atomLine();
-        poseHint.setText(ref.length() > 0 ? ref
-                : "Main → Take. Stop. Name it. Tap a row here to compare.");
-
-        poseList.addView(savedLabel("Takes — tap one to compare live against it.", 0xFFC87880));
+        String pair = ExgNative.atomPair();
+        poseHint.setText(pair);
+        poseList.addView(savedLabel("Tap rest, then tap the action. That is the compare.", 0xFFC87880));
         if (na < 1) {
-            poseList.addView(savedLabel("none yet — Take on Main", 0xFF8B93A0));
+            poseList.addView(savedLabel("none — Take on Main, Stop, name it", 0xFF8B93A0));
         }
+        String a = "", b = "";
+        /* pair text is "x vs y" or "x — tap…" — also read via atomAt + pick state from labels */
         for (int i = 0; i < na; i++) {
             final int idx = i;
             String name = ExgNative.atomAt(i);
             int sec = ExgNative.atomSecs(i);
-            String sel = ExgNative.atomRef();
             LinearLayout row = new LinearLayout(this);
             row.setOrientation(LinearLayout.HORIZONTAL);
             row.setPadding(0, 4, 0, 4);
             Button lab = new Button(this);
             lab.setLayoutParams(new LinearLayout.LayoutParams(0,
                     LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-            boolean on = sel != null && sel.equals(name);
-            lab.setText(on ? (name + "   " + sec + " s   comparing") : (name + "   " + sec + " s"));
-            lab.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
-                    on ? 0xFF2E8A58 : 0xFF2A3038));
+            String sa = ExgNative.atomSlotA();
+            String sb = ExgNative.atomSlotB();
+            String tag = "";
+            int bg = 0xFF2A3038;
+            if (name.equals(sa)) {
+                tag = "   A";
+                bg = 0xFF8A6030;
+            } else if (name.equals(sb)) {
+                tag = "   B";
+                bg = 0xFF2E8A58;
+            }
+            lab.setText(name + "   " + sec + " s" + tag);
+            lab.setBackgroundTintList(android.content.res.ColorStateList.valueOf(bg));
             lab.setOnClickListener(v -> {
-                ExgNative.atomSelect(idx);
-                setLearnName(ExgNative.atomAt(idx));
+                ExgNative.atomPick(idx);
                 lastAtomN = -1;
                 refreshChrome();
             });
@@ -823,51 +833,6 @@ public class ExgActivity extends Activity {
             del.setOnClickListener(v -> {
                 ExgNative.atomDel(idx);
                 lastAtomN = -1;
-                refreshChrome();
-            });
-            row.addView(lab);
-            row.addView(del);
-            poseList.addView(row);
-        }
-
-        poseList.addView(savedLabel("1-second poses — Record / MATCH on Main.", 0xFF8B93A0));
-        if (np < 1) {
-            poseList.addView(savedLabel("none — Record on Main", 0xFF8B93A0));
-        }
-        boolean matching = ExgNative.matchOn();
-        int best = ExgNative.learnBest();
-        int sel = ExgNative.learnSel();
-        for (int i = 0; i < np; i++) {
-            final int idx = i;
-            LinearLayout row = new LinearLayout(this);
-            row.setOrientation(LinearLayout.HORIZONTAL);
-            row.setPadding(0, 4, 0, 4);
-            TextView lab = new TextView(this);
-            lab.setLayoutParams(new LinearLayout.LayoutParams(0,
-                    LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-            lab.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f);
-            lab.setPadding(8, 20, 8, 20);
-            String name = ExgNative.learnName(i);
-            int pct = (int) (ExgNative.learnScore(i) * 100f);
-            int cpct = (int) (ExgNative.learnScoreCube(i) * 100f);
-            if (matching) {
-                lab.setText(name + "   " + pct + "%   cube " + cpct + "%");
-            } else {
-                lab.setText(name);
-            }
-            boolean hit = matching && i == best && pct >= 55;
-            lab.setTextColor(hit ? 0xFF3CB46E : (i == sel ? 0xFFF0A040 : 0xFFE8EAF0));
-            lab.setOnClickListener(v -> {
-                ExgNative.learnSelect(idx);
-                setLearnName(ExgNative.learnName(idx));
-                lastLearnN = -1;
-                refreshChrome();
-            });
-            Button del = new Button(this);
-            del.setText("Delete");
-            del.setOnClickListener(v -> {
-                ExgNative.learnDel(idx);
-                lastLearnN = -1;
                 refreshChrome();
             });
             row.addView(lab);
@@ -900,18 +865,27 @@ public class ExgActivity extends Activity {
     private void nameTake(int sec) {
         askName("Name this take (" + sec + " s)", "", s -> {
             if (s.length() == 0) {
+                ExgNative.atomDiscard();
+                refreshChrome();
                 return;
             }
             ExgNative.setName(s);
             ExgNative.atomSave();
-            setLearnName(s);
             lastAtomN = -1;
+            refreshChrome();
+        }, () -> {
+            ExgNative.atomDiscard();
             refreshChrome();
         });
     }
 
     /* Dialog typing — 1440² extract IME is a black overlay on this handset. */
     private void askName(String title, String current, java.util.function.Consumer<String> on) {
+        askName(title, current, on, null);
+    }
+
+    private void askName(String title, String current, java.util.function.Consumer<String> on,
+            Runnable cancel) {
         final EditText e = new EditText(this);
         e.setText(current);
         e.setSelectAllOnFocus(true);
@@ -926,8 +900,17 @@ public class ExgActivity extends Activity {
                 .setTitle(title)
                 .setView(e)
                 .setPositiveButton("OK", (dlg, w) -> on.accept(e.getText().toString().trim()))
-                .setNegativeButton("Cancel", null)
+                .setNegativeButton("Cancel", (dlg, w) -> {
+                    if (cancel != null) {
+                        cancel.run();
+                    }
+                })
                 .create();
+        d.setOnCancelListener(dlg -> {
+            if (cancel != null) {
+                cancel.run();
+            }
+        });
         if (d.getWindow() != null) {
             d.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE
                     | WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN);
