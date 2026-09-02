@@ -287,14 +287,13 @@
                     android:text="Profile — export/import as a file (Files / Drive / Downloads)"
                     android:textColor="@color/muted" />
 
-                <EditText
+                <Button
                     android:id="@+id/profName"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:hint="name (letters, digits, - _)"
-                    android:inputType="text"
-                    android:textColor="@color/ink"
-                    android:textColorHint="@color/muted" />
+                    android:gravity="start|center_vertical"
+                    android:text="name (tap to type)"
+                    android:textColor="@color/ink" />
 
                 <LinearLayout
                     android:layout_width="match_parent"
@@ -545,15 +544,14 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content">
 
-            <EditText
+            <Button
                 android:id="@+id/learnName"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:hint="learn name"
-                android:inputType="text"
-                android:textColor="@color/ink"
-                android:textColorHint="@color/muted" />
+                android:gravity="start|center_vertical"
+                android:text="name (tap)"
+                android:textColor="@color/ink" />
 
             <Button
                 android:id="@+id/record"

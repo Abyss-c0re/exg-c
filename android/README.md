@@ -47,11 +47,12 @@ USB again, tap **Connect** once.
 
 **CSV** writes `knight-YYYYMMDD-HHMMSS.csv` into the app files directory
 (debug only). **ATOM** folds each second into an 8-byte CubalC atom
-(same 8×8 feature bits as `cubalc_eeg_pack_matrix`). Type a name,
-**SaveA** writes `exg-c/atoms/<name>.npat`. **CMP** loads that chain
-and shows live unity (1 − Hamming/64, newest-aligned). Not a waveform
-MATCH. **Pause** freezes the plot (FROZEN). The strip under the traces
-is a 128-pt FFT with a marker at 50/60 Hz.
+(same 8×8 feature bits as `cubalc_eeg_pack_matrix`). Tap **name (tap)** and type in the dialog — the in-plot keyboard is a
+black overlay on the 1440² face. **SaveA** writes
+`exg-c/atoms/<name>.npat`. **CMP** loads that chain and shows live unity
+(1 − Hamming/64, newest-aligned). Not a waveform MATCH. **Pause**
+freezes the plot (FROZEN). The strip under the traces is a 128-pt FFT
+with a marker at 50/60 Hz.
 
 ## Profiles
 

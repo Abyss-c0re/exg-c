@@ -7,10 +7,11 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.text.Editable;
-import android.text.TextWatcher;
+import android.text.InputType;
 import android.util.TypedValue;
 import android.view.View;
+import android.view.WindowManager;
+import android.view.inputmethod.EditorInfo;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
@@ -66,8 +67,8 @@ public class ExgActivity extends Activity {
     private Button uiScale;
     private Button board;
     private final float[] imu = new float[9];
-    private EditText profName;
-    private EditText learnName;
+    private Button profName;
+    private Button learnName;
     private LinearLayout chGrid;
     private LinearLayout profChips;
     private LinearLayout learnChips;
@@ -209,8 +210,18 @@ public class ExgActivity extends Activity {
             ExgNative.toggleClean();
             refreshChrome();
         });
+        learnName.setOnClickListener(v -> askName("Learn / ATOM name",
+                nameOrEmpty(learnName), s -> {
+                    setLearnName(s);
+                    ExgNative.setName(s);
+                }));
+        profName.setOnClickListener(v -> askName("Profile name",
+                nameOrEmpty(profName), s -> {
+                    setProfName(s);
+                    ExgNative.setProfile(s);
+                }));
         record.setOnClickListener(v -> {
-            ExgNative.setName(learnName.getText().toString().trim());
+            ExgNative.setName(nameOrEmpty(learnName));
             ExgNative.record();
             lastLearnN = -1;
             refreshChrome();
@@ -232,34 +243,28 @@ public class ExgActivity extends Activity {
             refreshChrome();
         });
         atomSave.setOnClickListener(v -> {
-            ExgNative.setName(learnName.getText().toString().trim());
+            ExgNative.setName(nameOrEmpty(learnName));
             ExgNative.atomSave();
             refreshChrome();
         });
         atomCmp.setOnClickListener(v -> {
-            ExgNative.setName(learnName.getText().toString().trim());
+            ExgNative.setName(nameOrEmpty(learnName));
             ExgNative.atomLoad();
             refreshChrome();
         });
-        learnName.addTextChangedListener(new SimpleWatch() {
-            @Override
-            public void afterTextChanged(Editable s) {
-                ExgNative.setName(s.toString().trim());
-            }
-        });
         findViewById(R.id.profSave).setOnClickListener(v -> {
-            ExgNative.setProfile(profName.getText().toString().trim());
+            ExgNative.setProfile(nameOrEmpty(profName));
             ExgNative.profSave();
             refreshProfiles();
         });
         findViewById(R.id.profLoad).setOnClickListener(v -> {
-            ExgNative.setProfile(profName.getText().toString().trim());
+            ExgNative.setProfile(nameOrEmpty(profName));
             ExgNative.profLoad();
             refreshChannels();
             refreshChrome();
         });
         findViewById(R.id.profExport).setOnClickListener(v -> {
-            String name = profName.getText().toString().trim();
+            String name = nameOrEmpty(profName);
             if (name.length() == 0) {
                 name = "exg-profile";
             }
@@ -344,7 +349,7 @@ public class ExgActivity extends Activity {
         port.setOnClickListener(v -> pickPort());
         cubeAlgo.setOnClickListener(v -> pickAlgo());
         buildChannels();
-        profName.setText(ExgNative.getProfile());
+        setProfName(ExgNative.getProfile());
         refreshProfiles();
         showTab(0);
         lastLearnN = -1;
@@ -590,7 +595,7 @@ public class ExgActivity extends Activity {
                     status.setText("import failed");
                     return;
                 }
-                profName.setText(ExgNative.getProfile());
+                setProfName(ExgNative.getProfile());
                 refreshChannels();
                 refreshProfiles();
                 refreshChrome();
@@ -643,7 +648,7 @@ public class ExgActivity extends Activity {
             Button b = new Button(this);
             b.setText(name);
             b.setOnClickListener(v -> {
-                profName.setText(name);
+                setProfName(name);
                 ExgNative.setProfile(name);
                 ExgNative.profLoad();
                 refreshChannels();
@@ -735,7 +740,7 @@ public class ExgActivity extends Activity {
             Button b = new Button(this);
             b.setOnClickListener(v -> {
                 ExgNative.learnSelect(idx);
-                learnName.setText(ExgNative.learnName(idx));
+                setLearnName(ExgNative.learnName(idx));
                 refreshLearnChips();
                 refreshPoseList();
             });
@@ -793,7 +798,7 @@ public class ExgActivity extends Activity {
             lab.setPadding(8, 20, 8, 20);
             lab.setOnClickListener(v -> {
                 ExgNative.learnSelect(idx);
-                learnName.setText(ExgNative.learnName(idx));
+                setLearnName(ExgNative.learnName(idx));
                 refreshLearnChips();
                 refreshPoseList();
             });
@@ -844,6 +849,52 @@ public class ExgActivity extends Activity {
             boolean hit = matching && i == best && pct >= 55;
             lab.setTextColor(hit ? 0xFF3CB46E : (i == sel ? 0xFFF0A040 : 0xFFE8EAF0));
         }
+    }
+
+    private static final String LEARN_HINT = "name (tap)";
+    private static final String PROF_HINT = "name (tap to type)";
+
+    private String nameOrEmpty(Button b) {
+        CharSequence t = b.getText();
+        String s = t == null ? "" : t.toString().trim();
+        if (s.length() == 0 || s.startsWith("name (")) {
+            return "";
+        }
+        return s;
+    }
+
+    private void setLearnName(String s) {
+        learnName.setText(s == null || s.length() == 0 ? LEARN_HINT : s);
+    }
+
+    private void setProfName(String s) {
+        profName.setText(s == null || s.length() == 0 ? PROF_HINT : s);
+    }
+
+    /* Dialog typing — 1440² extract IME is a black overlay on this handset. */
+    private void askName(String title, String current, java.util.function.Consumer<String> on) {
+        final EditText e = new EditText(this);
+        e.setText(current);
+        e.setSelectAllOnFocus(true);
+        e.setTextColor(0xFFE8EAF0);
+        e.setHintTextColor(0xFF8B93A0);
+        e.setHint("letters, digits, - _");
+        e.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+                | InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD);
+        e.setImeOptions(EditorInfo.IME_FLAG_NO_EXTRACT_UI | EditorInfo.IME_FLAG_NO_FULLSCREEN
+                | EditorInfo.IME_ACTION_DONE);
+        AlertDialog d = new AlertDialog.Builder(this)
+                .setTitle(title)
+                .setView(e)
+                .setPositiveButton("OK", (dlg, w) -> on.accept(e.getText().toString().trim()))
+                .setNegativeButton("Cancel", null)
+                .create();
+        if (d.getWindow() != null) {
+            d.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE
+                    | WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN);
+        }
+        d.show();
+        e.requestFocus();
     }
 
     private void pick(String title, String[] items, int selected, java.util.function.IntConsumer on) {
@@ -973,13 +1024,5 @@ public class ExgActivity extends Activity {
             }
         }
         return 6;
-    }
-
-    private abstract static class SimpleWatch implements TextWatcher {
-        @Override
-        public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
-
-        @Override
-        public void onTextChanged(CharSequence s, int a, int b, int c) {}
     }
 }
