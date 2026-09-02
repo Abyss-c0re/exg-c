@@ -139,4 +139,13 @@ int np_host_ui_scale(void);
 void np_host_cycle_ui_scale(void);
 void np_host_set_ui_scale(int tenths);
 
+/* CubalC atom fold — 8 bytes / second, not CSV. */
+void np_host_toggle_atom(void);
+int np_host_atom(void);
+int np_host_atom_n(void);
+int np_host_atom_save(void);
+int np_host_atom_load(void);
+float np_host_atom_unity(void);
+void np_host_atom_line(char *out, int n);
+
 #endif

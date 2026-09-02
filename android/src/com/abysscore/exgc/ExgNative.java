@@ -86,6 +86,13 @@ public final class ExgNative {
     public static native void toggleCsv();
     /* Fills up to 64 bins (128-pt strip). Returns peak Hz. */
     public static native int copyFft(float[] dst);
+    public static native void toggleAtom();
+    public static native boolean atomOn();
+    public static native int atomN();
+    public static native int atomSave();
+    public static native int atomLoad();
+    public static native float atomUnity();
+    public static native String atomLine();
 
     public static native int cubeView();
     public static native void setCubeView(int map);

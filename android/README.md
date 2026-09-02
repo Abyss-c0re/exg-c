@@ -45,9 +45,13 @@ for frames instead.
 If the plot is empty but the port is listed: unplug/replug once, grant
 USB again, tap **Connect** once.
 
-**CSV** writes `knight-YYYYMMDD-HHMMSS.csv` into the app files directory.
-**Pause** freezes the plot (FROZEN). The strip under the traces is a
-128-pt FFT with a marker at 50/60 Hz.
+**CSV** writes `knight-YYYYMMDD-HHMMSS.csv` into the app files directory
+(debug only). **ATOM** folds each second into an 8-byte CubalC atom
+(same 8×8 feature bits as `cubalc_eeg_pack_matrix`). Type a name,
+**SaveA** writes `exg-c/atoms/<name>.npat`. **CMP** loads that chain
+and shows live unity (1 − Hamming/64, newest-aligned). Not a waveform
+MATCH. **Pause** freezes the plot (FROZEN). The strip under the traces
+is a 128-pt FFT with a marker at 50/60 Hz.
 
 ## Profiles
 
@@ -85,6 +89,7 @@ All of this is under `getFilesDir()`:
 - `exg-c.learn` — learn templates
 - `exg-c/profiles/<name>.ini`
 - CSV recordings (`knight-YYYYMMDD-HHMMSS.csv`) from the **CSV** button
+- `exg-c/atoms/<name>.npat` — CubalC atom chains (8 bytes / second)
 
 ## USB IDs
 

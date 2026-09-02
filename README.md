@@ -20,6 +20,7 @@ Not a medical device. Not affiliated with NeuroPawn.
 - CLIP gate — Record will not save a saturated window
 - Learn: **Record** a named pose on Main (gated at 80 sps). **Poses** lists wave % vs cube Jaccard. MATCH hit is wave ≥ 55%.
 - **CSV** dump, **Pause**, site names + RMS on the plot, FFT strip with a 50/60 Hz marker
+- **ATOM** — CubalC fold: 1 s window → 8-byte atom. **SaveA** / **CMP** a named chain (`exg-c/atoms/<name>.npat`). Not a waveform; unity is Hamming. CSV stays the debug dump.
 
 Default montage: Fp1 Fp2 C3 C4 P3 P4 O1 O2.
 

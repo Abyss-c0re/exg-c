@@ -1119,4 +1119,61 @@ Java_com_abysscore_exgc_ExgNative_cycleUiScale(JNIEnv *env, jclass cls)
     (void)cls;
     np_host_cycle_ui_scale();
 }
+
+JNIEXPORT void JNICALL
+Java_com_abysscore_exgc_ExgNative_toggleAtom(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    np_host_toggle_atom();
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_abysscore_exgc_ExgNative_atomOn(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    return np_host_atom() ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jint JNICALL
+Java_com_abysscore_exgc_ExgNative_atomN(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    return np_host_atom_n();
+}
+
+JNIEXPORT jint JNICALL
+Java_com_abysscore_exgc_ExgNative_atomSave(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    return np_host_atom_save();
+}
+
+JNIEXPORT jint JNICALL
+Java_com_abysscore_exgc_ExgNative_atomLoad(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    return np_host_atom_load();
+}
+
+JNIEXPORT jfloat JNICALL
+Java_com_abysscore_exgc_ExgNative_atomUnity(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    return np_host_atom_unity();
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_abysscore_exgc_ExgNative_atomLine(JNIEnv *env, jclass cls)
+{
+    char buf[64];
+    (void)cls;
+    np_host_atom_line(buf, sizeof(buf));
+    return jstr_from(env, buf);
+}
 #endif

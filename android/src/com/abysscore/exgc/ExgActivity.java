@@ -42,6 +42,9 @@ public class ExgActivity extends Activity {
     private Button record;
     private Button csv;
     private Button pause;
+    private Button atom;
+    private Button atomSave;
+    private Button atomCmp;
     private Button connect;
     private Button port;
     private Button tabMain, tabCube, tabPoses, tabSet;
@@ -122,6 +125,9 @@ public class ExgActivity extends Activity {
         record = findViewById(R.id.record);
         csv = findViewById(R.id.csv);
         pause = findViewById(R.id.pause);
+        atom = findViewById(R.id.atom);
+        atomSave = findViewById(R.id.atomSave);
+        atomCmp = findViewById(R.id.atomCmp);
         connect = findViewById(R.id.connect);
         port = findViewById(R.id.port);
         tabMain = findViewById(R.id.tabMain);
@@ -219,6 +225,20 @@ public class ExgActivity extends Activity {
         });
         pause.setOnClickListener(v -> {
             ExgNative.togglePause();
+            refreshChrome();
+        });
+        atom.setOnClickListener(v -> {
+            ExgNative.toggleAtom();
+            refreshChrome();
+        });
+        atomSave.setOnClickListener(v -> {
+            ExgNative.setName(learnName.getText().toString().trim());
+            ExgNative.atomSave();
+            refreshChrome();
+        });
+        atomCmp.setOnClickListener(v -> {
+            ExgNative.setName(learnName.getText().toString().trim());
+            ExgNative.atomLoad();
             refreshChrome();
         });
         learnName.addTextChangedListener(new SimpleWatch() {
@@ -435,6 +455,12 @@ public class ExgActivity extends Activity {
         pause.setText(held ? "PAUSED" : "Pause");
         pause.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
                 held ? 0xFF8A6030 : 0xFF2A3038));
+        boolean folding = ExgNative.atomOn();
+        atom.setText(folding ? "ATOM on" : "ATOM");
+        atom.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
+                folding ? 0xFF8A3038 : 0xFF2A3038));
+        atomCmp.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
+                ExgNative.atomUnity() >= 0.70f && ExgNative.atomN() > 0 ? 0xFF2E8A58 : 0xFF2A3038));
         String id = ExgNative.idLine();
         String now = ExgNative.matchLine();
         int rec = ExgNative.recMs();
@@ -444,8 +470,10 @@ public class ExgActivity extends Activity {
             idLine.setTextColor(0xFFF0A040);
             record.setText("…");
         } else {
+            String atoms = ExgNative.atomLine();
             String extra = now.length() > 0 ? "   " + now
-                    : (ln == 0 ? "   type a name, Record a pose" : "");
+                    : (atoms.length() > 0 ? "   " + atoms
+                            : (ln == 0 ? "   type a name, Record a pose" : ""));
             idLine.setText(id + extra);
             int best = ExgNative.learnBest();
             float sc = best >= 0 ? ExgNative.learnScore(best) : 0f;

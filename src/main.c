@@ -9,6 +9,7 @@
 #include "np_cube.h"
 #include "np_smx.h"
 #include "np_host.h"
+#include "np_atom.h"
 #ifdef NP_ANDROID_UI
 #include "sdl2_min.h"
 #include <android/log.h>
@@ -167,6 +168,15 @@ struct np_app {
     int nprof;
     int typing_prof;
     int side_scroll;
+    int atom_on;
+    uint64_t atom_live[NP_ATOM_RING];
+    int atom_n;
+    int atom_wr;
+    uint64_t atom_ref[NP_ATOM_RING];
+    int atom_ref_n;
+    char atom_ref_name[NP_ATOM_NAME];
+    float atom_unity;
+    unsigned int atom_seq;
 };
 
 static struct np_app g;
@@ -247,6 +257,7 @@ static const int WINPREF[][2] = {{1280, 800}, {1440, 900}, {1600, 1000}, {1920, 
 
 /* Do not cook filter poles from a lagged measured rate (46 SPS makes
  * a 50 Hz notch sit past Nyquist and a 60 Hz notch is already there). */
+static uint32_t view_copy(int ch, float *dst, uint32_t n);
 static float design_sps(void)
 {
     if (g.sps >= 100.f && g.sps <= 160.f) {
@@ -392,6 +403,126 @@ static void learn_persist(void)
     char path[NP_MAX_PATH];
     learn_path(path, sizeof(path));
     npl_save(&g.learn, path);
+}
+
+static void atom_sanitize(char *dst, int n, const char *src)
+{
+    int i = 0, o = 0;
+    if (!dst || n < 2) {
+        return;
+    }
+    if (!src) {
+        dst[0] = 0;
+        return;
+    }
+    for (i = 0; src[i] && o < n - 1; i++) {
+        char c = src[i];
+        if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
+            c == '-' || c == '_') {
+            dst[o++] = c;
+        }
+    }
+    dst[o] = 0;
+}
+
+static void atom_dir(char *out, int n)
+{
+    char root[NP_MAX_PATH];
+    np_cfg_root(root, sizeof(root));
+    mkdir(root, 0755);
+    snprintf(out, (size_t)n, "%s/exg-c/atoms", root);
+    np_mkdir_p(out);
+}
+
+static int atom_path(char *out, int n, const char *name)
+{
+    char dir[NP_MAX_PATH], safe[NP_ATOM_NAME];
+    atom_sanitize(safe, (int)sizeof(safe), name);
+    if (!safe[0]) {
+        return -1;
+    }
+    atom_dir(dir, (int)sizeof(dir));
+    snprintf(out, (size_t)n, "%s/%s.npat", dir, safe);
+    return 0;
+}
+
+static void atom_flatten(uint64_t *dst, int *n)
+{
+    int i, start;
+    *n = g.atom_n;
+    if (*n < 1) {
+        return;
+    }
+    start = g.atom_n < NP_ATOM_RING ? 0 : g.atom_wr;
+    for (i = 0; i < *n; i++) {
+        dst[i] = g.atom_live[(start + i) % NP_ATOM_RING];
+    }
+}
+
+static void atom_score(void)
+{
+    uint64_t live[NP_ATOM_RING];
+    int n = 0;
+    if (g.atom_ref_n < 1 || g.atom_n < 1) {
+        g.atom_unity = 0.f;
+        return;
+    }
+    atom_flatten(live, &n);
+    g.atom_unity = np_atom_ring_unity(live, n, g.atom_ref, g.atom_ref_n);
+}
+
+static void atom_tick(void)
+{
+    static uint64_t last;
+    struct timespec ts;
+    uint64_t now;
+    float planar[NP_NCHAN * NP_ATOM_WIN];
+    float scale;
+    int c, got = 0;
+    uint32_t want;
+
+    if (!g.atom_on) {
+        last = 0;
+        return;
+    }
+    if (!g.connected || (g.sps > 0.f && g.sps < 80.f)) {
+        return;
+    }
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    now = (uint64_t)ts.tv_sec * 1000ull + (uint64_t)(ts.tv_nsec / 1000000ull);
+    if (last && now - last < 1000ull) {
+        return;
+    }
+    last = now;
+    want = (uint32_t)NP_ATOM_WIN;
+    memset(planar, 0, sizeof(planar));
+    for (c = 0; c < NP_NCHAN; c++) {
+        float buf[NP_ATOM_WIN];
+        uint32_t n;
+        if (!g.active[c]) {
+            continue;
+        }
+        n = view_copy(c, buf, want);
+        if (n < 32) {
+            continue;
+        }
+        memcpy(planar + c * NP_ATOM_WIN, buf, (size_t)n * sizeof(float));
+        got++;
+    }
+    if (got < 1) {
+        return;
+    }
+    scale = (g.calm.have && g.calm.rms[0] > 1.f) ? g.calm.rms[0] : NP_ATOM_SCALE;
+    {
+        uint64_t bits = np_atom_pack(planar, NP_NCHAN, NP_ATOM_WIN, NP_ATOM_WIN, scale);
+        g.atom_live[g.atom_wr] = bits;
+        g.atom_wr = (g.atom_wr + 1) % NP_ATOM_RING;
+        if (g.atom_n < NP_ATOM_RING) {
+            g.atom_n++;
+        }
+        g.atom_seq++;
+    }
+    atom_score();
 }
 
 static uint8_t rec_smx[NPL_SMX_SEC];
@@ -3879,7 +4010,19 @@ static void draw_side(int x)
     btn(x + 12, y, 168, bh, bname, 1, 5, 0, 32, 36, 44);
     btn(x + 184, y, 92, bh, g.recording ? "Stop CSV" : "CSV", g.recording, 3, 0,
         g.recording ? 110 : 36, g.recording ? 50 : 40, g.recording ? 40 : 52);
-    y += rh + 2;
+    y += rh;
+    btn(x + 12, y, 84, bh, g.atom_on ? "ATOM on" : "ATOM", g.atom_on, 64, 0,
+        g.atom_on ? 28 : 36, g.atom_on ? 90 : 40, g.atom_on ? 70 : 48);
+    btn(x + 100, y, 84, bh, "SaveA", 1, 65, 0, 36, 40, 48);
+    btn(x + 188, y, 88, bh, "CMP", g.atom_ref_n > 0, 66, 0, 36, 40, 48);
+    y += rh;
+    if (g.atom_on || g.atom_n || g.atom_ref_n) {
+        char al[56];
+        np_host_atom_line(al, (int)sizeof(al));
+        text(x + 12, y, al, 200, 80, 90, 1);
+        y += NP_TOUCH ? 18 : 14;
+    }
+    y += 2;
     side_pin_h = y;
     {
         SDL_Rect clip;
@@ -4430,6 +4573,15 @@ static void click(int x, int y)
         case 63:
             np_host_toggle_envelope();
             break;
+        case 64:
+            np_host_toggle_atom();
+            break;
+        case 65:
+            np_host_atom_save();
+            break;
+        case 66:
+            np_host_atom_load();
+            break;
         case 13:
             g.grid = !g.grid;
             cfg_save();
@@ -4648,6 +4800,7 @@ static void frame(void)
     }
     nhits = 0;
     smx_tick();
+    atom_tick();
     SDL_SetRenderDrawColor(R, 22, 24, 30, 255);
     SDL_RenderClear(R);
     fill(0, 0, win_w, win_h, 22, 24, 30);
@@ -5311,6 +5464,7 @@ void np_host_tick(void)
         return;
     }
     smx_tick();
+    atom_tick();
     learn_tick();
     live_snap();
     if (g.connected && !g.en_running) {
@@ -6184,6 +6338,97 @@ int np_host_fft(float *dst, int max, int *peak_hz)
         *peak_hz = fft_peak_hz;
     }
     return n;
+}
+
+void np_host_toggle_atom(void)
+{
+    g.atom_on = !g.atom_on;
+    if (g.atom_on) {
+        set_status(1, "ATOM on — 1 s windows → 8-byte CubalC fold (no CSV)");
+    } else {
+        set_status(1, "ATOM off");
+    }
+}
+
+int np_host_atom(void)
+{
+    return g.atom_on;
+}
+
+int np_host_atom_n(void)
+{
+    return g.atom_n;
+}
+
+int np_host_atom_save(void)
+{
+    char path[NP_MAX_PATH];
+    uint64_t live[NP_ATOM_RING];
+    int n = 0;
+    if (atom_path(path, (int)sizeof(path), g.namebuf) != 0) {
+        set_status(0, "ATOM need a name");
+        return -1;
+    }
+    atom_flatten(live, &n);
+    if (n < 1) {
+        set_status(0, "ATOM empty — wait for 1 s folds");
+        return -1;
+    }
+    if (np_atom_save(path, live, n, NP_ATOM_WIN) != 0) {
+        set_status(0, "ATOM cannot write %s", path);
+        return -1;
+    }
+    memcpy(g.atom_ref, live, (size_t)n * sizeof(uint64_t));
+    g.atom_ref_n = n;
+    atom_sanitize(g.atom_ref_name, (int)sizeof(g.atom_ref_name), g.namebuf);
+    atom_score();
+    set_status(1, "ATOM saved %s  %d × 8 B  (not CSV)", g.atom_ref_name, n);
+    return 0;
+}
+
+int np_host_atom_load(void)
+{
+    char path[NP_MAX_PATH];
+    int n, win = 0;
+    if (atom_path(path, (int)sizeof(path), g.namebuf) != 0) {
+        set_status(0, "ATOM need a name to compare");
+        return -1;
+    }
+    n = np_atom_load(path, g.atom_ref, NP_ATOM_RING, &win);
+    if (n < 1) {
+        set_status(0, "ATOM no chain '%s'", g.namebuf);
+        return -1;
+    }
+    g.atom_ref_n = n;
+    atom_sanitize(g.atom_ref_name, (int)sizeof(g.atom_ref_name), g.namebuf);
+    atom_score();
+    set_status(1, "ATOM vs %s  %d atoms  unity %.0f%%", g.atom_ref_name, n,
+               (double)(g.atom_unity * 100.f));
+    return 0;
+}
+
+float np_host_atom_unity(void)
+{
+    return g.atom_unity;
+}
+
+void np_host_atom_line(char *out, int n)
+{
+    if (!out || n < 4) {
+        return;
+    }
+    if (!g.atom_on && g.atom_n < 1 && g.atom_ref_n < 1) {
+        out[0] = 0;
+        return;
+    }
+    if (g.atom_ref_n > 0) {
+        snprintf(out, (size_t)n, "ATOM %u  vs %s %.0f%%", g.atom_seq,
+                 g.atom_ref_name[0] ? g.atom_ref_name : "?", (double)(g.atom_unity * 100.f));
+    } else if (g.atom_on) {
+        snprintf(out, (size_t)n, "ATOM %u  %d s  name+Save", g.atom_seq, g.atom_n);
+    } else {
+        snprintf(out, (size_t)n, "ATOM %d saved", g.atom_n);
+    }
 }
 
 int np_host_imu(float acc[3], float gyr[3], float mag[3])

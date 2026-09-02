@@ -580,6 +580,29 @@
                 android:text="Pause" />
         </LinearLayout>
 
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content">
+
+            <Button
+                android:id="@+id/atom"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="ATOM" />
+
+            <Button
+                android:id="@+id/atomSave"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="SaveA" />
+
+            <Button
+                android:id="@+id/atomCmp"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="CMP" />
+        </LinearLayout>
+
         <HorizontalScrollView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

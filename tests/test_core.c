@@ -6,6 +6,7 @@
 #include "np_cube.h"
 #include "np_smx.h"
 #include "nplearn.h"
+#include "np_atom.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -791,6 +792,38 @@ static void test_process(void)
     expect(np_env_step(&ev, -80.f) >= 0.f, "envelope is unsigned");
 }
 
+static void test_atom(void)
+{
+    float planar[8 * 125];
+    uint64_t a, b, ring[4], ref[4];
+    int i, n, win = 0;
+    char path[] = "/tmp/exg-atom-poc.npat";
+
+    memset(planar, 0, sizeof(planar));
+    a = np_atom_pack(planar, 8, 125, 125, 50.f);
+    expect((a & 0x01) != 0 && (a & 0x40) != 0, "silence sets polarity+flat");
+    expect(np_atom_unity(a, a) == 1.f, "self unity is 1");
+    for (i = 0; i < 125; i++) {
+        planar[i] = 80.f * sinf(2.f * (float)M_PI * 10.f * (float)i / 125.f);
+    }
+    b = np_atom_pack(planar, 8, 125, 125, 50.f);
+    expect(np_atom_hamming(a, b) > 0, "tone differs from silence");
+    expect(np_atom_unity(a, b) < 1.f, "tone vs silence is not 1");
+    expect(np_atom_ring_unity(NULL, 0, &a, 1) == 0.f, "empty live ring is 0");
+    ring[0] = a;
+    ring[1] = b;
+    ref[0] = a;
+    ref[1] = b;
+    expect(np_atom_ring_unity(ring, 2, ref, 2) > 0.99f, "identical tails unity 1");
+    expect(np_atom_save(path, ring, 2, 125) == 0, "atom save");
+    n = np_atom_load(path, ref, 4, &win);
+    expect(n == 2 && win == 125 && ref[0] == a && ref[1] == b, "atom load round-trip");
+    {
+        /* 2 atoms × 8 bytes + 12 header vs a raw second of CSV */
+        expect(12 + 2 * 8 < 200, "atom file is tens of bytes");
+    }
+}
+
 int main(void)
 {
     test_cmds();
@@ -809,6 +842,7 @@ int main(void)
     test_profile_format();
     test_id_event();
     test_process();
+    test_atom();
     if (fails) {
         fprintf(stderr, "%d FAIL\n", fails);
         return 1;
