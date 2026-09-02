@@ -42,4 +42,8 @@ int np_atom_save2(const char *path, const uint64_t *a, const float *rms, int n, 
 int np_atom_load(const char *path, uint64_t *a, int cap, int *win);
 int np_atom_load2(const char *path, uint64_t *a, float *rms, int cap, int *win, int *have_rms);
 
+/* Raw planar (ch-major) so a filter change can recook plates and takes. */
+int np_raw_save(const char *path, const float *planar, int n_ch, int n_samp, float sps);
+int np_raw_load(const char *path, float *planar, int cap, int *n_ch, int *n_samp, float *sps);
+
 #endif

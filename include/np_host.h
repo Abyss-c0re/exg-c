@@ -63,6 +63,8 @@ void np_host_set_profile(const char *s);
 void np_host_get_profile(char *out, int n);
 int np_host_prof_save(void);
 int np_host_prof_load(void);
+int np_host_prof_del(void);
+int np_host_prof_rename(const char *to);
 int np_host_prof_count(void);
 void np_host_prof_at(int i, char *out, int n);
 

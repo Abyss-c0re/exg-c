@@ -13,7 +13,7 @@ Not a medical device. Not affiliated with NeuroPawn.
 - Live 8-channel plot at 125 SPS
 - **NOISE** / **CALM** / **CLEAN** so the leftover is usable
 - **Cube** — **viz** is the crimson N=8 lattice (Cube Experience / levitate). **map** assigns 10-10 sites. **algo** picks the 0/1 fold (`detect` … `proton`).
-- Named profiles (export / import as files on Android)
+- Named **profiles** for band/filters (tap to switch, long-press to rename/delete). Electrode map stays. Plates and takes recook from raw.
 - Settings: time window, µV scale, **UI 1 / 1.5 / 2×**, notch, high-pass, **CAR**, **low-pass**, **detrend**, **envelope**
 - IMU acc / gyr / mag on 57-byte Knight boards (`8-ch + IMU`)
 - Band presets: `raw` / `line-kill` / `EEG` / `EMG`

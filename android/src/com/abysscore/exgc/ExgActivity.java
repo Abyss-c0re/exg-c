@@ -66,7 +66,7 @@ public class ExgActivity extends Activity {
     private Button uiScale;
     private Button board;
     private final float[] imu = new float[9];
-    private Button profName;
+    private TextView profNow;
     private Button learnName;
     private LinearLayout chGrid;
     private LinearLayout profChips;
@@ -103,6 +103,9 @@ public class ExgActivity extends Activity {
         File dir = getFilesDir();
         if (dir != null) {
             new File(dir, "exg-c/profiles").mkdirs();
+            new File(dir, "exg-c/raw").mkdirs();
+            new File(dir, "exg-c/raw/atoms").mkdirs();
+            new File(dir, "exg-c/raw/learn").mkdirs();
         }
         ExgNative.start(dir != null ? dir.getAbsolutePath() : getApplicationInfo().dataDir);
         setContentView(R.layout.activity_exg);
@@ -151,7 +154,7 @@ public class ExgActivity extends Activity {
         algo = findViewById(R.id.algo);
         uiScale = findViewById(R.id.uiScale);
         board = findViewById(R.id.board);
-        profName = findViewById(R.id.profName);
+        profNow = findViewById(R.id.profNow);
         learnName = findViewById(R.id.learnName);
         chGrid = findViewById(R.id.chGrid);
         profChips = findViewById(R.id.profChips);
@@ -214,10 +217,15 @@ public class ExgActivity extends Activity {
                     setLearnName(s);
                     ExgNative.setName(s);
                 }));
-        profName.setOnClickListener(v -> askName("Profile name",
-                nameOrEmpty(profName), s -> {
-                    setProfName(s);
+        findViewById(R.id.profNew).setOnClickListener(v -> askName("Save current settings as",
+                ExgNative.getProfile(), s -> {
+                    if (s.length() == 0) {
+                        return;
+                    }
                     ExgNative.setProfile(s);
+                    ExgNative.profSave();
+                    refreshProfiles();
+                    refreshChrome();
                 }));
         record.setOnClickListener(v -> {
             ExgNative.setName(nameOrEmpty(learnName));
@@ -249,19 +257,8 @@ public class ExgActivity extends Activity {
                 refreshChrome();
             }
         });
-        findViewById(R.id.profSave).setOnClickListener(v -> {
-            ExgNative.setProfile(nameOrEmpty(profName));
-            ExgNative.profSave();
-            refreshProfiles();
-        });
-        findViewById(R.id.profLoad).setOnClickListener(v -> {
-            ExgNative.setProfile(nameOrEmpty(profName));
-            ExgNative.profLoad();
-            refreshChannels();
-            refreshChrome();
-        });
         findViewById(R.id.profExport).setOnClickListener(v -> {
-            String name = nameOrEmpty(profName);
+            String name = ExgNative.getProfile();
             if (name.length() == 0) {
                 name = "exg-profile";
             }
@@ -346,7 +343,6 @@ public class ExgActivity extends Activity {
         port.setOnClickListener(v -> pickPort());
         cubeAlgo.setOnClickListener(v -> pickAlgo());
         buildChannels();
-        setProfName(ExgNative.getProfile());
         refreshProfiles();
         showTab(0);
         lastLearnN = -1;
@@ -597,7 +593,6 @@ public class ExgActivity extends Activity {
                     status.setText("import failed");
                     return;
                 }
-                setProfName(ExgNative.getProfile());
                 refreshChannels();
                 refreshProfiles();
                 refreshChrome();
@@ -637,24 +632,56 @@ public class ExgActivity extends Activity {
 
     private void refreshProfiles() {
         String[] ps = ExgNative.profiles();
+        String cur = ExgNative.getProfile();
+        if (profNow != null) {
+            profNow.setText(cur != null && cur.length() > 0 ? ("now: " + cur) : "now: (none)");
+        }
         profChips.removeAllViews();
         if (ps == null || ps.length == 0) {
             TextView empty = new TextView(this);
-            empty.setText("no local profiles yet — Export… to keep one as a file");
+            empty.setText("No profiles yet. Set band/filters, then Save current as…");
             empty.setTextColor(0xFF8B93A0);
             profChips.addView(empty);
+            applyUiScale();
             return;
         }
         for (int i = 0; i < ps.length; i++) {
             final String name = ps[i];
             Button b = new Button(this);
-            b.setText(name);
+            boolean on = name.equals(cur);
+            b.setText(on ? (name + "   • now") : name);
+            b.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
+                    on ? 0xFF2E8A58 : 0xFF2A3038));
             b.setOnClickListener(v -> {
-                setProfName(name);
                 ExgNative.setProfile(name);
                 ExgNative.profLoad();
                 refreshChannels();
+                refreshProfiles();
                 refreshChrome();
+            });
+            b.setOnLongClickListener(v -> {
+                new android.app.AlertDialog.Builder(this)
+                        .setTitle(name)
+                        .setItems(new CharSequence[] {"Rename", "Delete"}, (d, which) -> {
+                            if (which == 0) {
+                                askName("Rename profile", name, s -> {
+                                    if (s.length() == 0) {
+                                        return;
+                                    }
+                                    ExgNative.setProfile(name);
+                                    ExgNative.profRename(s);
+                                    refreshProfiles();
+                                    refreshChrome();
+                                });
+                            } else {
+                                ExgNative.setProfile(name);
+                                ExgNative.profDel();
+                                refreshProfiles();
+                                refreshChrome();
+                            }
+                        })
+                        .show();
+                return true;
             });
             profChips.addView(b);
         }
@@ -844,7 +871,6 @@ public class ExgActivity extends Activity {
     }
 
     private static final String LEARN_HINT = "name (tap)";
-    private static final String PROF_HINT = "name (tap to type)";
 
     private String nameOrEmpty(Button b) {
         CharSequence t = b.getText();
@@ -857,10 +883,6 @@ public class ExgActivity extends Activity {
 
     private void setLearnName(String s) {
         learnName.setText(s == null || s.length() == 0 ? LEARN_HINT : s);
-    }
-
-    private void setProfName(String s) {
-        profName.setText(s == null || s.length() == 0 ? PROF_HINT : s);
     }
 
     private void nameTake(int sec) {

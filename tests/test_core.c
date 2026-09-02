@@ -852,6 +852,20 @@ static void test_atom(void)
         n = np_atom_load2(path, got, rms2, 4, &win, &have);
         expect(n == 2 && have == 1 && got[0] == a, "atom load2");
         expect(12 + 2 * 8 < 200, "atom file is tens of bytes");
+        {
+            char rp[] = "/tmp/exg-raw.nprw";
+            float in[16], out[16];
+            int ch = 0, ns = 0;
+            float sps = 0.f;
+            int k;
+            for (k = 0; k < 16; k++) {
+                in[k] = (float)k;
+            }
+            expect(np_raw_save(rp, in, 2, 8, 125.f) == 0, "raw save");
+            expect(np_raw_load(rp, out, 16, &ch, &ns, &sps) == 16, "raw load");
+            expect(ch == 2 && ns == 8 && out[9] == 9.f, "raw round-trip");
+            remove(rp);
+        }
         expect(np_atom_file_close(path, path) > 0.99f, "file close self is 1");
         expect(np_atom_save(path, ring, 2, 125) == 0, "v1 save");
         expect(np_atom_file_close(path, path) == 0.f, "v1 bits are not a score");

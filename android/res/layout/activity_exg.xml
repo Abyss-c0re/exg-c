@@ -284,16 +284,30 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Profile — export/import as a file (Files / Drive / Downloads)"
+                    android:text="Profiles — tap to switch. Long-press to rename or delete. Electrode map stays. Plates and takes recook."
                     android:textColor="@color/muted" />
 
-                <Button
-                    android:id="@+id/profName"
+                <TextView
+                    android:id="@+id/profNow"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:gravity="start|center_vertical"
-                    android:text="name (tap to type)"
+                    android:paddingTop="6dp"
+                    android:paddingBottom="4dp"
+                    android:text="now: (none)"
                     android:textColor="@color/ink" />
+
+                <LinearLayout
+                    android:id="@+id/profChips"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:paddingTop="4dp" />
+
+                <Button
+                    android:id="@+id/profNew"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Save current as…" />
 
                 <LinearLayout
                     android:layout_width="match_parent"
@@ -304,41 +318,15 @@
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="Export…" />
+                        android:text="Share file" />
 
                     <Button
                         android:id="@+id/profImport"
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="Import…" />
+                        android:text="Open file" />
                 </LinearLayout>
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content">
-
-                    <Button
-                        android:id="@+id/profSave"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="Save here" />
-
-                    <Button
-                        android:id="@+id/profLoad"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="Load here" />
-                </LinearLayout>
-
-                <LinearLayout
-                    android:id="@+id/profChips"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="vertical"
-                    android:paddingTop="8dp" />
 
                 <TextView
                     android:id="@+id/profList"

@@ -395,3 +395,80 @@ int np_atom_load2(const char *path, uint64_t *a, float *rms, int cap, int *win, 
     }
     return (int)n;
 }
+
+int np_raw_save(const char *path, const float *planar, int n_ch, int n_samp, float sps)
+{
+    FILE *f;
+    unsigned char hdr[16];
+    size_t n;
+    if (!path || !planar || n_ch < 1 || n_samp < 1) {
+        return -1;
+    }
+    if (n_ch > 8) {
+        n_ch = 8;
+    }
+    f = fopen(path, "wb");
+    if (!f) {
+        return -1;
+    }
+    memcpy(hdr, "NPRW", 4);
+    hdr[4] = 1;
+    hdr[5] = (unsigned char)n_ch;
+    hdr[6] = 0;
+    hdr[7] = 0;
+    wr_u32(hdr + 8, (unsigned)n_samp);
+    memcpy(hdr + 12, &sps, 4);
+    if (fwrite(hdr, 1, 16, f) != 16) {
+        fclose(f);
+        return -1;
+    }
+    n = (size_t)n_ch * (size_t)n_samp;
+    if (fwrite(planar, sizeof(float), n, f) != n) {
+        fclose(f);
+        return -1;
+    }
+    fclose(f);
+    return 0;
+}
+
+int np_raw_load(const char *path, float *planar, int cap, int *n_ch, int *n_samp, float *sps)
+{
+    FILE *f;
+    unsigned char hdr[16];
+    int ch, ns;
+    size_t n, want;
+    if (!path || !planar || cap < 1) {
+        return -1;
+    }
+    f = fopen(path, "rb");
+    if (!f) {
+        return -1;
+    }
+    if (fread(hdr, 1, 16, f) != 16 || memcmp(hdr, "NPRW", 4) != 0 || hdr[4] != 1) {
+        fclose(f);
+        return -1;
+    }
+    ch = hdr[5];
+    ns = (int)rd_u32(hdr + 8);
+    if (ch < 1 || ch > 8 || ns < 1) {
+        fclose(f);
+        return -1;
+    }
+    n = (size_t)ch * (size_t)ns;
+    want = n > (size_t)cap ? (size_t)cap : n;
+    if (fread(planar, sizeof(float), want, f) != want) {
+        fclose(f);
+        return -1;
+    }
+    fclose(f);
+    if (n_ch) {
+        *n_ch = ch;
+    }
+    if (n_samp) {
+        *n_samp = ns;
+    }
+    if (sps) {
+        memcpy(sps, hdr + 12, 4);
+    }
+    return (int)want;
+}

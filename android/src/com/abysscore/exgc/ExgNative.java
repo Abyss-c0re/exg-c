@@ -57,6 +57,8 @@ public final class ExgNative {
     public static native String getProfile();
     public static native int profSave();
     public static native int profLoad();
+    public static native int profDel();
+    public static native int profRename(String s);
     public static native String[] profiles();
     public static native String ports();
     public static native void cyclePort();

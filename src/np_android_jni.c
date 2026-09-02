@@ -452,6 +452,23 @@ Java_com_abysscore_exgc_ExgNative_profLoad(JNIEnv *env, jclass cls)
     return np_host_prof_load();
 }
 
+JNIEXPORT jint JNICALL
+Java_com_abysscore_exgc_ExgNative_profDel(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    return np_host_prof_del();
+}
+
+JNIEXPORT jint JNICALL
+Java_com_abysscore_exgc_ExgNative_profRename(JNIEnv *env, jclass cls, jstring s)
+{
+    char buf[24];
+    (void)cls;
+    jstr_to(env, s, buf, sizeof(buf));
+    return np_host_prof_rename(buf);
+}
+
 JNIEXPORT jobjectArray JNICALL
 Java_com_abysscore_exgc_ExgNative_profiles(JNIEnv *env, jclass cls)
 {

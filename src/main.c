@@ -187,6 +187,8 @@ struct np_app {
     int atom_clip;
 };
 
+static float atom_raw[NP_ATOM_RING][NP_NCHAN * NP_ATOM_WIN];
+
 static struct np_app g;
 static SDL_Window *Win;
 static SDL_Renderer *R;
@@ -455,6 +457,123 @@ static int atom_path(char *out, int n, const char *name)
     return 0;
 }
 
+static void raw_root(char *out, int n)
+{
+    char root[NP_MAX_PATH];
+    np_cfg_root(root, sizeof(root));
+    mkdir(root, 0755);
+    snprintf(out, (size_t)n, "%s/exg-c/raw", root);
+    mkdir(out, 0755);
+}
+
+static void raw_plate_path(const char *which, char *out, int n)
+{
+    char dir[NP_MAX_PATH];
+    raw_root(dir, (int)sizeof(dir));
+    snprintf(out, (size_t)n, "%s/%s.nprw", dir, which);
+}
+
+static void raw_named_path(const char *kind, const char *name, char *out, int n)
+{
+    char dir[NP_MAX_PATH], sub[NP_MAX_PATH], safe[NP_ATOM_NAME];
+    raw_root(dir, (int)sizeof(dir));
+    snprintf(sub, sizeof(sub), "%s/%s", dir, kind);
+    mkdir(sub, 0755);
+    atom_sanitize(safe, (int)sizeof(safe), name);
+    snprintf(out, (size_t)n, "%s/%s.nprw", sub, safe);
+}
+
+static void plate_stats_from_buf(float buf[NP_NCHAN][NP_RING], uint32_t nn[NP_NCHAN],
+                                 int cook)
+{
+    int c;
+    if (cook) {
+        int env = g.envelope;
+        g.envelope = 0;
+        cook_all(buf, nn, NP_RING);
+        g.envelope = env;
+    }
+    for (c = 0; c < NP_NCHAN; c++) {
+        float dc = 0.f, rms = 0.f, pk = 0.f;
+        if (nn[c] < 16) {
+            continue;
+        }
+        ch_stats(buf[c], nn[c], &dc, &rms, &pk);
+        if (cook) {
+            g.calm.dc[c] = dc;
+            g.calm.rms[c] = rms;
+            g.calm.pk[c] = pk;
+            if (nn[c] > g.calm.n) {
+                g.calm.n = nn[c];
+            }
+        } else {
+            g.cal.dc[c] = dc;
+            g.cal.rms[c] = rms;
+            g.cal.pk[c] = pk;
+            if (nn[c] > g.cal.n) {
+                g.cal.n = nn[c];
+            }
+        }
+    }
+}
+
+static void raw_dump_ring(const char *path, uint32_t n_samp)
+{
+    float *planar;
+    int c;
+    if (!path || n_samp < 16) {
+        return;
+    }
+    if (n_samp > NP_RING) {
+        n_samp = NP_RING;
+    }
+    planar = (float *)malloc((size_t)NP_NCHAN * n_samp * sizeof(float));
+    if (!planar) {
+        return;
+    }
+    memset(planar, 0, (size_t)NP_NCHAN * n_samp * sizeof(float));
+    for (c = 0; c < NP_NCHAN; c++) {
+        float tmp[NP_RING];
+        uint32_t n = np_ring_copy(&g.ring, c, tmp, n_samp);
+        if (n > n_samp) {
+            n = n_samp;
+        }
+        if (n > 0) {
+            memcpy(planar + c * n_samp, tmp, (size_t)n * sizeof(float));
+        }
+    }
+    np_raw_save(path, planar, NP_NCHAN, (int)n_samp, design_sps());
+    free(planar);
+}
+
+static int raw_load_plate(const char *which, float buf[NP_NCHAN][NP_RING], uint32_t nn[NP_NCHAN])
+{
+    char path[NP_MAX_PATH];
+    float *planar;
+    int ch = 0, ns = 0, c;
+    float sps = 0.f;
+    raw_plate_path(which, path, (int)sizeof(path));
+    planar = (float *)malloc((size_t)NP_NCHAN * NP_RING * sizeof(float));
+    if (!planar) {
+        return -1;
+    }
+    if (np_raw_load(path, planar, NP_NCHAN * NP_RING, &ch, &ns, &sps) < 1 || ns < 16) {
+        free(planar);
+        return -1;
+    }
+    if (ns > NP_RING) {
+        ns = NP_RING;
+    }
+    memset(nn, 0, NP_NCHAN * sizeof(nn[0]));
+    memset(buf, 0, sizeof(float) * (size_t)NP_NCHAN * NP_RING);
+    for (c = 0; c < ch && c < NP_NCHAN; c++) {
+        memcpy(buf[c], planar + c * ns, (size_t)ns * sizeof(float));
+        nn[c] = (uint32_t)ns;
+    }
+    free(planar);
+    return 0;
+}
+
 static void atom_last(uint64_t *bits, float *rms, int k)
 {
     int i;
@@ -560,6 +679,13 @@ static void atom_tick(void)
     }
     if (got < 1) {
         return;
+    }
+    memset(atom_raw[g.atom_wr], 0, sizeof(atom_raw[0]));
+    for (c = 0; c < NP_NCHAN; c++) {
+        uint32_t n = nn[c] > want ? want : nn[c];
+        if (n > 0) {
+            memcpy(atom_raw[g.atom_wr] + c * NP_ATOM_WIN, buf[c], (size_t)n * sizeof(float));
+        }
     }
     env = g.envelope;
     g.envelope = 0;
@@ -772,6 +898,22 @@ static int learn_capture(float wave[NPL_NCHAN][NPL_LEN], float rms[NPL_NCHAN], u
     }
     if (clip) {
         return -3;
+    }
+    {
+        char rpath[NP_MAX_PATH];
+        float *planar = (float *)malloc((size_t)NP_NCHAN * want * sizeof(float));
+        if (planar && g.namebuf[0]) {
+            int c2;
+            memset(planar, 0, (size_t)NP_NCHAN * want * sizeof(float));
+            for (c2 = 0; c2 < NPL_NCHAN; c2++) {
+                if (nn[c2] > 0) {
+                    memcpy(planar + c2 * want, buf[c2], (size_t)nn[c2] * sizeof(float));
+                }
+            }
+            raw_named_path("learn", g.namebuf, rpath, (int)sizeof(rpath));
+            np_raw_save(rpath, planar, NP_NCHAN, (int)want, sps);
+        }
+        free(planar);
     }
     cook_all(buf, nn, want);
     for (c = 0; c < NPL_NCHAN; c++) {
@@ -993,9 +1135,12 @@ static void typing_set(int on)
 
 static void cfg_save(void);
 static int cfg_write(const char *path);
+static int cfg_write_ex(const char *path, int with_map);
 static int cfg_read(const char *path);
 static void prof_scan(void);
 static void prof_apply(void);
+static void prof_autosave(void);
+static void data_recook(void);
 
 static void prof_dir(char *out, size_t n)
 {
@@ -1030,6 +1175,11 @@ static void prof_file(const char *name, char *out, size_t n)
 }
 
 static int cfg_write(const char *path)
+{
+    return cfg_write_ex(path, 1);
+}
+
+static int cfg_write_ex(const char *path, int with_map)
 {
     FILE *f;
     int i;
@@ -1069,11 +1219,14 @@ static int cfg_write(const char *path)
     fprintf(f, "pitch=%.4f\n", (double)g.cube_pitch);
     fprintf(f, "zoom=%.2f\n", (double)g.cube_zoom);
     fprintf(f, "view=%d\n", g.cube_view ? 1 : 0);
-    for (i = 0; i < NP_NCHAN; i++) {
-        if (g.elec[i].name[0]) {
-            fprintf(f, "elec%d=%s\n", i + 1, g.elec[i].name);
-        } else {
-            fprintf(f, "elec%d=%.2f,%.2f\n", i + 1, (double)g.elec[i].az, (double)g.elec[i].el);
+    if (with_map) {
+        for (i = 0; i < NP_NCHAN; i++) {
+            if (g.elec[i].name[0]) {
+                fprintf(f, "elec%d=%s\n", i + 1, g.elec[i].name);
+            } else {
+                fprintf(f, "elec%d=%.2f,%.2f\n", i + 1, (double)g.elec[i].az,
+                        (double)g.elec[i].el);
+            }
         }
     }
     fprintf(f, "\n[channels]\n");
@@ -1296,7 +1449,7 @@ static void prof_save(void)
     prof_dir(dir, sizeof(dir));
     mkdir(dir, 0755);
     prof_file(g.prof, path, sizeof(path));
-    if (cfg_write(path) != 0) {
+    if (cfg_write_ex(path, 0) != 0) {
         set_status(0, "cannot write profile %s", g.prof);
         return;
     }
@@ -1318,13 +1471,69 @@ static void prof_load(void)
         }
     }
     prof_file(g.prof, path, sizeof(path));
-    if (cfg_read(path) != 0) {
-        set_status(0, "no profile '%s'", g.prof);
-        return;
+    {
+        struct np_elec keep[NP_NCHAN];
+        memcpy(keep, g.elec, sizeof(keep));
+        if (cfg_read(path) != 0) {
+            set_status(0, "no profile '%s'", g.prof);
+            return;
+        }
+        memcpy(g.elec, keep, sizeof(keep));
     }
     prof_apply();
+    data_recook();
     cfg_save();
-    set_status(1, "loaded profile '%s'", g.prof);
+    set_status(1, "profile '%s' — map kept, plates recooked", g.prof);
+}
+
+static void prof_autosave(void)
+{
+    char path[NP_MAX_PATH];
+    if (!prof_ok_name(g.prof)) {
+        return;
+    }
+    prof_file(g.prof, path, sizeof(path));
+    cfg_write_ex(path, 0);
+}
+
+static void prof_del(void)
+{
+    char path[NP_MAX_PATH];
+    if (!prof_ok_name(g.prof)) {
+        set_status(0, "no profile to delete");
+        return;
+    }
+    prof_file(g.prof, path, sizeof(path));
+    if (unlink(path) != 0) {
+        set_status(0, "cannot delete '%s'", g.prof);
+        return;
+    }
+    set_status(1, "deleted profile '%s'", g.prof);
+    g.prof[0] = 0;
+    prof_scan();
+    cfg_save();
+}
+
+static void prof_rename(const char *to)
+{
+    char from[NP_MAX_PATH], dest[NP_MAX_PATH];
+    if (!prof_ok_name(g.prof) || !prof_ok_name(to)) {
+        set_status(0, "need a valid name");
+        return;
+    }
+    if (strcmp(g.prof, to) == 0) {
+        return;
+    }
+    prof_file(g.prof, from, sizeof(from));
+    prof_file(to, dest, sizeof(dest));
+    if (rename(from, dest) != 0) {
+        set_status(0, "cannot rename to '%s'", to);
+        return;
+    }
+    snprintf(g.prof, sizeof(g.prof), "%s", to);
+    prof_scan();
+    cfg_save();
+    set_status(1, "profile is now '%s'", g.prof);
 }
 
 static void prof_cycle(void)
@@ -1342,7 +1551,7 @@ static void prof_cycle(void)
         }
     }
     snprintf(g.prof, sizeof(g.prof), "%s", g.profiles[next]);
-    set_status(1, "profile '%s'  (%d/%d)  click Load", g.prof, next + 1, g.nprof);
+    prof_load();
 }
 
 /* Snapshot path (learn / CAL). Own poles — must not smash the live IIR. */
@@ -1485,6 +1694,8 @@ static void band_apply(int band)
     }
     filt_reset();
     cfg_save();
+    prof_autosave();
+    data_recook();
 }
 
 /* One IIR step per new sample. Display copies this. Never re-filter the window. */
@@ -2683,6 +2894,11 @@ static void cal_capture(void)
 {
     int c;
     uint32_t want = plate_want();
+    {
+        char rp[NP_MAX_PATH];
+        raw_plate_path("noise", rp, (int)sizeof(rp));
+        raw_dump_ring(rp, want);
+    }
     memset(&g.cal, 0, sizeof(g.cal));
     g.cal_hz = 0.f;
     g.noise_psd_ok = 0;
@@ -2748,6 +2964,11 @@ static void calm_capture(void)
     if (!g.cal.have) {
         set_status(0, "NOISE first (desk / headset off, then OK)");
         return;
+    }
+    {
+        char rp[NP_MAX_PATH];
+        raw_plate_path("calm", rp, (int)sizeof(rp));
+        raw_dump_ring(rp, want);
     }
     memset(&g.calm, 0, sizeof(g.calm));
     for (c = 0; c < NP_NCHAN; c++) {
@@ -4225,7 +4446,7 @@ static void draw_side(int x)
         btn(x + 104, y, 88, bh, "Load", 0, 42, 0, 28, 90, 52);
         btn(x + 196, y, 80, bh, g.nprof ? "next" : "none", 0, 43, 0, 36, 40, 48);
         y += rh + 2;
-        text(x + 12, y, "keeps UI, gain, filters, sites", 100, 108, 116, 1);
+        text(x + 12, y, "filters + band. Electrode map stays.", 100, 108, 116, 1);
         y += 16;
         snprintf(b, sizeof(b), "algo %s", np_algo_name(g.algo));
         btn(x + 12, y, sidew() - 24, bh, b, g.algo != 0, 44, 0, 36, 40, 48);
@@ -5922,6 +6143,11 @@ void np_host_learn_del(int i)
     if (i < 0 || i >= g.learn.n) {
         return;
     }
+    {
+        char rp[NP_MAX_PATH];
+        raw_named_path("learn", g.learn.s[i].name, rp, (int)sizeof(rp));
+        unlink(rp);
+    }
     npl_del(&g.learn, i);
     learn_persist();
     set_status(1, "deleted pose");
@@ -5945,6 +6171,16 @@ int np_host_prof_load(void)
 {
     prof_load();
     return 0;
+}
+int np_host_prof_del(void)
+{
+    prof_del();
+    return g.prof[0] ? -1 : 0;
+}
+int np_host_prof_rename(const char *to)
+{
+    prof_rename(to);
+    return prof_ok_name(g.prof) && to && strcmp(g.prof, to) == 0 ? 0 : -1;
 }
 int np_host_prof_count(void)
 {
@@ -6024,6 +6260,8 @@ void np_host_set_notch(int hz)
     g.notch_hz = hz;
     filt_reset();
     cfg_save();
+    prof_autosave();
+    data_recook();
 }
 void np_host_cycle_hp(void)
 {
@@ -6047,6 +6285,8 @@ void np_host_set_hp(int hz)
     g.hp_hz = hz;
     filt_reset();
     cfg_save();
+    prof_autosave();
+    data_recook();
 }
 int np_host_lp(void)
 {
@@ -6074,6 +6314,8 @@ void np_host_set_lp(int hz)
     g.lp_hz = hz;
     filt_reset();
     cfg_save();
+    prof_autosave();
+    data_recook();
 }
 int np_host_car(void)
 {
@@ -6084,6 +6326,8 @@ void np_host_toggle_car(void)
     g.car = !g.car;
     filt_reset();
     cfg_save();
+    prof_autosave();
+    data_recook();
 }
 int np_host_detrend(void)
 {
@@ -6093,6 +6337,8 @@ void np_host_toggle_detrend(void)
 {
     g.detrend = !g.detrend;
     cfg_save();
+    prof_autosave();
+    data_recook();
 }
 int np_host_envelope(void)
 {
@@ -6103,6 +6349,8 @@ void np_host_toggle_envelope(void)
     g.envelope = !g.envelope;
     filt_reset();
     cfg_save();
+    prof_autosave();
+    data_recook();
 }
 int np_host_band(void)
 {
@@ -6354,18 +6602,22 @@ unsigned int np_host_smx_fold(void)
 
 int np_host_prof_export(const char *path)
 {
-    return cfg_write(path);
+    return cfg_write_ex(path, 0);
 }
 
 int np_host_prof_import(const char *path)
 {
+    struct np_elec keep[NP_NCHAN];
+    memcpy(keep, g.elec, sizeof(keep));
     if (cfg_read(path) != 0) {
         set_status(0, "cannot read profile file");
         return -1;
     }
+    memcpy(g.elec, keep, sizeof(keep));
     prof_apply();
+    data_recook();
     cfg_save();
-    set_status(1, "loaded profile file");
+    set_status(1, "opened profile — map kept, plates recooked");
     return 0;
 }
 
@@ -6504,6 +6756,25 @@ int np_host_atom_save(void)
         set_status(0, "ATOM cannot write %s", path);
         return -1;
     }
+    {
+        char rpath[NP_MAX_PATH];
+        float *planar = (float *)malloc((size_t)NP_NCHAN * n * NP_ATOM_WIN * sizeof(float));
+        int i, c;
+        if (planar) {
+            memset(planar, 0, (size_t)NP_NCHAN * n * NP_ATOM_WIN * sizeof(float));
+            for (i = 0; i < n; i++) {
+                int idx = (g.atom_wr - n + i + NP_ATOM_RING) % NP_ATOM_RING;
+                for (c = 0; c < NP_NCHAN; c++) {
+                    memcpy(planar + c * (n * NP_ATOM_WIN) + i * NP_ATOM_WIN,
+                           atom_raw[idx] + c * NP_ATOM_WIN,
+                           (size_t)NP_ATOM_WIN * sizeof(float));
+                }
+            }
+            raw_named_path("atoms", g.namebuf, rpath, (int)sizeof(rpath));
+            np_raw_save(rpath, planar, NP_NCHAN, n * NP_ATOM_WIN, design_sps());
+            free(planar);
+        }
+    }
     memcpy(g.atom_ref, live, (size_t)n * sizeof(uint64_t));
     g.atom_ref_n = n;
     atom_sanitize(g.atom_ref_name, (int)sizeof(g.atom_ref_name), g.namebuf);
@@ -6619,6 +6890,128 @@ static int atom_rescan(void)
     return n;
 }
 
+static void data_recook(void)
+{
+    float buf[NP_NCHAN][NP_RING];
+    uint32_t nn[NP_NCHAN];
+    int ntake = 0, nlearn = 0, i;
+    char path[NP_MAX_PATH];
+
+    if (raw_load_plate("noise", buf, nn) == 0) {
+        plate_stats_from_buf(buf, nn, 0);
+        g.cal.have = 1;
+        if (g.cal.n < 1) {
+            g.cal.n = 1;
+        }
+    }
+    if (raw_load_plate("calm", buf, nn) == 0) {
+        g.calm.n = 0;
+        plate_stats_from_buf(buf, nn, 1);
+        g.calm.have = 1;
+        g.cal_cut = 1;
+    }
+    if (g.cal.have || g.calm.have) {
+        cal_save();
+    }
+    ntake = atom_rescan();
+    for (i = 0; i < ntake; i++) {
+        float *planar;
+        int ch = 0, ns = 0, sec, nsec, c;
+        float sps = 0.f;
+        uint64_t bits[NP_ATOM_RING];
+        float rms[NP_ATOM_RING * 8];
+        raw_named_path("atoms", atom_listed[i], path, (int)sizeof(path));
+        planar = (float *)malloc((size_t)NP_NCHAN * NP_ATOM_RING * NP_ATOM_WIN * sizeof(float));
+        if (!planar) {
+            continue;
+        }
+        if (np_raw_load(path, planar, NP_NCHAN * NP_ATOM_RING * NP_ATOM_WIN, &ch, &ns, &sps) <
+            1) {
+            free(planar);
+            continue;
+        }
+        nsec = ns / NP_ATOM_WIN;
+        if (nsec < 1) {
+            free(planar);
+            continue;
+        }
+        if (nsec > NP_ATOM_RING) {
+            nsec = NP_ATOM_RING;
+        }
+        for (sec = 0; sec < nsec; sec++) {
+            float win[NP_NCHAN * NP_ATOM_WIN];
+            float cookb[NP_NCHAN][NP_RING];
+            uint32_t cnn[NP_NCHAN];
+            int env;
+            memset(win, 0, sizeof(win));
+            memset(cookb, 0, sizeof(cookb));
+            memset(cnn, 0, sizeof(cnn));
+            for (c = 0; c < ch && c < NP_NCHAN; c++) {
+                memcpy(cookb[c], planar + c * ns + sec * NP_ATOM_WIN,
+                       (size_t)NP_ATOM_WIN * sizeof(float));
+                cnn[c] = NP_ATOM_WIN;
+            }
+            env = g.envelope;
+            g.envelope = 0;
+            cook_all(cookb, cnn, NP_ATOM_WIN);
+            g.envelope = env;
+            for (c = 0; c < NP_NCHAN; c++) {
+                memcpy(win + c * NP_ATOM_WIN, cookb[c], (size_t)NP_ATOM_WIN * sizeof(float));
+            }
+            bits[sec] = np_atom_pack(win, NP_NCHAN, NP_ATOM_WIN, NP_ATOM_WIN, atom_scale());
+            np_atom_rms8(win, NP_NCHAN, NP_ATOM_WIN, NP_ATOM_WIN, rms + sec * 8);
+        }
+        if (atom_path(path, (int)sizeof(path), atom_listed[i]) == 0) {
+            np_atom_save2(path, bits, rms, nsec, NP_ATOM_WIN);
+        }
+        free(planar);
+    }
+    for (i = 0; i < g.learn.n; i++) {
+        float *planar;
+        int ch = 0, ns = 0, c;
+        float sps = 0.f;
+        float cookb[NP_NCHAN][NP_RING];
+        uint32_t cnn[NP_NCHAN];
+        uint8_t mask = 0;
+        float wave[NPL_NCHAN][NPL_LEN], lrms[NPL_NCHAN];
+        raw_named_path("learn", g.learn.s[i].name, path, (int)sizeof(path));
+        planar = (float *)malloc((size_t)NP_NCHAN * NP_RING * sizeof(float));
+        if (!planar) {
+            continue;
+        }
+        if (np_raw_load(path, planar, NP_NCHAN * NP_RING, &ch, &ns, &sps) < 1 || ns < 16) {
+            free(planar);
+            continue;
+        }
+        memset(cookb, 0, sizeof(cookb));
+        memset(cnn, 0, sizeof(cnn));
+        for (c = 0; c < ch && c < NP_NCHAN; c++) {
+            int take = ns > NP_RING ? NP_RING : ns;
+            memcpy(cookb[c], planar + c * ns, (size_t)take * sizeof(float));
+            cnn[c] = (uint32_t)take;
+        }
+        cook_all(cookb, cnn, (uint32_t)ns);
+        memset(wave, 0, sizeof(wave));
+        memset(lrms, 0, sizeof(lrms));
+        for (c = 0; c < NP_NCHAN; c++) {
+            if (cnn[c] >= 16 &&
+                npl_prep(wave[c], &lrms[c], cookb[c], (int)cnn[c], design_sps(),
+                         notch_hz_eff()) == 0) {
+                mask |= (uint8_t)(1u << c);
+            }
+        }
+        if (mask) {
+            npl_add(&g.learn, g.learn.s[i].name, wave, lrms, mask);
+            nlearn++;
+        }
+        free(planar);
+    }
+    if (nlearn) {
+        learn_persist();
+    }
+    filt_reset();
+}
+
 int np_host_atom_count(void)
 {
     return atom_rescan();
@@ -6667,6 +7060,11 @@ void np_host_atom_del(int i)
     }
     if (atom_path(path, (int)sizeof(path), atom_listed[i]) != 0) {
         return;
+    }
+    {
+        char rp[NP_MAX_PATH];
+        raw_named_path("atoms", atom_listed[i], rp, (int)sizeof(rp));
+        unlink(rp);
     }
     if (strcmp(g.atom_ref_name, atom_listed[i]) == 0) {
         g.atom_ref_n = 0;

@@ -55,7 +55,10 @@ files say `same head — not distinct`. Hamming unity is not a score.
 
 ## Profiles
 
-**Save here** / **Load here** keep named `.ini` files in the app directory.
+**Profiles** (Settings): tap a name to switch filters/band. Long-press to
+rename or delete. **Save current as…** snapshots what you have now.
+Electrode map does not change. NOISE / CALM / takes recook from stored
+raw — you do not re-record. **Share file** / **Open file** for a copy.
 
 **Export…** / **Import…** use the system document picker so you can put a
 profile on Downloads, Drive, or a USB stick — still no storage permission.
