@@ -502,17 +502,20 @@ static void atom_tick(void)
         if (!g.active[c]) {
             continue;
         }
-        n = view_copy(c, buf, want);
+        n = np_ring_copy(&g.ring, c, buf, want);
         if (n < 32) {
             continue;
         }
+        np_detrend(buf, (int)n);
         memcpy(planar + c * NP_ATOM_WIN, buf, (size_t)n * sizeof(float));
         got++;
     }
     if (got < 1) {
         return;
     }
-    scale = (g.calm.have && g.calm.rms[0] > 1.f) ? g.calm.rms[0] : NP_ATOM_SCALE;
+    /* CubalC 50 µV. CALM plate here is millivolts — that scale makes every
+     * window look flat. Envelope (EMG band) would kill zc/rise too. */
+    scale = NP_ATOM_SCALE;
     {
         uint64_t bits = np_atom_pack(planar, NP_NCHAN, NP_ATOM_WIN, NP_ATOM_WIN, scale);
         g.atom_live[g.atom_wr] = bits;
@@ -6382,7 +6385,10 @@ int np_host_atom_save(void)
     g.atom_ref_n = n;
     atom_sanitize(g.atom_ref_name, (int)sizeof(g.atom_ref_name), g.namebuf);
     atom_score();
-    set_status(1, "ATOM saved %s  %d × 8 B  (not CSV)", g.atom_ref_name, n);
+    /* Fresh take after save — next SaveA is not rest+action glued together. */
+    g.atom_n = 0;
+    g.atom_wr = 0;
+    set_status(1, "ATOM saved %s  %d s  ring cleared", g.atom_ref_name, n);
     return 0;
 }
 
@@ -6422,13 +6428,117 @@ void np_host_atom_line(char *out, int n)
         return;
     }
     if (g.atom_ref_n > 0) {
-        snprintf(out, (size_t)n, "ATOM %u  vs %s %.0f%%", g.atom_seq,
+        snprintf(out, (size_t)n, "ATOM %d s  vs %s %.0f%%", g.atom_n,
                  g.atom_ref_name[0] ? g.atom_ref_name : "?", (double)(g.atom_unity * 100.f));
     } else if (g.atom_on) {
-        snprintf(out, (size_t)n, "ATOM %u  %d s  name+Save", g.atom_seq, g.atom_n);
+        snprintf(out, (size_t)n, "ATOM take %d s  — SaveA when done", g.atom_n);
     } else {
-        snprintf(out, (size_t)n, "ATOM %d saved", g.atom_n);
+        snprintf(out, (size_t)n, "ATOM take %d s", g.atom_n);
     }
+}
+
+#define NP_ATOM_MAX 32
+static char atom_listed[NP_ATOM_MAX][NP_ATOM_NAME];
+static int atom_listed_n;
+
+static int atom_rescan(void)
+{
+    DIR *d;
+    char dir[NP_MAX_PATH];
+    struct dirent *e;
+    int n = 0, i, j;
+    atom_dir(dir, (int)sizeof(dir));
+    d = opendir(dir);
+    if (!d) {
+        atom_listed_n = 0;
+        return 0;
+    }
+    while ((e = readdir(d)) != NULL && n < NP_ATOM_MAX) {
+        size_t L = strlen(e->d_name);
+        int len;
+        if (L < 6 || strcmp(e->d_name + L - 5, ".npat") != 0) {
+            continue;
+        }
+        len = (int)L - 5;
+        if (len >= NP_ATOM_NAME) {
+            len = NP_ATOM_NAME - 1;
+        }
+        memcpy(atom_listed[n], e->d_name, (size_t)len);
+        atom_listed[n][len] = 0;
+        n++;
+    }
+    closedir(d);
+    for (i = 0; i < n; i++) {
+        for (j = i + 1; j < n; j++) {
+            if (strcmp(atom_listed[i], atom_listed[j]) > 0) {
+                char tmp[NP_ATOM_NAME];
+                memcpy(tmp, atom_listed[i], NP_ATOM_NAME);
+                memcpy(atom_listed[i], atom_listed[j], NP_ATOM_NAME);
+                memcpy(atom_listed[j], tmp, NP_ATOM_NAME);
+            }
+        }
+    }
+    atom_listed_n = n;
+    return n;
+}
+
+int np_host_atom_count(void)
+{
+    return atom_rescan();
+}
+
+void np_host_atom_at(int i, char *out, int n)
+{
+    if (!out || n < 2) {
+        return;
+    }
+    if (i < 0 || i >= atom_listed_n) {
+        out[0] = 0;
+        return;
+    }
+    snprintf(out, (size_t)n, "%s", atom_listed[i]);
+}
+
+int np_host_atom_secs(int i)
+{
+    char path[NP_MAX_PATH];
+    uint64_t tmp[NP_ATOM_RING];
+    int win = 0;
+    if (i < 0 || i >= atom_listed_n) {
+        return 0;
+    }
+    if (atom_path(path, (int)sizeof(path), atom_listed[i]) != 0) {
+        return 0;
+    }
+    return np_atom_load(path, tmp, NP_ATOM_RING, &win);
+}
+
+int np_host_atom_select(int i)
+{
+    if (i < 0 || i >= atom_rescan()) {
+        return -1;
+    }
+    snprintf(g.namebuf, sizeof(g.namebuf), "%s", atom_listed[i]);
+    return np_host_atom_load();
+}
+
+void np_host_atom_del(int i)
+{
+    char path[NP_MAX_PATH];
+    if (i < 0 || i >= atom_rescan()) {
+        return;
+    }
+    if (atom_path(path, (int)sizeof(path), atom_listed[i]) != 0) {
+        return;
+    }
+    if (strcmp(g.atom_ref_name, atom_listed[i]) == 0) {
+        g.atom_ref_n = 0;
+        g.atom_ref_name[0] = 0;
+        g.atom_unity = 0.f;
+    }
+    unlink(path);
+    set_status(1, "ATOM deleted %s", atom_listed[i]);
+    atom_rescan();
 }
 
 int np_host_imu(float acc[3], float gyr[3], float mag[3])

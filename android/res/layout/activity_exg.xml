@@ -94,7 +94,7 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:backgroundTint="@color/btn"
-            android:text="Poses"
+            android:text="Saved"
             android:textColor="@color/ink" />
 
         <Button
@@ -249,7 +249,7 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Recorded poses — delete here. Main only shows the name."
+                    android:text="ATOM chains (1 s folds) and wave poses (1 s Record). Not the same thing."
                     android:textColor="@color/muted" />
 
                 <TextView
@@ -258,7 +258,7 @@
                     android:layout_height="wrap_content"
                     android:paddingTop="8dp"
                     android:paddingBottom="8dp"
-                    android:text="MATCH on to see wave % vs cube Jaccard. Tap a row to select."
+                    android:text="Tap a chain to compare live. Delete lives here. SaveA on Main starts a new take."
                     android:textColor="@color/ink" />
 
                 <LinearLayout
@@ -593,12 +593,6 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="SaveA" />
-
-            <Button
-                android:id="@+id/atomCmp"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="CMP" />
         </LinearLayout>
 
         <HorizontalScrollView

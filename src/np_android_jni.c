@@ -1176,4 +1176,45 @@ Java_com_abysscore_exgc_ExgNative_atomLine(JNIEnv *env, jclass cls)
     np_host_atom_line(buf, sizeof(buf));
     return jstr_from(env, buf);
 }
+
+JNIEXPORT jint JNICALL
+Java_com_abysscore_exgc_ExgNative_atomCount(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    return np_host_atom_count();
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_abysscore_exgc_ExgNative_atomAt(JNIEnv *env, jclass cls, jint i)
+{
+    char buf[24];
+    (void)cls;
+    np_host_atom_at(i, buf, sizeof(buf));
+    return jstr_from(env, buf);
+}
+
+JNIEXPORT jint JNICALL
+Java_com_abysscore_exgc_ExgNative_atomSecs(JNIEnv *env, jclass cls, jint i)
+{
+    (void)env;
+    (void)cls;
+    return np_host_atom_secs(i);
+}
+
+JNIEXPORT jint JNICALL
+Java_com_abysscore_exgc_ExgNative_atomSelect(JNIEnv *env, jclass cls, jint i)
+{
+    (void)env;
+    (void)cls;
+    return np_host_atom_select(i);
+}
+
+JNIEXPORT void JNICALL
+Java_com_abysscore_exgc_ExgNative_atomDel(JNIEnv *env, jclass cls, jint i)
+{
+    (void)env;
+    (void)cls;
+    np_host_atom_del(i);
+}
 #endif

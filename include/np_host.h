@@ -147,5 +147,10 @@ int np_host_atom_save(void);
 int np_host_atom_load(void);
 float np_host_atom_unity(void);
 void np_host_atom_line(char *out, int n);
+int np_host_atom_count(void);
+void np_host_atom_at(int i, char *out, int n);
+int np_host_atom_secs(int i);
+int np_host_atom_select(int i);
+void np_host_atom_del(int i);
 
 #endif

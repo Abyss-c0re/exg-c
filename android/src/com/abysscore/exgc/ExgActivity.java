@@ -45,7 +45,6 @@ public class ExgActivity extends Activity {
     private Button pause;
     private Button atom;
     private Button atomSave;
-    private Button atomCmp;
     private Button connect;
     private Button port;
     private Button tabMain, tabCube, tabPoses, tabSet;
@@ -73,6 +72,7 @@ public class ExgActivity extends Activity {
     private LinearLayout profChips;
     private LinearLayout learnChips;
     private int lastLearnN = -1;
+    private int lastAtomN = -1;
     private int tab;
     private boolean running = true;
     private static final int REQ_EXPORT = 71;
@@ -128,7 +128,6 @@ public class ExgActivity extends Activity {
         pause = findViewById(R.id.pause);
         atom = findViewById(R.id.atom);
         atomSave = findViewById(R.id.atomSave);
-        atomCmp = findViewById(R.id.atomCmp);
         connect = findViewById(R.id.connect);
         port = findViewById(R.id.port);
         tabMain = findViewById(R.id.tabMain);
@@ -245,11 +244,7 @@ public class ExgActivity extends Activity {
         atomSave.setOnClickListener(v -> {
             ExgNative.setName(nameOrEmpty(learnName));
             ExgNative.atomSave();
-            refreshChrome();
-        });
-        atomCmp.setOnClickListener(v -> {
-            ExgNative.setName(nameOrEmpty(learnName));
-            ExgNative.atomLoad();
+            lastAtomN = -1;
             refreshChrome();
         });
         findViewById(R.id.profSave).setOnClickListener(v -> {
@@ -389,7 +384,8 @@ public class ExgActivity extends Activity {
         }
         if (t == 2) {
             lastLearnN = -1;
-            rebuildPoseList();
+            lastAtomN = -1;
+            rebuildSavedList();
         }
         if (t == 3) {
             refreshChannels();
@@ -464,8 +460,6 @@ public class ExgActivity extends Activity {
         atom.setText(folding ? "ATOM on" : "ATOM");
         atom.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
                 folding ? 0xFF8A3038 : 0xFF2A3038));
-        atomCmp.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
-                ExgNative.atomUnity() >= 0.70f && ExgNative.atomN() > 0 ? 0xFF2E8A58 : 0xFF2A3038));
         String id = ExgNative.idLine();
         String now = ExgNative.matchLine();
         int rec = ExgNative.recMs();
@@ -489,13 +483,14 @@ public class ExgActivity extends Activity {
                 record.setText("Record");
             }
         }
-        if (ln != lastLearnN) {
+        int an = ExgNative.atomCount();
+        if (ln != lastLearnN || an != lastAtomN) {
             lastLearnN = ln;
+            lastAtomN = an;
             rebuildLearnChips();
-            rebuildPoseList();
+            rebuildSavedList();
         }
         refreshLearnChips();
-        refreshPoseList();
         int nh = ExgNative.notch();
         notch.setText(nh < 0 ? "notch AUTO" : (nh == 0 ? "notch off" : "notch " + nh));
         hp.setText(ExgNative.hp() == 0 ? "hp off" : "hp " + ExgNative.hp() + "Hz");
@@ -742,7 +737,8 @@ public class ExgActivity extends Activity {
                 ExgNative.learnSelect(idx);
                 setLearnName(ExgNative.learnName(idx));
                 refreshLearnChips();
-                refreshPoseList();
+                lastLearnN = -1;
+                refreshChrome();
             });
             learnChips.addView(b);
         }
@@ -772,20 +768,64 @@ public class ExgActivity extends Activity {
         }
     }
 
-    private void rebuildPoseList() {
+    private TextView savedLabel(String s, int col) {
+        TextView t = new TextView(this);
+        t.setText(s);
+        t.setTextColor(col);
+        t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f);
+        t.setPadding(8, 16, 8, 8);
+        return t;
+    }
+
+    private void rebuildSavedList() {
         poseList.removeAllViews();
-        int n = ExgNative.learnN();
-        if (n < 1) {
-            TextView empty = new TextView(this);
-            empty.setText("none yet — Record on Main");
-            empty.setTextColor(0xFF8B93A0);
-            empty.setPadding(8, 16, 8, 8);
-            poseList.addView(empty);
-            poseHint.setText("MATCH on to see wave % vs cube Jaccard. Delete from this tab.");
-            applyUiScale();
-            return;
+        int na = ExgNative.atomCount();
+        int np = ExgNative.learnN();
+        String ref = ExgNative.atomLine();
+        poseHint.setText(ref.length() > 0 ? ref
+                : "ATOM on Main, wait seconds, name, SaveA. Tap a chain to compare live.");
+
+        poseList.addView(savedLabel("ATOM chains — 1 s CubalC folds. Tap to CMP live.", 0xFFC87880));
+        if (na < 1) {
+            poseList.addView(savedLabel("none — ATOM on, wait, SaveA", 0xFF8B93A0));
         }
-        for (int i = 0; i < n; i++) {
+        for (int i = 0; i < na; i++) {
+            final int idx = i;
+            String name = ExgNative.atomAt(i);
+            int sec = ExgNative.atomSecs(i);
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setPadding(0, 4, 0, 4);
+            Button lab = new Button(this);
+            lab.setLayoutParams(new LinearLayout.LayoutParams(0,
+                    LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+            lab.setText(name + "   " + sec + " s");
+            lab.setOnClickListener(v -> {
+                ExgNative.atomSelect(idx);
+                setLearnName(ExgNative.atomAt(idx));
+                lastAtomN = -1;
+                refreshChrome();
+            });
+            Button del = new Button(this);
+            del.setText("Delete");
+            del.setOnClickListener(v -> {
+                ExgNative.atomDel(idx);
+                lastAtomN = -1;
+                refreshChrome();
+            });
+            row.addView(lab);
+            row.addView(del);
+            poseList.addView(row);
+        }
+
+        poseList.addView(savedLabel("Wave poses — 1 s Record / MATCH. Not atoms.", 0xFF8B93A0));
+        if (np < 1) {
+            poseList.addView(savedLabel("none — Record on Main", 0xFF8B93A0));
+        }
+        boolean matching = ExgNative.matchOn();
+        int best = ExgNative.learnBest();
+        int sel = ExgNative.learnSel();
+        for (int i = 0; i < np; i++) {
             final int idx = i;
             LinearLayout row = new LinearLayout(this);
             row.setOrientation(LinearLayout.HORIZONTAL);
@@ -793,14 +833,23 @@ public class ExgActivity extends Activity {
             TextView lab = new TextView(this);
             lab.setLayoutParams(new LinearLayout.LayoutParams(0,
                     LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-            lab.setTextColor(0xFFE8EAF0);
             lab.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f);
             lab.setPadding(8, 20, 8, 20);
+            String name = ExgNative.learnName(i);
+            int pct = (int) (ExgNative.learnScore(i) * 100f);
+            int cpct = (int) (ExgNative.learnScoreCube(i) * 100f);
+            if (matching) {
+                lab.setText(name + "   " + pct + "%   cube " + cpct + "%");
+            } else {
+                lab.setText(name);
+            }
+            boolean hit = matching && i == best && pct >= 55;
+            lab.setTextColor(hit ? 0xFF3CB46E : (i == sel ? 0xFFF0A040 : 0xFFE8EAF0));
             lab.setOnClickListener(v -> {
                 ExgNative.learnSelect(idx);
                 setLearnName(ExgNative.learnName(idx));
-                refreshLearnChips();
-                refreshPoseList();
+                lastLearnN = -1;
+                refreshChrome();
             });
             Button del = new Button(this);
             del.setText("Delete");
@@ -813,42 +862,7 @@ public class ExgActivity extends Activity {
             row.addView(del);
             poseList.addView(row);
         }
-        refreshPoseList();
         applyUiScale();
-    }
-
-    private void refreshPoseList() {
-        int n = ExgNative.learnN();
-        boolean matching = ExgNative.matchOn();
-        int best = ExgNative.learnBest();
-        int sel = ExgNative.learnSel();
-        if (n < 1) {
-            poseHint.setText("MATCH on to see wave % vs cube Jaccard. Delete from this tab.");
-            return;
-        }
-        if (poseList.getChildCount() != n) {
-            return;
-        }
-        poseHint.setText(matching
-                ? "green is a wave hit (≥ 55%). cube is Jaccard, display only."
-                : "MATCH off — scores frozen");
-        for (int i = 0; i < n; i++) {
-            android.view.View child = poseList.getChildAt(i);
-            if (!(child instanceof LinearLayout)) {
-                continue;
-            }
-            TextView lab = (TextView) ((LinearLayout) child).getChildAt(0);
-            String name = ExgNative.learnName(i);
-            int pct = (int) (ExgNative.learnScore(i) * 100f);
-            int cpct = (int) (ExgNative.learnScoreCube(i) * 100f);
-            if (matching) {
-                lab.setText(name + "   " + pct + "%   cube " + cpct + "%");
-            } else {
-                lab.setText(name);
-            }
-            boolean hit = matching && i == best && pct >= 55;
-            lab.setTextColor(hit ? 0xFF3CB46E : (i == sel ? 0xFFF0A040 : 0xFFE8EAF0));
-        }
     }
 
     private static final String LEARN_HINT = "name (tap)";

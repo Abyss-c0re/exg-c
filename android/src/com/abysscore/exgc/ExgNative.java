@@ -93,6 +93,11 @@ public final class ExgNative {
     public static native int atomLoad();
     public static native float atomUnity();
     public static native String atomLine();
+    public static native int atomCount();
+    public static native String atomAt(int i);
+    public static native int atomSecs(int i);
+    public static native int atomSelect(int i);
+    public static native void atomDel(int i);
 
     public static native int cubeView();
     public static native void setCubeView(int map);
