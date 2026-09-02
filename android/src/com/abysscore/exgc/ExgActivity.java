@@ -44,7 +44,7 @@ public class ExgActivity extends Activity {
     private Button csv;
     private Button pause;
     private Button atom;
-    private Button atomSave;
+    private TextView atomVs;
     private Button connect;
     private Button port;
     private Button tabMain, tabCube, tabPoses, tabSet;
@@ -127,7 +127,7 @@ public class ExgActivity extends Activity {
         csv = findViewById(R.id.csv);
         pause = findViewById(R.id.pause);
         atom = findViewById(R.id.atom);
-        atomSave = findViewById(R.id.atomSave);
+        atomVs = findViewById(R.id.atomVs);
         connect = findViewById(R.id.connect);
         port = findViewById(R.id.port);
         tabMain = findViewById(R.id.tabMain);
@@ -238,14 +238,18 @@ public class ExgActivity extends Activity {
             refreshChrome();
         });
         atom.setOnClickListener(v -> {
-            ExgNative.toggleAtom();
-            refreshChrome();
-        });
-        atomSave.setOnClickListener(v -> {
-            ExgNative.setName(nameOrEmpty(learnName));
-            ExgNative.atomSave();
-            lastAtomN = -1;
-            refreshChrome();
+            if (ExgNative.atomOn()) {
+                int n = ExgNative.atomStop();
+                refreshChrome();
+                if (n >= 1) {
+                    nameTake(n);
+                }
+            } else if (ExgNative.atomN() >= 1) {
+                nameTake(ExgNative.atomN());
+            } else {
+                ExgNative.atomStart();
+                refreshChrome();
+            }
         });
         findViewById(R.id.profSave).setOnClickListener(v -> {
             ExgNative.setProfile(nameOrEmpty(profName));
@@ -457,9 +461,13 @@ public class ExgActivity extends Activity {
         pause.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
                 held ? 0xFF8A6030 : 0xFF2A3038));
         boolean folding = ExgNative.atomOn();
-        atom.setText(folding ? "ATOM on" : "ATOM");
+        int takeN = ExgNative.atomN();
+        atom.setText(folding ? ("Stop  " + takeN + "s") : "Take");
         atom.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
                 folding ? 0xFF8A3038 : 0xFF2A3038));
+        String vs = ExgNative.atomLine();
+        atomVs.setText(vs);
+        atomVs.setTextColor(folding ? 0xFFF0A040 : 0xFFC87880);
         String id = ExgNative.idLine();
         String now = ExgNative.matchLine();
         int rec = ExgNative.recMs();
@@ -783,23 +791,27 @@ public class ExgActivity extends Activity {
         int np = ExgNative.learnN();
         String ref = ExgNative.atomLine();
         poseHint.setText(ref.length() > 0 ? ref
-                : "ATOM on Main, wait seconds, name, SaveA. Tap a chain to compare live.");
+                : "Main → Take. Stop. Name it. Tap a row here to compare.");
 
-        poseList.addView(savedLabel("ATOM chains — 1 s CubalC folds. Tap to CMP live.", 0xFFC87880));
+        poseList.addView(savedLabel("Takes — tap one to compare live against it.", 0xFFC87880));
         if (na < 1) {
-            poseList.addView(savedLabel("none — ATOM on, wait, SaveA", 0xFF8B93A0));
+            poseList.addView(savedLabel("none yet — Take on Main", 0xFF8B93A0));
         }
         for (int i = 0; i < na; i++) {
             final int idx = i;
             String name = ExgNative.atomAt(i);
             int sec = ExgNative.atomSecs(i);
+            String sel = ExgNative.atomRef();
             LinearLayout row = new LinearLayout(this);
             row.setOrientation(LinearLayout.HORIZONTAL);
             row.setPadding(0, 4, 0, 4);
             Button lab = new Button(this);
             lab.setLayoutParams(new LinearLayout.LayoutParams(0,
                     LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-            lab.setText(name + "   " + sec + " s");
+            boolean on = sel != null && sel.equals(name);
+            lab.setText(on ? (name + "   " + sec + " s   comparing") : (name + "   " + sec + " s"));
+            lab.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
+                    on ? 0xFF2E8A58 : 0xFF2A3038));
             lab.setOnClickListener(v -> {
                 ExgNative.atomSelect(idx);
                 setLearnName(ExgNative.atomAt(idx));
@@ -818,7 +830,7 @@ public class ExgActivity extends Activity {
             poseList.addView(row);
         }
 
-        poseList.addView(savedLabel("Wave poses — 1 s Record / MATCH. Not atoms.", 0xFF8B93A0));
+        poseList.addView(savedLabel("1-second poses — Record / MATCH on Main.", 0xFF8B93A0));
         if (np < 1) {
             poseList.addView(savedLabel("none — Record on Main", 0xFF8B93A0));
         }
@@ -883,6 +895,19 @@ public class ExgActivity extends Activity {
 
     private void setProfName(String s) {
         profName.setText(s == null || s.length() == 0 ? PROF_HINT : s);
+    }
+
+    private void nameTake(int sec) {
+        askName("Name this take (" + sec + " s)", "", s -> {
+            if (s.length() == 0) {
+                return;
+            }
+            ExgNative.setName(s);
+            ExgNative.atomSave();
+            setLearnName(s);
+            lastAtomN = -1;
+            refreshChrome();
+        });
     }
 
     /* Dialog typing — 1440² extract IME is a black overlay on this handset. */

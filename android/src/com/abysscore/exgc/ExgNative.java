@@ -87,12 +87,15 @@ public final class ExgNative {
     /* Fills up to 64 bins (128-pt strip). Returns peak Hz. */
     public static native int copyFft(float[] dst);
     public static native void toggleAtom();
+    public static native void atomStart();
+    public static native int atomStop();
     public static native boolean atomOn();
     public static native int atomN();
     public static native int atomSave();
     public static native int atomLoad();
     public static native float atomUnity();
     public static native String atomLine();
+    public static native String atomRef();
     public static native int atomCount();
     public static native String atomAt(int i);
     public static native int atomSecs(int i);

@@ -4014,10 +4014,9 @@ static void draw_side(int x)
     btn(x + 184, y, 92, bh, g.recording ? "Stop CSV" : "CSV", g.recording, 3, 0,
         g.recording ? 110 : 36, g.recording ? 50 : 40, g.recording ? 40 : 52);
     y += rh;
-    btn(x + 12, y, 84, bh, g.atom_on ? "ATOM on" : "ATOM", g.atom_on, 64, 0,
-        g.atom_on ? 28 : 36, g.atom_on ? 90 : 40, g.atom_on ? 70 : 48);
-    btn(x + 100, y, 84, bh, "SaveA", 1, 65, 0, 36, 40, 48);
-    btn(x + 188, y, 88, bh, "CMP", g.atom_ref_n > 0, 66, 0, 36, 40, 48);
+    btn(x + 12, y, 168, bh, g.atom_on ? "Stop take" : "Take", g.atom_on, 64, 0,
+        g.atom_on ? 110 : 36, g.atom_on ? 40 : 40, g.atom_on ? 40 : 48);
+    btn(x + 184, y, 92, bh, "keep", 1, 65, 0, 36, 40, 48);
     y += rh;
     if (g.atom_on || g.atom_n || g.atom_ref_n) {
         char al[56];
@@ -4577,7 +4576,13 @@ static void click(int x, int y)
             np_host_toggle_envelope();
             break;
         case 64:
-            np_host_toggle_atom();
+            if (g.atom_on) {
+                if (np_host_atom_stop() >= 1 && g.namebuf[0]) {
+                    np_host_atom_save();
+                }
+            } else {
+                np_host_atom_start();
+            }
             break;
         case 65:
             np_host_atom_save();
@@ -6343,13 +6348,32 @@ int np_host_fft(float *dst, int max, int *peak_hz)
     return n;
 }
 
+void np_host_atom_start(void)
+{
+    g.atom_n = 0;
+    g.atom_wr = 0;
+    g.atom_on = 1;
+    set_status(1, "take running — watch the plot, then Stop");
+}
+
+int np_host_atom_stop(void)
+{
+    int n = g.atom_n;
+    g.atom_on = 0;
+    if (n < 1) {
+        set_status(0, "take empty — hold at least 1 s");
+    } else {
+        set_status(1, "take %d s — name it to keep", n);
+    }
+    return n;
+}
+
 void np_host_toggle_atom(void)
 {
-    g.atom_on = !g.atom_on;
     if (g.atom_on) {
-        set_status(1, "ATOM on — 1 s windows → 8-byte CubalC fold (no CSV)");
+        np_host_atom_stop();
     } else {
-        set_status(1, "ATOM off");
+        np_host_atom_start();
     }
 }
 
@@ -6423,18 +6447,28 @@ void np_host_atom_line(char *out, int n)
     if (!out || n < 4) {
         return;
     }
-    if (!g.atom_on && g.atom_n < 1 && g.atom_ref_n < 1) {
+    if (g.atom_on) {
+        if (g.atom_ref_n > 0) {
+            snprintf(out, (size_t)n, "recording %d s   vs %s %.0f%%", g.atom_n,
+                     g.atom_ref_name, (double)(g.atom_unity * 100.f));
+        } else {
+            snprintf(out, (size_t)n, "recording %d s — Stop, then name", g.atom_n);
+        }
+    } else if (g.atom_n > 0) {
+        snprintf(out, (size_t)n, "%d s unsaved — name it to keep", g.atom_n);
+    } else if (g.atom_ref_n > 0) {
+        snprintf(out, (size_t)n, "comparing to %s — Take to measure", g.atom_ref_name);
+    } else {
         out[0] = 0;
+    }
+}
+
+void np_host_atom_ref(char *out, int n)
+{
+    if (!out || n < 2) {
         return;
     }
-    if (g.atom_ref_n > 0) {
-        snprintf(out, (size_t)n, "ATOM %d s  vs %s %.0f%%", g.atom_n,
-                 g.atom_ref_name[0] ? g.atom_ref_name : "?", (double)(g.atom_unity * 100.f));
-    } else if (g.atom_on) {
-        snprintf(out, (size_t)n, "ATOM take %d s  — SaveA when done", g.atom_n);
-    } else {
-        snprintf(out, (size_t)n, "ATOM take %d s", g.atom_n);
-    }
+    snprintf(out, (size_t)n, "%s", g.atom_ref_name);
 }
 
 #define NP_ATOM_MAX 32

@@ -79,9 +79,9 @@ Settings buttons open a list — they do not cycle on each tap.
 **MATCH** is wave + RMS. A hit is ≥ 55%. Cube Jaccard is shown next to
 it and does not replace the wave score.
 
-**Saved** lists ATOM chains (seconds, tap = compare live, Delete) and
-wave poses separately. **SaveA** keeps the current take and clears the
-ring so the next take is not glued onto the last one.
+**Take** on Main starts a timed fold. **Stop** asks for a name. **Takes**
+lists them — tap one to compare live, Delete to drop it. 1-second
+Record/MATCH poses stay in the lower half of that tab.
 
 Names: letters, digits, `-`, `_`.
 
