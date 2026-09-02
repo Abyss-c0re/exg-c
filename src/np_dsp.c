@@ -300,6 +300,11 @@ int np_sample_clip(float v)
     return v > NP_CLIP_UV || v < -NP_CLIP_UV;
 }
 
+int np_sample_rail(float v)
+{
+    return v > 250000.f || v < -250000.f;
+}
+
 int np_window_clip(const float *x, int n)
 {
     int i;
@@ -322,8 +327,10 @@ void np_car_sample(float *v, const int *use)
     if (!v) {
         return;
     }
+    /* 4 mV is a plot mark, not a rail. This head lives at 2–6 mV.
+     * Skipping those samples left common-mode spikes on the plot. */
     for (c = 0; c < 8; c++) {
-        if (use && use[c] && !np_sample_clip(v[c])) {
+        if (use && use[c] && !np_sample_rail(v[c])) {
             s += v[c];
             n++;
         }
@@ -333,7 +340,7 @@ void np_car_sample(float *v, const int *use)
     }
     m = (float)(s / (double)n);
     for (c = 0; c < 8; c++) {
-        if (use && use[c] && !np_sample_clip(v[c])) {
+        if (use && use[c] && !np_sample_rail(v[c])) {
             v[c] -= m;
         }
     }

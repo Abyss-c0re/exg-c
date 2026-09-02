@@ -39,6 +39,7 @@ float np_lp_step(struct np_lp *f, float x);
 void np_env_init(struct np_lp *f, float tau_s, float sps);
 float np_env_step(struct np_lp *f, float x);
 int np_sample_clip(float v);
+int np_sample_rail(float v);
 int np_window_clip(const float *x, int n);
 void np_car_sample(float *v, const int *use);
 void np_notch_init(struct np_notch *f, float hz, float sps, float q);

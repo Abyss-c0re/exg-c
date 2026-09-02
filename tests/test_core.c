@@ -786,10 +786,19 @@ static void test_process(void)
         v[i] = 1000.f + (float)i;
         use[i] = 1;
     }
-    v[3] = 5000.f;
     np_car_sample(v, use);
-    expect(v[3] > 4000.f, "CAR leaves a clipped channel");
     expect(v[0] < 200.f && v[0] > -200.f, "CAR kills common 1 mV");
+    for (i = 0; i < 8; i++) {
+        v[i] = 4800.f;
+        use[i] = 1;
+    }
+    v[3] = 5200.f;
+    np_car_sample(v, use);
+    expect(fabsf(v[3]) < 400.f, "CAR still subtracts a 5 mV channel");
+    expect(fabsf(v[0]) < 400.f, "CAR kills 4.8 mV common mode (the test take)");
+    v[3] = 400000.f;
+    np_car_sample(v, use);
+    expect(v[3] > 300000.f, "CAR leaves an open rail");
     expect(strcmp(np_band_name(2), "EEG") == 0, "band name EEG");
     np_lp_init(&lp, 8.f, 125.f);
     {
