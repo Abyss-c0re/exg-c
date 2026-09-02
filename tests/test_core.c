@@ -754,6 +754,12 @@ static void test_id_event(void)
     for (i = 0; i < 8; i++) {
         rms[i] = 22.f;
     }
+    rms[2] = rms[3] = rms[5] = rms[6] = rms[7] = 40.f;
+    expect(np_id_event(rms, calm, fp, mask, 1, &r) == NP_ID_CLENCH,
+           "id: 2x on 5 ch is clench (EEG jaw)");
+    for (i = 0; i < 8; i++) {
+        rms[i] = 22.f;
+    }
     rms[4] = 90.f;
     expect(np_id_event(rms, calm, fp, mask, 1, &r) == NP_ID_BURST, "id: one hot is burst");
     rms[4] = 400000.f;
@@ -916,6 +922,40 @@ static void test_atom(void)
                 expect(np_atom_rms_close(rr, 1, ar, 1) < 0.40f,
                        "CALM-scale log-RMS separates 4x");
             }
+        }
+        {
+            /* stored rest.npat / a.npat (jaw clench). 1 s vs take mean. */
+            float rest[5 * 8] = {
+                2233, 2205, 2135, 2077, 2012, 2013, 2115, 2122,
+                2428, 2449, 2401, 2310, 2125, 2244, 2381, 2390,
+                2367, 3374, 3319, 3235, 2092, 3173, 3317, 3310,
+                2314, 3334, 3749, 3752, 2052, 3649, 3749, 3738,
+                2400, 3079, 3575, 3580, 2097, 3519, 3578, 3566
+            };
+            float act[5 * 8] = {
+                2413, 4395, 5033, 4994, 2293, 5063, 5076, 5069,
+                2351, 4353, 4920, 4869, 2398, 4944, 4959, 4951,
+                2212, 4307, 4804, 4795, 2226, 4830, 4845, 4833,
+                2448, 4335, 4840, 4779, 2385, 4851, 4878, 4871,
+                2465, 2975, 3250, 3274, 2309, 3303, 3299, 3292
+            };
+            float clench[8], mix[5 * 8];
+            float vs_rest, vs_act;
+            int j;
+            memcpy(clench, act, 8 * sizeof(float));
+            vs_rest = np_atom_rms_close_to_mean(clench, 1, rest, 5);
+            vs_act = np_atom_rms_close_to_mean(clench, 1, act, 5);
+            expect(vs_act > vs_rest + 0.08f, "1s clench names a, not rest");
+            expect(vs_act > 0.85f && vs_rest < 0.80f, "clench vs a-mean high, vs rest-mean not");
+            memcpy(mix, rest, 4 * 8 * sizeof(float));
+            memcpy(mix + 4 * 8, act, 8 * sizeof(float));
+            vs_rest = np_atom_rms_close(mix, 5, rest, 5);
+            vs_act = np_atom_rms_close(mix, 5, act, 5);
+            expect(vs_rest > vs_act, "8s newest-align names rest during a 1s clench");
+            vs_rest = np_atom_rms_close_to_mean(mix, 5, rest, 5);
+            vs_act = np_atom_rms_close_to_mean(mix, 5, act, 5);
+            expect(vs_act > vs_rest + 0.08f, "last-1s vs mean names the clench");
+            (void)j;
         }
     }
 }

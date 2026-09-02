@@ -589,7 +589,8 @@ int np_id_event(const float *rms, const float *calm, const int *fp, uint8_t mask
             if (r > restmax) {
                 restmax = r;
             }
-            if (r >= 2.50f) {
+            /* 2.5× is EMG. EEG+lp40 jaw clench is ~2× on this montage. */
+            if (r >= 1.80f) {
                 nhot++;
             }
         }
@@ -612,7 +613,7 @@ int np_id_event(const float *rms, const float *calm, const int *fp, uint8_t mask
     if (nfp >= 2 && nfp_hot >= 2 && fpr >= 2.20f && restmax < fpr * 0.70f) {
         return NP_ID_BLINK;
     }
-    if (nhot + nfp_hot >= 4) {
+    if (nhot + nfp_hot >= 4 && maxr >= 1.80f) {
         return NP_ID_CLENCH;
     }
     if (maxr >= 2.50f) {

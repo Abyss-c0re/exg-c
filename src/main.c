@@ -6785,8 +6785,8 @@ static void atom_identify(void)
     if (!g.learn.match || nlist < 1 || g.atom_n < 1) {
         return;
     }
-    /* Do not blank scores on 4 mV CLIP — this head lives at 2–16 mV. */
-    k = g.atom_n < 8 ? g.atom_n : 8;
+    /* Last 1 s vs each take's mean. An 8 s mean names rest while the 1 s plot shows clench. */
+    k = 1;
     atom_last(liveb, liver, k);
     for (i = 0; i < nlist; i++) {
         uint64_t tb[NP_ATOM_RING];
@@ -6802,7 +6802,7 @@ static void atom_identify(void)
             continue;
         }
         /* Hamming unity is not ID. No RMS → no score. */
-        r = have_rms ? np_atom_rms_close(liver, k, tr, tn) : 0.f;
+        r = have_rms ? np_atom_rms_close_to_mean(liver, k, tr, tn) : 0.f;
         s = r;
         g.atom_id[i] = s;
         if (s > bests) {

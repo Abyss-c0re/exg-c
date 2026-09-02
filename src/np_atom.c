@@ -184,6 +184,26 @@ float np_atom_rms_close(const float *live, int nlive, const float *ref, int nref
     return (float)exp(-acc / (double)n);
 }
 
+float np_atom_rms_close_to_mean(const float *live, int nlive, const float *ref, int nref)
+{
+    float mean[8], last[8];
+    int t, c;
+    if (!live || !ref || nlive < 1 || nref < 1) {
+        return 0.f;
+    }
+    memset(mean, 0, sizeof(mean));
+    for (t = 0; t < nref; t++) {
+        for (c = 0; c < 8; c++) {
+            mean[c] += ref[t * 8 + c];
+        }
+    }
+    for (c = 0; c < 8; c++) {
+        mean[c] /= (float)nref;
+        last[c] = live[(nlive - 1) * 8 + c];
+    }
+    return np_atom_rms_close(last, 1, mean, 1);
+}
+
 float np_atom_file_close(const char *pa, const char *pb)
 {
     uint64_t aa[NP_ATOM_RING], bb[NP_ATOM_RING];

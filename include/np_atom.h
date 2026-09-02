@@ -31,7 +31,9 @@ void np_atom_rms8(const float *planar, int n_ch, int n_samp, int stride, float r
 float np_atom_rms_cos(const float *live, int nlive, const float *ref, int nref);
 /* Newest-aligned closeness on log RMS. 1 = same loudness+shape, 2× all-ch ≈ 0.5. */
 float np_atom_rms_close(const float *live, int nlive, const float *ref, int nref);
-/* Two NPAT files: log-RMS if both v2, else bit unity. 0 if either is empty. */
+/* Last live second vs mean RMS of the take. ID uses this — not an 8 s mean. */
+float np_atom_rms_close_to_mean(const float *live, int nlive, const float *ref, int nref);
+/* Two NPAT files: log-RMS if both v2. 0 if either is empty or v1. */
 float np_atom_file_close(const char *pa, const char *pb);
 
 /* v2: NPAT + bits + 8×f32 RMS per second. v1 load still works (rms left 0). */
