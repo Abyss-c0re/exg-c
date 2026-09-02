@@ -987,14 +987,16 @@ Java_com_abysscore_exgc_ExgNative_matchLine(JNIEnv *env, jclass cls)
     }
     {
         char buf[24];
-        int i = np_host_learn_best(), pct, cpct;
+        int i = np_host_learn_best(), pct;
         if (i < 0) {
+            if (np_host_learn_n() > 0) {
+                return jstr_from(env, "now —");
+            }
             return jstr_from(env, "");
         }
         np_host_learn_name(i, buf, 24);
         pct = (int)(np_host_learn_score(i) * 100.f);
-        cpct = (int)(np_host_learn_score_cube(i) * 100.f);
-        snprintf(line, sizeof(line), "now %s %d%%  cube %d%%", buf, pct, cpct);
+        snprintf(line, sizeof(line), "now %s  %d%%", buf, pct);
         return jstr_from(env, line);
     }
 }

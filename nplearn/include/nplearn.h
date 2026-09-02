@@ -41,8 +41,8 @@ struct npl {
     int match;
     int sel;
     int best;
-    float score[NPL_MAX];      /* wave + RMS — this is MATCH */
-    float score_cube[NPL_MAX]; /* Jaccard, display only */
+    float score[NPL_MAX];      /* wave+RMS cosine; best is fail-closed */
+    float score_cube[NPL_MAX]; /* Jaccard — not ID, do not print as % */
 };
 
 void npl_init(struct npl *L);

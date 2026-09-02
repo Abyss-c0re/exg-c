@@ -366,6 +366,9 @@ static void test_nplearn(void)
             npl_score_smx(&L, rows, 2);
             expect(L.score[0] == before, "SMX does not mix into MATCH");
         }
+        expect(npl_add(&L, "twin", wave, rms, mask) == 1, "npl twin");
+        npl_score(&L, wave, rms, mask);
+        expect(L.best < 0, "two identical poses do not name a winner");
     }
 }
 
@@ -844,6 +847,8 @@ static void test_atom(void)
         expect(n == 2 && have == 1 && got[0] == a, "atom load2");
         expect(12 + 2 * 8 < 200, "atom file is tens of bytes");
         expect(np_atom_file_close(path, path) > 0.99f, "file close self is 1");
+        expect(np_atom_save(path, ring, 2, 125) == 0, "v1 save");
+        expect(np_atom_file_close(path, path) == 0.f, "v1 bits are not a score");
         {
             /* rest.npat / a.npat means: millivolt, 4+ ch over 4 mV CLIP. */
             char pa[] = "/tmp/exg-atom-rest.npat";

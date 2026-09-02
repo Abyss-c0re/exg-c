@@ -4341,15 +4341,16 @@ static void draw_learn(int x, int y, int w, int h)
                 fill(bx, y + 84, bw - 5, 40, on ? 42 : 22, hit ? 50 : (on ? 50 : 26),
                      hit ? 42 : 32);
                 text(bx + 4, y + 88, g.learn.s[i].name, 230, 232, 236, 1);
-                pct = (int)(g.learn.score[i] * 100.f);
-                snprintf(lab, sizeof(lab), "%d%%  c%d", pct,
-                         (int)(g.learn.score_cube[i] * 100.f));
-                text(bx + 4, y + 100, lab, hit ? 80 : 160, hit ? 230 : 180, hit ? 140 : 150, 1);
-                bar = (int)(g.learn.score[i] * (bw - 14));
-                if (bar < 2) {
-                    bar = 2;
+                if (hit) {
+                    pct = (int)(g.learn.score[i] * 100.f);
+                    snprintf(lab, sizeof(lab), "%d%%", pct);
+                    text(bx + 4, y + 100, lab, 80, 230, 140, 1);
+                    bar = (int)(g.learn.score[i] * (bw - 14));
+                    if (bar < 2) {
+                        bar = 2;
+                    }
+                    fill(bx + 4, y + 114, bar, 6, 60, 190, 90);
                 }
-                fill(bx + 4, y + 114, bar, 6, hit ? 60 : 50, hit ? 190 : 90, 90);
                 add_hit(bx, y + 84, bw - 5, 40, 20, i);
             }
         } else {
@@ -4399,10 +4400,8 @@ static void draw_learn(int x, int y, int w, int h)
         text(x + 480, y + 8, lab, 80, 220, 140, 1);
     } else if (g.learn.best >= 0 && g.learn.match && g.learn.n) {
         int pct = (int)(g.learn.score[g.learn.best] * 100.f);
-        int cpct = (int)(g.learn.score_cube[g.learn.best] * 100.f);
-        snprintf(lab, sizeof(lab), "now: %s  %d%%  cube %d%%", g.learn.s[g.learn.best].name, pct,
-                 cpct);
-        text(x + 480, y + 8, lab, pct >= 55 ? 80 : 200, pct >= 55 ? 230 : 170, 120, 1);
+        snprintf(lab, sizeof(lab), "now: %s  %d%%", g.learn.s[g.learn.best].name, pct);
+        text(x + 480, y + 8, lab, 80, 230, 120, 1);
     } else if (!g.namebuf[0]) {
         text(x + 480, y + 8, "name, then Record — blink or clench", 120, 128, 140, 1);
     } else {
@@ -4440,14 +4439,16 @@ static void draw_learn(int x, int y, int w, int h)
             fill(bx, y + 28, bw - 5, 36, on ? 42 : 22, hit ? 50 : (on ? 50 : 26),
                  hit ? 42 : 32);
             text(bx + 4, y + 31, g.learn.s[i].name, 230, 232, 236, 1);
-            pct = (int)(g.learn.score[i] * 100.f);
-            snprintf(lab, sizeof(lab), "%d%%  c%d", pct, (int)(g.learn.score_cube[i] * 100.f));
-            text(bx + 4, y + 42, lab, hit ? 80 : 160, hit ? 230 : 180, hit ? 140 : 150, 1);
-            bar = (int)(g.learn.score[i] * (bw - 14));
-            if (bar < 2) {
-                bar = 2;
+            if (hit) {
+                pct = (int)(g.learn.score[i] * 100.f);
+                snprintf(lab, sizeof(lab), "%d%%", pct);
+                text(bx + 4, y + 42, lab, 80, 230, 140, 1);
+                bar = (int)(g.learn.score[i] * (bw - 14));
+                if (bar < 2) {
+                    bar = 2;
+                }
+                fill(bx + 4, y + 54, bar, 6, 60, 190, 90);
             }
-            fill(bx + 4, y + 54, bar, 6, hit ? 60 : 50, hit ? 190 : 90, 90);
             add_hit(bx, y + 28, bw - 5, 36, 20, i);
         }
     }
@@ -6531,8 +6532,7 @@ int np_host_atom_load(void)
     g.atom_ref_n = n;
     atom_sanitize(g.atom_ref_name, (int)sizeof(g.atom_ref_name), g.namebuf);
     atom_score();
-    set_status(1, "ATOM vs %s  %d atoms  unity %.0f%%", g.atom_ref_name, n,
-               (double)(g.atom_unity * 100.f));
+    set_status(1, "ATOM loaded %s  %d s", g.atom_ref_name, n);
     return 0;
 }
 
@@ -6551,6 +6551,9 @@ void np_host_atom_line(char *out, int n)
     } else if (g.atom_a[0] && g.atom_b[0]) {
         if (g.atom_ab >= 0.90f) {
             snprintf(out, (size_t)n, "%s vs %s  same head — not distinct",
+                     g.atom_a, g.atom_b);
+        } else if (g.atom_ab <= 0.f) {
+            snprintf(out, (size_t)n, "%s vs %s  no RMS — cannot compare",
                      g.atom_a, g.atom_b);
         } else {
             snprintf(out, (size_t)n, "%s vs %s  %.0f%%", g.atom_a, g.atom_b,
@@ -6724,6 +6727,8 @@ void np_host_atom_pick(int i)
     atom_pair_score();
     if (g.atom_ab >= 0.90f) {
         set_status(0, "%s vs %s  same head — not distinct", g.atom_a, g.atom_b);
+    } else if (g.atom_ab <= 0.f) {
+        set_status(0, "%s vs %s  no RMS — cannot compare", g.atom_a, g.atom_b);
     } else {
         set_status(1, "%s vs %s  %.0f%%", g.atom_a, g.atom_b, (double)(g.atom_ab * 100.f));
     }
@@ -6737,6 +6742,9 @@ void np_host_atom_pair(char *out, int n)
     if (g.atom_a[0] && g.atom_b[0]) {
         if (g.atom_ab >= 0.90f) {
             snprintf(out, (size_t)n, "%s vs %s  same head — not distinct",
+                     g.atom_a, g.atom_b);
+        } else if (g.atom_ab <= 0.f) {
+            snprintf(out, (size_t)n, "%s vs %s  no RMS — cannot compare",
                      g.atom_a, g.atom_b);
         } else {
             snprintf(out, (size_t)n, "%s vs %s  %.0f%%", g.atom_a, g.atom_b,
@@ -6785,7 +6793,7 @@ static void atom_identify(void)
         float tr[NP_ATOM_RING * 8];
         char path[NP_MAX_PATH];
         int tn, win = 0, have_rms = 0;
-        float u, r, s;
+        float r, s;
         if (atom_path(path, (int)sizeof(path), atom_listed[i]) != 0) {
             continue;
         }
@@ -6793,10 +6801,9 @@ static void atom_identify(void)
         if (tn < 1) {
             continue;
         }
-        u = np_atom_ring_unity(liveb, k, tb, tn);
-        /* Cosine is scale-blind (rest and 4× clench score 1). Use log-RMS. */
+        /* Hamming unity is not ID. No RMS → no score. */
         r = have_rms ? np_atom_rms_close(liver, k, tr, tn) : 0.f;
-        s = have_rms ? r : u;
+        s = r;
         g.atom_id[i] = s;
         if (s > bests) {
             secs = bests;
@@ -6910,7 +6917,7 @@ static void usage(const char *a0)
             "usage: %s [--cli] [--port PATH] [--imu] [--seconds N]\n"
             "  GUI: click Connect, toggle channels / RLD / gain, Record CSV\n"
             "  keys: c connect  d disconnect  r record  space pause  1-8 channel  Tab port  q quit\n"
-            "  learn: click name, type, Enter/Save. MATCH scores live vs saved samples.\n",
+            "  learn: click name, type, Enter/Save. MATCH names only a unique winner.\n",
             a0);
 }
 

@@ -201,7 +201,10 @@ float np_atom_file_close(const char *pa, const char *pb)
     if (ha && hb) {
         return np_atom_rms_close(ra, na, rb, nb);
     }
-    return np_atom_ring_unity(aa, na, bb, nb);
+    /* Bit Hamming is not a score. v1 files have no RMS. */
+    (void)aa;
+    (void)bb;
+    return 0.f;
 }
 
 float np_atom_ring_unity(const uint64_t *live, int nlive, const uint64_t *ref, int nref)

@@ -1,0 +1,4 @@
+t_ms=188851713 frames=12265 sps=125.3 ID burst 8.5x ratio=8.52
+# 2026-09-01 Knight FTDI  gain 12
+# 0.5 s raw ring after auto-reconnect. ch1/ch4/ch8 sit on +4189 uV clip.
+# Not a 50 Hz sine (ch1 zero-crossings 14, not ~50).

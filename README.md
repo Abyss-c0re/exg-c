@@ -17,10 +17,10 @@ Not a medical device. Not affiliated with NeuroPawn.
 - Settings: time window, µV scale, **UI 1 / 1.5 / 2×**, notch, high-pass, **CAR**, **low-pass**, **detrend**, **envelope**
 - IMU acc / gyr / mag on 57-byte Knight boards (`8-ch + IMU`)
 - Band presets: `raw` / `line-kill` / `EEG` / `EMG`
-- CLIP gate — Record will not save a saturated window
-- Learn: **Record** a named pose on Main (gated at 80 sps). **Poses** lists wave % vs cube Jaccard. MATCH hit is wave ≥ 55%.
+- CLIP on the plot is a rail warning. A loud millivolt head is not refused.
+- Learn: **Record** a named 1 s snap (gated at 80 sps). MATCH prints a percent only if one pose wins by ≥ 8 points. Cube Jaccard is not a score.
 - **CSV** dump, **Pause**, site names + RMS on the plot, FFT strip with a 50/60 Hz marker
-- **Take** a named stretch. **ID** (MATCH) names the live stream from that list (RMS + CubalC bits). Fail-closed if two takes look the same.
+- **Take** a named stretch. **ID** names it only if one take wins. Two similar files say `same head — not distinct`, not a split percent.
 
 Default montage: Fp1 Fp2 C3 C4 P3 P4 O1 O2.
 

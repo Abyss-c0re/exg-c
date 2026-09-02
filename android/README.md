@@ -34,10 +34,9 @@ debug keystore. The native library is `libexg.so` (no SDL2).
 5. First session: **NOISE** (desk) → **OK** → wear headset → **CALM** → leave **CLN** on.
 6. Wait until the strip shows ~125 sps. **ID** / **Record** / **MATCH** stay
    off while the board is still enabling (below 80 sps).
-7. **ID** should read `still`. Hard blink → `blink`. Jaw clench → `clench`.
-   Then type that name and **Record** — it snaps 1 s at the burst. Main
-   shows the **name** only. **Poses** lists them with live wave % and a
-   separate cube Jaccard. **Delete** lives on Poses.
+7. **ID** (CALM-relative event) should read `still`. Hard blink → `blink`.
+   Jaw clench → `clench`. That is an event label, not a learned take.
+   **Record** snaps 1 s. MATCH prints a percent only if one pose wins.
 
 Do not hammer Disconnect / Connect. Each DTR pulse resets the Nano; wait
 for frames instead.
@@ -49,10 +48,10 @@ USB again, tap **Connect** once.
 (debug only). **ATOM** folds each second into an 8-byte CubalC atom
 (same 8×8 feature bits as `cubalc_eeg_pack_matrix`). Tap **name (tap)** and type in the dialog — the in-plot keyboard is a
 black overlay on the 1440² face. **SaveA** writes
-`exg-c/atoms/<name>.npat`. **CMP** loads that chain and shows live unity
-(1 − Hamming/64, newest-aligned). Not a waveform MATCH. **Pause**
-freezes the plot (FROZEN). The strip under the traces is a 128-pt FFT
-with a marker at 50/60 Hz.
+`exg-c/atoms/<name>.npat`. Tap two takes to compare. Near-identical
+files say `same head — not distinct`. Hamming unity is not a score.
+**Pause** freezes the plot (FROZEN). The strip under the traces is a
+128-pt FFT with a marker at 50/60 Hz.
 
 ## Profiles
 
@@ -68,7 +67,7 @@ or `8-ch EXG`. Disconnect before switching board.
 **band** picks `raw` / `line-kill` (notch+CAR+hp1) / `EEG` (+lp 40) /
 `EMG` (hp 20 + envelope). **CAR** subtracts the mean of non-clip
 channels. **envelope** plots 150 ms RMS. **detrend** hides DC.
-Record refuses a **CLIP** window (≥ 4 mV).
+A take that is loud is saved with a warning, not refused.
 
 Tap the site name (Fp1…) in Settings for an RGB color picker. Other
 Settings buttons open a list — they do not cycle on each tap.
@@ -76,12 +75,11 @@ Settings buttons open a list — they do not cycle on each tap.
 **algo** (Cube tab and Settings) picks how each headset cell becomes 0 or 1:
 `detect` `sign` `mean` `energy` `delta` `fold` `proton`. Same as Linux.
 
-**MATCH** is wave + RMS. A hit is ≥ 55%. Cube Jaccard is shown next to
-it and does not replace the wave score.
+**MATCH** / **ID** name a unique winner only (gap ≥ 8 points). A split
+is `now —`, not two high percents. Cube Jaccard is not printed.
 
 **Take** on Main starts a timed fold. **Stop** asks for a name. **Takes**
-lists them — tap one to compare live, Delete to drop it. 1-second
-Record/MATCH poses stay in the lower half of that tab.
+lists them — tap two to compare. Delete to drop one.
 
 Names: letters, digits, `-`, `_`.
 

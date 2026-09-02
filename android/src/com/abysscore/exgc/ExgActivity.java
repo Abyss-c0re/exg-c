@@ -482,9 +482,8 @@ public class ExgActivity extends Activity {
                     : (atoms.length() > 0 ? "   " + atoms
                             : (ln == 0 ? "   type a name, Record a pose" : ""));
             idLine.setText(id + extra);
-            int best = ExgNative.learnBest();
-            float sc = best >= 0 ? ExgNative.learnScore(best) : 0f;
-            idLine.setTextColor(matching && sc >= 0.55f ? 0xFF3CB46E : 0xFF8B93A0);
+            boolean named = now.startsWith("now ") && !now.startsWith("now —");
+            idLine.setTextColor(named ? 0xFF3CB46E : 0xFF8B93A0);
             if (on && sps > 0f && sps < 80f) {
                 record.setText("wait " + (int) sps + " sps");
             } else {
@@ -731,7 +730,7 @@ public class ExgActivity extends Activity {
         int n = ExgNative.atomCount();
         if (n < 1) {
             TextView empty = new TextView(this);
-            empty.setText("Take rest, then an action. ID names the live one.");
+            empty.setText("Take rest, then an action. ID names only a unique winner.");
             empty.setTextColor(0xFF8B93A0);
             empty.setPadding(8, 16, 8, 8);
             learnChips.addView(empty);

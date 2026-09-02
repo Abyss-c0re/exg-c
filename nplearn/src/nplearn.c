@@ -143,14 +143,15 @@ static float cosine8(const float *a, const float *b, uint8_t mask)
 void npl_score(struct npl *L, const float wave[NPL_NCHAN][NPL_LEN], const float rms[NPL_NCHAN],
                uint8_t mask)
 {
-    int i, c;
+    int i, c, best = -1, second = -1;
+    float bests = -1.f, secs = -1.f;
     if (!L) {
         return;
     }
     L->best = -1;
     for (i = 0; i < L->n; i++) {
         uint8_t m = (uint8_t)(L->s[i].mask & mask);
-        float sw = 0.f, sr;
+        float sw = 0.f, sr, s;
         int nc = 0;
         if (!m) {
             L->score[i] = 0.f;
@@ -177,10 +178,21 @@ void npl_score(struct npl *L, const float wave[NPL_NCHAN][NPL_LEN], const float 
         if (sr < 0.f) {
             sr = 0.f;
         }
-        L->score[i] = 0.60f * sw + 0.40f * sr;
-        if (L->best < 0 || L->score[i] > L->score[L->best]) {
-            L->best = i;
+        /* RMS cosine is scale-blind. Do not print this as ID unless one wins. */
+        s = 0.60f * sw + 0.40f * sr;
+        L->score[i] = s;
+        if (s > bests) {
+            secs = bests;
+            second = best;
+            bests = s;
+            best = i;
+        } else if (s > secs) {
+            secs = s;
+            second = i;
         }
+    }
+    if (best >= 0 && bests >= 0.55f && (second < 0 || bests - secs >= 0.08f)) {
+        L->best = best;
     }
 }
 
