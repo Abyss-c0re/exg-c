@@ -798,8 +798,6 @@ public class ExgActivity extends Activity {
         if (na < 1) {
             poseList.addView(savedLabel("none — Take on Main, Stop, name it", 0xFF8B93A0));
         }
-        String a = "", b = "";
-        /* pair text is "x vs y" or "x — tap…" — also read via atomAt + pick state from labels */
         for (int i = 0; i < na; i++) {
             final int idx = i;
             String name = ExgNative.atomAt(i);
