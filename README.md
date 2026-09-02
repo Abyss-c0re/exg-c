@@ -20,7 +20,7 @@ Not a medical device. Not affiliated with NeuroPawn.
 - CLIP gate — Record will not save a saturated window
 - Learn: **Record** a named pose on Main (gated at 80 sps). **Poses** lists wave % vs cube Jaccard. MATCH hit is wave ≥ 55%.
 - **CSV** dump, **Pause**, site names + RMS on the plot, FFT strip with a 50/60 Hz marker
-- **Take** — hold a gesture, Stop, name it. **Takes** lists them; tap one to compare live (CubalC 8-byte/s fold, not CSV).
+- **Take** a named stretch. **ID** (MATCH) names the live stream from that list (RMS + CubalC bits). Fail-closed if two takes look the same.
 
 Default montage: Fp1 Fp2 C3 C4 P3 P4 O1 O2.
 

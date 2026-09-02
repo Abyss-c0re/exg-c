@@ -819,7 +819,15 @@ static void test_atom(void)
     n = np_atom_load(path, ref, 4, &win);
     expect(n == 2 && win == 125 && ref[0] == a && ref[1] == b, "atom load round-trip");
     {
-        /* 2 atoms × 8 bytes + 12 header vs a raw second of CSV */
+        float rms[16], rms2[16];
+        uint64_t got[4];
+        int have = 0;
+        np_atom_rms8(planar, 8, 125, 125, rms);
+        np_atom_rms8(planar, 8, 125, 125, rms + 8);
+        expect(np_atom_rms_cos(rms, 2, rms, 2) > 0.99f, "identical RMS cosine 1");
+        expect(np_atom_save2(path, ring, rms, 2, 125) == 0, "atom save2");
+        n = np_atom_load2(path, got, rms2, 4, &win, &have);
+        expect(n == 2 && have == 1 && got[0] == a, "atom load2");
         expect(12 + 2 * 8 < 200, "atom file is tens of bytes");
     }
 }

@@ -106,6 +106,8 @@ public final class ExgNative {
     public static native String atomPair();
     public static native String atomSlotA();
     public static native String atomSlotB();
+    public static native int atomIdBest();
+    public static native float atomIdScore(int i);
 
     public static native int cubeView();
     public static native void setCubeView(int map);

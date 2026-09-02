@@ -976,21 +976,24 @@ Java_com_abysscore_exgc_ExgNative_recMs(JNIEnv *env, jclass cls)
 JNIEXPORT jstring JNICALL
 Java_com_abysscore_exgc_ExgNative_matchLine(JNIEnv *env, jclass cls)
 {
-    char buf[64];
-    int i, pct;
+    char line[64];
     (void)cls;
+    if (np_host_atom_count() > 0) {
+        np_host_atom_id_line(line, sizeof(line));
+        return jstr_from(env, line);
+    }
     if (!np_host_match()) {
         return jstr_from(env, "");
     }
-    i = np_host_learn_best();
-    if (i < 0) {
-        return jstr_from(env, "");
-    }
-    np_host_learn_name(i, buf, 24);
-    pct = (int)(np_host_learn_score(i) * 100.f);
     {
-        char line[64];
-        int cpct = (int)(np_host_learn_score_cube(i) * 100.f);
+        char buf[24];
+        int i = np_host_learn_best(), pct, cpct;
+        if (i < 0) {
+            return jstr_from(env, "");
+        }
+        np_host_learn_name(i, buf, 24);
+        pct = (int)(np_host_learn_score(i) * 100.f);
+        cpct = (int)(np_host_learn_score_cube(i) * 100.f);
         snprintf(line, sizeof(line), "now %s %d%%  cube %d%%", buf, pct, cpct);
         return jstr_from(env, line);
     }
@@ -1284,5 +1287,21 @@ Java_com_abysscore_exgc_ExgNative_atomSlotB(JNIEnv *env, jclass cls)
     (void)cls;
     np_host_atom_slot_b(buf, sizeof(buf));
     return jstr_from(env, buf);
+}
+
+JNIEXPORT jint JNICALL
+Java_com_abysscore_exgc_ExgNative_atomIdBest(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    return np_host_atom_id_best();
+}
+
+JNIEXPORT jfloat JNICALL
+Java_com_abysscore_exgc_ExgNative_atomIdScore(JNIEnv *env, jclass cls, jint i)
+{
+    (void)env;
+    (void)cls;
+    return np_host_atom_id_score(i);
 }
 #endif

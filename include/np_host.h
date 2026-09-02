@@ -160,5 +160,8 @@ void np_host_atom_pick(int i);
 void np_host_atom_pair(char *out, int n);
 void np_host_atom_slot_a(char *out, int n);
 void np_host_atom_slot_b(char *out, int n);
+int np_host_atom_id_best(void);
+float np_host_atom_id_score(int i);
+void np_host_atom_id_line(char *out, int n);
 
 #endif

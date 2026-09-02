@@ -180,6 +180,10 @@ struct np_app {
     char atom_a[NP_ATOM_NAME];
     char atom_b[NP_ATOM_NAME];
     float atom_ab;
+    float atom_live_rms[NP_ATOM_RING * 8];
+    int atom_rec_n;
+    float atom_id[32];
+    int atom_id_best;
 };
 
 static struct np_app g;
@@ -261,6 +265,7 @@ static const int WINPREF[][2] = {{1280, 800}, {1440, 900}, {1600, 1000}, {1920, 
 /* Do not cook filter poles from a lagged measured rate (46 SPS makes
  * a 50 Hz notch sit past Nyquist and a 60 Hz notch is already there). */
 static uint32_t view_copy(int ch, float *dst, uint32_t n);
+static void atom_identify(void);
 static float design_sps(void)
 {
     if (g.sps >= 100.f && g.sps <= 160.f) {
@@ -449,17 +454,34 @@ static int atom_path(char *out, int n, const char *name)
     return 0;
 }
 
-static void atom_flatten(uint64_t *dst, int *n)
+static void atom_last(uint64_t *bits, float *rms, int k)
 {
-    int i, start;
-    *n = g.atom_n;
-    if (*n < 1) {
+    int i;
+    if (k < 1) {
         return;
     }
-    start = g.atom_n < NP_ATOM_RING ? 0 : g.atom_wr;
-    for (i = 0; i < *n; i++) {
-        dst[i] = g.atom_live[(start + i) % NP_ATOM_RING];
+    if (k > g.atom_n) {
+        k = g.atom_n;
     }
+    for (i = 0; i < k; i++) {
+        int idx = (g.atom_wr - k + i + NP_ATOM_RING) % NP_ATOM_RING;
+        if (bits) {
+            bits[i] = g.atom_live[idx];
+        }
+        if (rms) {
+            memcpy(rms + i * 8, g.atom_live_rms + idx * 8, 8 * sizeof(float));
+        }
+    }
+}
+
+static void atom_flatten(uint64_t *dst, int *n)
+{
+    int k = g.atom_rec_n > 0 ? g.atom_rec_n : g.atom_n;
+    if (k > g.atom_n) {
+        k = g.atom_n;
+    }
+    *n = k;
+    atom_last(dst, NULL, k);
 }
 
 static void atom_score(void)
@@ -484,10 +506,6 @@ static void atom_tick(void)
     int c, got = 0;
     uint32_t want;
 
-    if (!g.atom_on) {
-        last = 0;
-        return;
-    }
     if (!g.connected || (g.sps > 0.f && g.sps < 80.f)) {
         return;
     }
@@ -521,14 +539,24 @@ static void atom_tick(void)
     scale = NP_ATOM_SCALE;
     {
         uint64_t bits = np_atom_pack(planar, NP_NCHAN, NP_ATOM_WIN, NP_ATOM_WIN, scale);
+        float rms[8];
+        np_atom_rms8(planar, NP_NCHAN, NP_ATOM_WIN, NP_ATOM_WIN, rms);
         g.atom_live[g.atom_wr] = bits;
+        memcpy(g.atom_live_rms + g.atom_wr * 8, rms, sizeof(rms));
         g.atom_wr = (g.atom_wr + 1) % NP_ATOM_RING;
         if (g.atom_n < NP_ATOM_RING) {
             g.atom_n++;
         }
         g.atom_seq++;
+        if (g.atom_on) {
+            g.atom_rec_n++;
+            if (g.atom_rec_n > NP_ATOM_RING) {
+                g.atom_rec_n = NP_ATOM_RING;
+            }
+        }
     }
     atom_score();
+    atom_identify();
 }
 
 static uint8_t rec_smx[NPL_SMX_SEC];
@@ -6356,22 +6384,20 @@ int np_host_fft(float *dst, int max, int *peak_hz)
 void np_host_atom_discard(void)
 {
     g.atom_on = 0;
-    g.atom_n = 0;
-    g.atom_wr = 0;
+    g.atom_rec_n = 0;
     set_status(1, "take discarded");
 }
 
 void np_host_atom_start(void)
 {
-    g.atom_n = 0;
-    g.atom_wr = 0;
+    g.atom_rec_n = 0;
     g.atom_on = 1;
     set_status(1, "take running — watch the plot, then Stop");
 }
 
 int np_host_atom_stop(void)
 {
-    int n = g.atom_n;
+    int n = g.atom_rec_n;
     g.atom_on = 0;
     if (n < 1) {
         set_status(0, "take empty — hold at least 1 s");
@@ -6397,24 +6423,29 @@ int np_host_atom(void)
 
 int np_host_atom_n(void)
 {
-    return g.atom_n;
+    return g.atom_on ? g.atom_rec_n : 0;
 }
 
 int np_host_atom_save(void)
 {
     char path[NP_MAX_PATH];
     uint64_t live[NP_ATOM_RING];
+    float rms[NP_ATOM_RING * 8];
     int n = 0;
     if (atom_path(path, (int)sizeof(path), g.namebuf) != 0) {
         set_status(0, "ATOM need a name");
         return -1;
     }
-    atom_flatten(live, &n);
+    n = g.atom_rec_n > 0 ? g.atom_rec_n : 0;
+    if (n > g.atom_n) {
+        n = g.atom_n;
+    }
+    atom_last(live, rms, n);
     if (n < 1) {
         set_status(0, "ATOM empty — wait for 1 s folds");
         return -1;
     }
-    if (np_atom_save(path, live, n, NP_ATOM_WIN) != 0) {
+    if (np_atom_save2(path, live, rms, n, NP_ATOM_WIN) != 0) {
         set_status(0, "ATOM cannot write %s", path);
         return -1;
     }
@@ -6425,8 +6456,7 @@ int np_host_atom_save(void)
     g.atom_b[0] = 0;
     g.atom_ab = 0.f;
     atom_score();
-    g.atom_n = 0;
-    g.atom_wr = 0;
+    g.atom_rec_n = 0;
     set_status(1, "kept %s  %d s — tap another take to compare", g.atom_ref_name, n);
     return 0;
 }
@@ -6670,6 +6700,85 @@ void np_host_atom_slot_b(char *out, int n)
     if (out && n > 1) {
         snprintf(out, (size_t)n, "%s", g.atom_b);
     }
+}
+
+static void atom_identify(void)
+{
+    uint64_t liveb[NP_ATOM_RING];
+    float liver[NP_ATOM_RING * 8];
+    int i, nlist, k, best = -1, second = -1;
+    float bests = -1.f, secs = -1.f;
+
+    nlist = atom_rescan();
+    memset(g.atom_id, 0, sizeof(g.atom_id));
+    g.atom_id_best = -1;
+    if (!g.learn.match || nlist < 1 || g.atom_n < 1) {
+        return;
+    }
+    k = g.atom_n < 8 ? g.atom_n : 8;
+    atom_last(liveb, liver, k);
+    for (i = 0; i < nlist; i++) {
+        uint64_t tb[NP_ATOM_RING];
+        float tr[NP_ATOM_RING * 8];
+        char path[NP_MAX_PATH];
+        int tn, win = 0, have_rms = 0;
+        float u, r, s;
+        if (atom_path(path, (int)sizeof(path), atom_listed[i]) != 0) {
+            continue;
+        }
+        tn = np_atom_load2(path, tb, tr, NP_ATOM_RING, &win, &have_rms);
+        if (tn < 1) {
+            continue;
+        }
+        u = np_atom_ring_unity(liveb, k, tb, tn);
+        r = have_rms ? np_atom_rms_cos(liver, k, tr, tn) : 0.f;
+        s = have_rms ? (0.30f * u + 0.70f * r) : u;
+        g.atom_id[i] = s;
+        if (s > bests) {
+            secs = bests;
+            second = best;
+            bests = s;
+            best = i;
+        } else if (s > secs) {
+            secs = s;
+            second = i;
+        }
+    }
+    (void)second;
+    /* Fail closed: need a clear winner. Two similar takes stay "none". */
+    if (best >= 0 && bests >= 0.70f && (second < 0 || bests - secs >= 0.08f)) {
+        g.atom_id_best = best;
+    }
+}
+
+int np_host_atom_id_best(void)
+{
+    return g.atom_id_best;
+}
+
+float np_host_atom_id_score(int i)
+{
+    if (i < 0 || i >= 32) {
+        return 0.f;
+    }
+    return g.atom_id[i];
+}
+
+void np_host_atom_id_line(char *out, int n)
+{
+    if (!out || n < 4) {
+        return;
+    }
+    if (!g.learn.match || g.atom_id_best < 0 || g.atom_id_best >= atom_listed_n) {
+        if (g.learn.match && atom_listed_n > 0) {
+            snprintf(out, (size_t)n, "now —");
+        } else {
+            out[0] = 0;
+        }
+        return;
+    }
+    snprintf(out, (size_t)n, "now %s  %.0f%%", atom_listed[g.atom_id_best],
+             (double)(g.atom_id[g.atom_id_best] * 100.f));
 }
 
 int np_host_imu(float acc[3], float gyr[3], float mag[3])

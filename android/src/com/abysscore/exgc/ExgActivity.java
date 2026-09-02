@@ -447,7 +447,9 @@ public class ExgActivity extends Activity {
         status.setTextColor(ExgNative.statusOk() ? 0xFF3CB46E : 0xFFF0A040);
         clean.setText(ExgNative.cleanOn() ? "CLN" : "cln");
         boolean matching = ExgNative.matchOn();
-        match.setText(matching ? "MATCH on" : "MATCH off");
+        boolean haveTakes = ExgNative.atomCount() > 0;
+        match.setText(haveTakes ? (matching ? "ID on" : "ID off")
+                : (matching ? "MATCH on" : "MATCH off"));
         match.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
                 matching ? 0xFF2E8A58 : 0xFF2A3038));
         boolean recCsv = ExgNative.csvOn();
@@ -726,10 +728,10 @@ public class ExgActivity extends Activity {
 
     private void rebuildLearnChips() {
         learnChips.removeAllViews();
-        int n = ExgNative.learnN();
+        int n = ExgNative.atomCount();
         if (n < 1) {
             TextView empty = new TextView(this);
-            empty.setText("no 1s poses — Record a blink/clench");
+            empty.setText("Take rest, then an action. ID names the live one.");
             empty.setTextColor(0xFF8B93A0);
             empty.setPadding(8, 16, 8, 8);
             learnChips.addView(empty);
@@ -740,15 +742,13 @@ public class ExgActivity extends Activity {
             final int idx = i;
             Button b = new Button(this);
             b.setOnClickListener(v -> {
-                ExgNative.learnSelect(idx);
-                setLearnName(ExgNative.learnName(idx));
-                refreshLearnChips();
-                lastLearnN = -1;
+                ExgNative.atomPick(idx);
+                lastAtomN = -1;
                 refreshChrome();
             });
             b.setOnLongClickListener(v -> {
-                ExgNative.learnDel(idx);
-                lastLearnN = -1;
+                ExgNative.atomDel(idx);
+                lastAtomN = -1;
                 refreshChrome();
                 return true;
             });
@@ -759,24 +759,28 @@ public class ExgActivity extends Activity {
     }
 
     private void refreshLearnChips() {
-        int n = ExgNative.learnN();
+        int n = ExgNative.atomCount();
         if (n < 1 || learnChips.getChildCount() != n) {
             return;
         }
         boolean matching = ExgNative.matchOn();
-        int best = ExgNative.learnBest();
-        int sel = ExgNative.learnSel();
+        int best = ExgNative.atomIdBest();
         for (int i = 0; i < n; i++) {
             android.view.View child = learnChips.getChildAt(i);
             if (!(child instanceof Button)) {
                 continue;
             }
             Button b = (Button) child;
-            b.setText(ExgNative.learnName(i));
-            int pct = (int) (ExgNative.learnScore(i) * 100f);
-            boolean hit = matching && i == best && pct >= 55;
-            int bg = hit ? 0xFF2E8A58 : (i == sel ? 0xFF5A1020 : 0xFF2A3038);
-            b.setBackgroundTintList(android.content.res.ColorStateList.valueOf(bg));
+            int pct = (int) (ExgNative.atomIdScore(i) * 100f);
+            String name = ExgNative.atomAt(i);
+            if (matching) {
+                b.setText(name + "  " + pct + "%");
+            } else {
+                b.setText(name);
+            }
+            boolean hit = matching && i == best && pct >= 70;
+            b.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
+                    hit ? 0xFF2E8A58 : 0xFF2A3038));
         }
     }
 
