@@ -524,19 +524,17 @@ static void atom_tick(void)
         if (!g.active[c]) {
             continue;
         }
-        n = np_ring_copy(&g.ring, c, buf, want);
+        /* Same samples as the plot. Raw ring is mains; the operator sees view. */
+        n = view_copy(c, buf, want);
         if (n < 32) {
             continue;
         }
-        np_detrend(buf, (int)n);
         memcpy(planar + c * NP_ATOM_WIN, buf, (size_t)n * sizeof(float));
         got++;
     }
     if (got < 1) {
         return;
     }
-    /* CubalC 50 µV. CALM plate here is millivolts — that scale makes every
-     * window look flat. Envelope (EMG band) would kill zc/rise too. */
     scale = NP_ATOM_SCALE;
     {
         uint64_t bits = np_atom_pack(planar, NP_NCHAN, NP_ATOM_WIN, NP_ATOM_WIN, scale);
@@ -6456,9 +6454,7 @@ int np_host_atom_save(void)
             }
         }
         if (hot >= n * 4) {
-            set_status(0, "take is CLIP (%.0f uV) — turn CLN on, then Take again",
-                       (double)rms[0]);
-            return -1;
+            set_status(0, "take is loud (%.0f uV) — saved anyway", (double)rms[0]);
         }
     }
     if (np_atom_save2(path, live, rms, n, NP_ATOM_WIN) != 0) {
