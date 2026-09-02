@@ -871,6 +871,47 @@ static void test_atom(void)
             remove(pa);
             remove(pb);
         }
+        {
+            /* Evidence: 50 µV pack on a millivolt head is theater.
+             * CALM-relative pack must flip energy bits on a 4× burst. */
+            float restw[8 * 125], actw[8 * 125];
+            uint64_t br, ba;
+            int k, ch, sat_r = 0, sat_a = 0;
+            float calm = 2000.f;
+            memset(restw, 0, sizeof(restw));
+            memset(actw, 0, sizeof(actw));
+            for (k = 0; k < 125; k++) {
+                float s = sinf(2.f * (float)M_PI * 20.f * (float)k / 125.f);
+                for (ch = 0; ch < 8; ch++) {
+                    restw[ch * 125 + k] = calm * s;
+                    actw[ch * 125 + k] = 4.f * calm * s;
+                }
+            }
+            br = np_atom_pack(restw, 8, 125, 125, 50.f);
+            ba = np_atom_pack(actw, 8, 125, 125, 50.f);
+            for (ch = 0; ch < 8; ch++) {
+                uint8_t rb = (uint8_t)((br >> (8 * ch)) & 0xffu);
+                uint8_t ab = (uint8_t)((ba >> (8 * ch)) & 0xffu);
+                if ((rb & 0x96u) == 0x96u) {
+                    sat_r++;
+                }
+                if ((ab & 0x96u) == 0x96u) {
+                    sat_a++;
+                }
+            }
+            expect(sat_r == 8 && sat_a == 8, "50uV scale saturates 2mV and 8mV");
+            expect(np_atom_hamming(br, ba) < 8, "50uV Hamming cannot see 4x");
+            br = np_atom_pack(restw, 8, 125, 125, calm);
+            ba = np_atom_pack(actw, 8, 125, 125, calm);
+            expect(np_atom_hamming(br, ba) >= 16, "CALM scale Hamming sees 4x");
+            {
+                float rr[8], ar[8];
+                np_atom_rms8(restw, 8, 125, 125, rr);
+                np_atom_rms8(actw, 8, 125, 125, ar);
+                expect(np_atom_rms_close(rr, 1, ar, 1) < 0.40f,
+                       "CALM-scale log-RMS separates 4x");
+            }
+        }
     }
 }
 

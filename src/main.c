@@ -497,14 +497,43 @@ static void atom_score(void)
     g.atom_unity = np_atom_ring_unity(live, n, g.atom_ref, g.atom_ref_n);
 }
 
+static float atom_scale(void)
+{
+    float v[NP_NCHAN];
+    int n = 0, c, i, j;
+    if (!g.calm.have) {
+        return NP_ATOM_SCALE;
+    }
+    for (c = 0; c < NP_NCHAN; c++) {
+        if (g.active[c] && g.calm.rms[c] > 50.f) {
+            v[n++] = g.calm.rms[c];
+        }
+    }
+    if (n < 1) {
+        return NP_ATOM_SCALE;
+    }
+    for (i = 0; i < n; i++) {
+        for (j = i + 1; j < n; j++) {
+            if (v[j] < v[i]) {
+                float t = v[i];
+                v[i] = v[j];
+                v[j] = t;
+            }
+        }
+    }
+    return v[n / 2];
+}
+
 static void atom_tick(void)
 {
     static uint64_t last;
     struct timespec ts;
     uint64_t now;
     float planar[NP_NCHAN * NP_ATOM_WIN];
+    float buf[NP_NCHAN][NP_RING];
+    uint32_t nn[NP_NCHAN];
     float scale;
-    int c, got = 0;
+    int c, got = 0, env;
     uint32_t want;
 
     if (!g.connected || (g.sps > 0.f && g.sps < 80.f)) {
@@ -517,25 +546,38 @@ static void atom_tick(void)
     }
     last = now;
     want = (uint32_t)NP_ATOM_WIN;
-    memset(planar, 0, sizeof(planar));
+    memset(nn, 0, sizeof(nn));
+    memset(buf, 0, sizeof(buf));
     for (c = 0; c < NP_NCHAN; c++) {
-        float buf[NP_ATOM_WIN];
-        uint32_t n;
         if (!g.active[c]) {
             continue;
         }
-        /* Same samples as the plot. Raw ring is mains; the operator sees view. */
-        n = view_copy(c, buf, want);
-        if (n < 32) {
-            continue;
+        /* Bipolar wave, not the envelope plot. Envelope has no ZC/rise. */
+        nn[c] = np_ring_copy(&g.ring, c, buf[c], want);
+        if (nn[c] >= 32) {
+            got++;
         }
-        memcpy(planar + c * NP_ATOM_WIN, buf, (size_t)n * sizeof(float));
-        got++;
     }
     if (got < 1) {
         return;
     }
-    scale = NP_ATOM_SCALE;
+    env = g.envelope;
+    g.envelope = 0;
+    cook_all(buf, nn, want);
+    g.envelope = env;
+    memset(planar, 0, sizeof(planar));
+    for (c = 0; c < NP_NCHAN; c++) {
+        uint32_t n = nn[c];
+        if (n < 32) {
+            continue;
+        }
+        if (n > want) {
+            n = want;
+        }
+        memcpy(planar + c * NP_ATOM_WIN, buf[c], (size_t)n * sizeof(float));
+    }
+    /* CubalC default 50 µV saturates this head. Scale from worn CALM. */
+    scale = atom_scale();
     {
         uint64_t bits = np_atom_pack(planar, NP_NCHAN, NP_ATOM_WIN, NP_ATOM_WIN, scale);
         float rms[8];
