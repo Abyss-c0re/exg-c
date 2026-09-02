@@ -184,6 +184,26 @@ float np_atom_rms_close(const float *live, int nlive, const float *ref, int nref
     return (float)exp(-acc / (double)n);
 }
 
+float np_atom_file_close(const char *pa, const char *pb)
+{
+    uint64_t aa[NP_ATOM_RING], bb[NP_ATOM_RING];
+    float ra[NP_ATOM_RING * 8], rb[NP_ATOM_RING * 8];
+    int na, nb, wa = 0, wb = 0, ha = 0, hb = 0;
+
+    if (!pa || !pb) {
+        return 0.f;
+    }
+    na = np_atom_load2(pa, aa, ra, NP_ATOM_RING, &wa, &ha);
+    nb = np_atom_load2(pb, bb, rb, NP_ATOM_RING, &wb, &hb);
+    if (na < 1 || nb < 1) {
+        return 0.f;
+    }
+    if (ha && hb) {
+        return np_atom_rms_close(ra, na, rb, nb);
+    }
+    return np_atom_ring_unity(aa, na, bb, nb);
+}
+
 float np_atom_ring_unity(const uint64_t *live, int nlive, const uint64_t *ref, int nref)
 {
     int k, i;

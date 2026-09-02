@@ -843,6 +843,34 @@ static void test_atom(void)
         n = np_atom_load2(path, got, rms2, 4, &win, &have);
         expect(n == 2 && have == 1 && got[0] == a, "atom load2");
         expect(12 + 2 * 8 < 200, "atom file is tens of bytes");
+        expect(np_atom_file_close(path, path) > 0.99f, "file close self is 1");
+        {
+            /* rest.npat / a.npat means: millivolt, 4+ ch over 4 mV CLIP. */
+            char pa[] = "/tmp/exg-atom-rest.npat";
+            char pb[] = "/tmp/exg-atom-act.npat";
+            float rest[8] = {1961.f, 3734.f, 6235.f, 7923.f,
+                             13790.f, 15928.f, 10298.f, 11939.f};
+            float act[8] = {1892.f, 3365.f, 6443.f, 9313.f,
+                            13795.f, 15621.f, 10882.f, 12141.f};
+            float close;
+            int hot = 0, c;
+            for (c = 0; c < 8; c++) {
+                if (rest[c] >= 4000.f) {
+                    hot++;
+                }
+            }
+            expect(hot >= 4, "rest would have tripped the old CLIP gate");
+            expect(np_atom_rms_close(rest, 1, rest, 1) > 0.99f,
+                   "CLIP-loud self is 1, not 0");
+            close = np_atom_rms_close(rest, 1, act, 1);
+            expect(close > 0.90f && close < 0.99f, "rest vs a is ~94%, not 0");
+            expect(np_atom_save2(pa, ring, rest, 1, 125) == 0, "save rest");
+            expect(np_atom_save2(pb, ring, act, 1, 125) == 0, "save act");
+            close = np_atom_file_close(pa, pb);
+            expect(close > 0.90f && close < 0.99f, "file close rest vs a ~94%");
+            remove(pa);
+            remove(pb);
+        }
     }
 }
 

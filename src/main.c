@@ -6638,9 +6638,7 @@ void np_host_atom_del(int i)
 
 static void atom_pair_score(void)
 {
-    uint64_t aa[NP_ATOM_RING], bb[NP_ATOM_RING];
     char pa[NP_MAX_PATH], pb[NP_MAX_PATH];
-    int na, nb, wa = 0, wb = 0;
     g.atom_ab = 0.f;
     if (!g.atom_a[0] || !g.atom_b[0]) {
         return;
@@ -6649,12 +6647,7 @@ static void atom_pair_score(void)
         atom_path(pb, (int)sizeof(pb), g.atom_b) != 0) {
         return;
     }
-    na = np_atom_load(pa, aa, NP_ATOM_RING, &wa);
-    nb = np_atom_load(pb, bb, NP_ATOM_RING, &wb);
-    if (na < 1 || nb < 1) {
-        return;
-    }
-    g.atom_ab = np_atom_ring_unity(aa, na, bb, nb);
+    g.atom_ab = np_atom_file_close(pa, pb);
 }
 
 void np_host_atom_pick(int i)
@@ -6728,21 +6721,7 @@ static void atom_identify(void)
     if (!g.learn.match || nlist < 1 || g.atom_n < 1) {
         return;
     }
-    {
-        /* Stream CLIP: every take looks the same. Do not invent a name. */
-        int c, hot = 0;
-        float last[8];
-        atom_last(NULL, last, 1);
-        for (c = 0; c < 8; c++) {
-            if (last[c] >= 4000.f) {
-                hot++;
-            }
-        }
-        g.atom_clip = (hot >= 4);
-        if (g.atom_clip) {
-            return;
-        }
-    }
+    /* Do not blank scores on 4 mV CLIP — this head lives at 2–16 mV. */
     k = g.atom_n < 8 ? g.atom_n : 8;
     atom_last(liveb, liver, k);
     for (i = 0; i < nlist; i++) {
@@ -6796,10 +6775,6 @@ float np_host_atom_id_score(int i)
 void np_host_atom_id_line(char *out, int n)
 {
     if (!out || n < 4) {
-        return;
-    }
-    if (g.atom_clip) {
-        snprintf(out, (size_t)n, "CLIP — not a take");
         return;
     }
     if (!g.learn.match || g.atom_id_best < 0 || g.atom_id_best >= atom_listed_n) {
