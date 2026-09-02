@@ -6549,8 +6549,13 @@ void np_host_atom_line(char *out, int n)
     if (g.atom_on) {
         snprintf(out, (size_t)n, "recording %d s", g.atom_n);
     } else if (g.atom_a[0] && g.atom_b[0]) {
-        snprintf(out, (size_t)n, "%s vs %s  %.0f%%", g.atom_a, g.atom_b,
-                 (double)(g.atom_ab * 100.f));
+        if (g.atom_ab >= 0.90f) {
+            snprintf(out, (size_t)n, "%s vs %s  same head — not distinct",
+                     g.atom_a, g.atom_b);
+        } else {
+            snprintf(out, (size_t)n, "%s vs %s  %.0f%%", g.atom_a, g.atom_b,
+                     (double)(g.atom_ab * 100.f));
+        }
     } else if (g.atom_a[0]) {
         snprintf(out, (size_t)n, "vs %s — tap another take", g.atom_a);
     } else {
@@ -6717,7 +6722,11 @@ void np_host_atom_pick(int i)
     }
     snprintf(g.atom_b, sizeof(g.atom_b), "%s", name);
     atom_pair_score();
-    set_status(1, "%s vs %s  %.0f%%", g.atom_a, g.atom_b, (double)(g.atom_ab * 100.f));
+    if (g.atom_ab >= 0.90f) {
+        set_status(0, "%s vs %s  same head — not distinct", g.atom_a, g.atom_b);
+    } else {
+        set_status(1, "%s vs %s  %.0f%%", g.atom_a, g.atom_b, (double)(g.atom_ab * 100.f));
+    }
 }
 
 void np_host_atom_pair(char *out, int n)
@@ -6726,8 +6735,13 @@ void np_host_atom_pair(char *out, int n)
         return;
     }
     if (g.atom_a[0] && g.atom_b[0]) {
-        snprintf(out, (size_t)n, "%s vs %s  %.0f%%", g.atom_a, g.atom_b,
-                 (double)(g.atom_ab * 100.f));
+        if (g.atom_ab >= 0.90f) {
+            snprintf(out, (size_t)n, "%s vs %s  same head — not distinct",
+                     g.atom_a, g.atom_b);
+        } else {
+            snprintf(out, (size_t)n, "%s vs %s  %.0f%%", g.atom_a, g.atom_b,
+                     (double)(g.atom_ab * 100.f));
+        }
     } else if (g.atom_a[0]) {
         snprintf(out, (size_t)n, "%s — tap a second take", g.atom_a);
     } else {
@@ -6795,9 +6809,11 @@ static void atom_identify(void)
         }
     }
     (void)second;
-    /* Fail closed: need a clear winner. Two similar takes stay "none". */
+    /* Fail closed. No winner → no percents. A split is not a score. */
     if (best >= 0 && bests >= 0.70f && (second < 0 || bests - secs >= 0.08f)) {
         g.atom_id_best = best;
+    } else {
+        memset(g.atom_id, 0, sizeof(g.atom_id));
     }
 }
 

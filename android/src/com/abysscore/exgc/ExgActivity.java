@@ -773,12 +773,12 @@ public class ExgActivity extends Activity {
             Button b = (Button) child;
             int pct = (int) (ExgNative.atomIdScore(i) * 100f);
             String name = ExgNative.atomAt(i);
-            if (matching) {
+            boolean hit = matching && i == best && pct >= 70;
+            if (hit) {
                 b.setText(name + "  " + pct + "%");
             } else {
                 b.setText(name);
             }
-            boolean hit = matching && i == best && pct >= 70;
             b.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
                     hit ? 0xFF2E8A58 : 0xFF2A3038));
         }
