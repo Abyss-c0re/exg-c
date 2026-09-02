@@ -27,8 +27,10 @@ float np_atom_ring_unity(const uint64_t *live, int nlive, const uint64_t *ref, i
 
 /* Binary chain: NPAT + ver + n_ch + win + count + u64le atoms. */
 void np_atom_rms8(const float *planar, int n_ch, int n_samp, int stride, float rms[8]);
-/* Newest-aligned mean cosine of 8-ch RMS vectors. 0 if empty. */
+/* Newest-aligned mean cosine of 8-ch RMS vectors. Scale-blind — do not use for ID. */
 float np_atom_rms_cos(const float *live, int nlive, const float *ref, int nref);
+/* Newest-aligned closeness on log RMS. 1 = same loudness+shape, 2× all-ch ≈ 0.5. */
+float np_atom_rms_close(const float *live, int nlive, const float *ref, int nref);
 
 /* v2: NPAT + bits + 8×f32 RMS per second. v1 load still works (rms left 0). */
 int np_atom_save(const char *path, const uint64_t *a, int n, int win);

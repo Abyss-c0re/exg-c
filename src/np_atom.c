@@ -157,6 +157,33 @@ float np_atom_rms_cos(const float *live, int nlive, const float *ref, int nref)
     return (float)(acc / (double)k);
 }
 
+float np_atom_rms_close(const float *live, int nlive, const float *ref, int nref)
+{
+    int k, t, c, n = 0;
+    double acc = 0.0;
+    if (!live || !ref || nlive < 1 || nref < 1) {
+        return 0.f;
+    }
+    k = nlive < nref ? nlive : nref;
+    for (t = 0; t < k; t++) {
+        const float *a = live + (nlive - k + t) * 8;
+        const float *b = ref + (nref - k + t) * 8;
+        double d = 0.0;
+        for (c = 0; c < 8; c++) {
+            double la = log((double)a[c] + 1.0);
+            double lb = log((double)b[c] + 1.0);
+            d += fabs(la - lb);
+        }
+        acc += d / 8.0;
+        n++;
+    }
+    if (n < 1) {
+        return 0.f;
+    }
+    /* e^{-mean |ln a − ln b|}: identical → 1, 2× → ~0.50, 10× → ~0.10 */
+    return (float)exp(-acc / (double)n);
+}
+
 float np_atom_ring_unity(const uint64_t *live, int nlive, const uint64_t *ref, int nref)
 {
     int k, i;

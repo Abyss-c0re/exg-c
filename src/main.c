@@ -184,6 +184,7 @@ struct np_app {
     int atom_rec_n;
     float atom_id[32];
     int atom_id_best;
+    int atom_clip;
 };
 
 static struct np_app g;
@@ -6445,6 +6446,21 @@ int np_host_atom_save(void)
         set_status(0, "ATOM empty — wait for 1 s folds");
         return -1;
     }
+    {
+        int i, c, hot = 0;
+        for (i = 0; i < n; i++) {
+            for (c = 0; c < 8; c++) {
+                if (rms[i * 8 + c] >= 4000.f) {
+                    hot++;
+                }
+            }
+        }
+        if (hot >= n * 4) {
+            set_status(0, "take is CLIP (%.0f uV) — turn CLN on, then Take again",
+                       (double)rms[0]);
+            return -1;
+        }
+    }
     if (np_atom_save2(path, live, rms, n, NP_ATOM_WIN) != 0) {
         set_status(0, "ATOM cannot write %s", path);
         return -1;
@@ -6712,8 +6728,24 @@ static void atom_identify(void)
     nlist = atom_rescan();
     memset(g.atom_id, 0, sizeof(g.atom_id));
     g.atom_id_best = -1;
+    g.atom_clip = 0;
     if (!g.learn.match || nlist < 1 || g.atom_n < 1) {
         return;
+    }
+    {
+        /* Stream CLIP: every take looks the same. Do not invent a name. */
+        int c, hot = 0;
+        float last[8];
+        atom_last(NULL, last, 1);
+        for (c = 0; c < 8; c++) {
+            if (last[c] >= 4000.f) {
+                hot++;
+            }
+        }
+        g.atom_clip = (hot >= 4);
+        if (g.atom_clip) {
+            return;
+        }
     }
     k = g.atom_n < 8 ? g.atom_n : 8;
     atom_last(liveb, liver, k);
@@ -6731,8 +6763,9 @@ static void atom_identify(void)
             continue;
         }
         u = np_atom_ring_unity(liveb, k, tb, tn);
-        r = have_rms ? np_atom_rms_cos(liver, k, tr, tn) : 0.f;
-        s = have_rms ? (0.30f * u + 0.70f * r) : u;
+        /* Cosine is scale-blind (rest and 4× clench score 1). Use log-RMS. */
+        r = have_rms ? np_atom_rms_close(liver, k, tr, tn) : 0.f;
+        s = have_rms ? r : u;
         g.atom_id[i] = s;
         if (s > bests) {
             secs = bests;
@@ -6767,6 +6800,10 @@ float np_host_atom_id_score(int i)
 void np_host_atom_id_line(char *out, int n)
 {
     if (!out || n < 4) {
+        return;
+    }
+    if (g.atom_clip) {
+        snprintf(out, (size_t)n, "CLIP — not a take");
         return;
     }
     if (!g.learn.match || g.atom_id_best < 0 || g.atom_id_best >= atom_listed_n) {

@@ -804,7 +804,11 @@ static void test_atom(void)
     expect((a & 0x01) != 0 && (a & 0x40) != 0, "silence sets polarity+flat");
     expect(np_atom_unity(a, a) == 1.f, "self unity is 1");
     for (i = 0; i < 125; i++) {
-        planar[i] = 80.f * sinf(2.f * (float)M_PI * 10.f * (float)i / 125.f);
+        float s = 80.f * sinf(2.f * (float)M_PI * 10.f * (float)i / 125.f);
+        int c;
+        for (c = 0; c < 8; c++) {
+            planar[c * 125 + i] = s;
+        }
     }
     b = np_atom_pack(planar, 8, 125, 125, 50.f);
     expect(np_atom_hamming(a, b) > 0, "tone differs from silence");
@@ -825,6 +829,16 @@ static void test_atom(void)
         np_atom_rms8(planar, 8, 125, 125, rms);
         np_atom_rms8(planar, 8, 125, 125, rms + 8);
         expect(np_atom_rms_cos(rms, 2, rms, 2) > 0.99f, "identical RMS cosine 1");
+        expect(np_atom_rms_close(rms, 2, rms, 2) > 0.99f, "identical log-RMS 1");
+        {
+            float loud[16];
+            int j;
+            for (j = 0; j < 16; j++) {
+                loud[j] = rms[j] * 4.f;
+            }
+            expect(np_atom_rms_cos(rms, 2, loud, 2) > 0.99f, "cosine ignores 4x loudness");
+            expect(np_atom_rms_close(rms, 2, loud, 2) < 0.40f, "log-RMS sees 4x loudness");
+        }
         expect(np_atom_save2(path, ring, rms, 2, 125) == 0, "atom save2");
         n = np_atom_load2(path, got, rms2, 4, &win, &have);
         expect(n == 2 && have == 1 && got[0] == a, "atom load2");
