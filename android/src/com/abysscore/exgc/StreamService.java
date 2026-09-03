@@ -14,6 +14,8 @@ import android.os.IBinder;
 import android.os.Looper;
 import android.os.PowerManager;
 
+import java.io.File;
+
 /** Keeps USB + API alive when the 2D panel is closed. */
 public class StreamService extends Service {
     private static final String CH = "exg-stream";
@@ -49,6 +51,7 @@ public class StreamService extends Service {
                 nm.createNotificationChannel(ch);
             }
         }
+        startForeground(NOTE, bootNote());
         PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
         if (pm != null) {
             wake = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "exgc:stream");
@@ -60,6 +63,15 @@ public class StreamService extends Service {
             wifi = wm.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "exgc:stream");
             wifi.setReferenceCounted(false);
             wifi.acquire();
+        }
+        UsbSerial.init(this);
+        File dir = getFilesDir();
+        if (dir != null) {
+            new File(dir, "exg-c/profiles").mkdirs();
+        }
+        ExgNative.start(dir != null ? dir.getAbsolutePath() : getApplicationInfo().dataDir);
+        if (ExgNative.apiOn() && !ExgNative.connected()) {
+            ExgNative.connect();
         }
     }
 
@@ -92,7 +104,17 @@ public class StreamService extends Service {
         }
     };
 
+    private Notification bootNote() {
+        return buildNote("EXG stream", "starting");
+    }
+
     private Notification note() {
+        String line = ExgNative.apiLine();
+        String title = ExgNative.connected() ? "EXG stream on" : "EXG API on";
+        return buildNote(title, line);
+    }
+
+    private Notification buildNote(String title, String line) {
         Intent open = new Intent(this, ExgActivity.class);
         open.setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);
         int piFlags = PendingIntent.FLAG_UPDATE_CURRENT;
@@ -100,8 +122,6 @@ public class StreamService extends Service {
             piFlags |= PendingIntent.FLAG_IMMUTABLE;
         }
         PendingIntent pi = PendingIntent.getActivity(this, 0, open, piFlags);
-        String line = ExgNative.apiLine();
-        String title = ExgNative.connected() ? "EXG stream on" : "EXG API on";
         Notification.Builder b;
         if (Build.VERSION.SDK_INT >= 26) {
             b = new Notification.Builder(this, CH);
