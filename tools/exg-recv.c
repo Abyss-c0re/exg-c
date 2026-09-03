@@ -148,13 +148,23 @@ int main(int argc, char **argv)
             if (rtt > rtt_max) {
                 rtt_max = rtt;
             }
-            printf("rtt_us=%lld  max=%lld  n=%u\n", (long long)rtt, (long long)rtt_max, rtt_n);
+            if (n >= 20) {
+                uint64_t srv = get_u64le(buf + 12);
+                int64_t off = (int64_t)srv - (int64_t)sent - rtt / 2;
+                printf("rtt_us=%lld  max=%lld  n=%u  clk_off_us=%lld\n", (long long)rtt,
+                       (long long)rtt_max, rtt_n, (long long)off);
+            } else {
+                printf("rtt_us=%lld  max=%lld  n=%u\n", (long long)rtt, (long long)rtt_max, rtt_n);
+            }
             continue;
         }
         if (n >= NP_API_FRAME) {
             struct np_api_sample s;
             if (np_api_unpack(buf, n, &s) == NP_API_FRAME) {
                 int64_t age = (int64_t)now - (int64_t)s.t_us;
+                if (got && s.seq == last_seq) {
+                    continue;
+                }
                 if (got && s.seq != last_seq + 1) {
                     gap += (s.seq > last_seq) ? (s.seq - last_seq - 1) : 1;
                 }

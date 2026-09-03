@@ -942,11 +942,16 @@ static void udp_hear(void)
             return;
         }
         if (n >= 12 && buf[0] == 'P' && buf[1] == 'I' && buf[2] == 'N' && buf[3] == 'G') {
-            unsigned char pong[12];
+            unsigned char pong[20];
+            struct timespec ts;
+            uint64_t srv;
             memcpy(pong, "PONG", 4);
             memcpy(pong + 4, buf + 4, 8);
-            sendto(udp_fd, pong, 12, 0, (struct sockaddr *)&a, sl);
-            /* still remember the peer as a subscriber */
+            clock_gettime(CLOCK_REALTIME, &ts);
+            srv = (uint64_t)ts.tv_sec * 1000000ull + (uint64_t)ts.tv_nsec / 1000ull;
+            put_u64le(pong + 12, srv);
+            sendto(udp_fd, pong, 20, 0, (struct sockaddr *)&a, sl);
+            continue; /* PING is RTT only. Push dest carries the stream. */
         }
         freei = -1;
         oldest = 0;

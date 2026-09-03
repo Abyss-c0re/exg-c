@@ -1153,7 +1153,7 @@ static void test_api(void)
             ok = 0;
             {
                 int rn = (int)recv(udp, pong, sizeof(pong), 0);
-                if (rn == 12 && pong[0] == 'P' && pong[1] == 'O' && pong[2] == 'N' &&
+                if (rn >= 12 && pong[0] == 'P' && pong[1] == 'O' && pong[2] == 'N' &&
                     pong[3] == 'G' && pong[4] == pingb[4] && pong[11] == pingb[11]) {
                     ok = 1;
                 }
