@@ -56,6 +56,7 @@ public class CubeView extends View {
     private float lastX, lastY;
     private boolean spinning;
     private int onCount;
+    private final boolean[] chOn = new boolean[NCHAN];
 
     private final int[] siteSx = new int[MAX_SITE];
     private final int[] siteSy = new int[MAX_SITE];
@@ -156,6 +157,12 @@ public class CubeView extends View {
             siteZ[i] = xyz[2];
         }
         for (int c = 0; c < NCHAN; c++) {
+            chOn[c] = ExgNative.active(c);
+            if (!chOn[c]) {
+                elecSx[c] = -9999;
+                elecSy[c] = -9999;
+                continue;
+            }
             elecLab[c] = ExgNative.elecLabel(c);
             elecCol[c] = ExgNative.color(c) | 0xFF000000;
             ExgNative.elecXyz(c, xyz);
@@ -262,6 +269,9 @@ public class CubeView extends View {
     private boolean hitElec(int mx, int my) {
         int best = -1, bd = 28 * 28;
         for (int c = 0; c < NCHAN; c++) {
+            if (!chOn[c]) {
+                continue;
+            }
             int dx = mx - elecSx[c], dy = my - elecSy[c], d = dx * dx + dy * dy;
             if (d < bd) {
                 bd = d;
@@ -559,6 +569,11 @@ public class CubeView extends View {
         float[] p = new float[4];
         ink.setTextSize(24f);
         for (int ch = 0; ch < NCHAN; ch++) {
+            if (!chOn[ch]) {
+                elecSx[ch] = -9999;
+                elecSy[ch] = -9999;
+                continue;
+            }
             project(elecX[ch], elecY[ch], elecZ[ch], cx, cy, k, p);
             elecSx[ch] = (int) p[0];
             elecSy[ch] = (int) p[1];
@@ -603,13 +618,27 @@ public class CubeView extends View {
     }
 
     private void drawSot(Canvas c, int w, int h) {
-        int cell = Math.min(48, Math.max(28, (w - 32) / 8));
+        int nOn = 0;
+        for (int ch = 0; ch < 8; ch++) {
+            if (chOn[ch]) {
+                nOn++;
+            }
+        }
+        if (nOn < 1) {
+            return;
+        }
+        int cell = Math.min(48, Math.max(28, (w - 32) / nOn));
         int y = h - cell - 16;
         ink.setColor(0xFFEEC8CE);
         ink.setTextSize(22f);
         c.drawText("this second", 16, y - 8, ink);
+        int col = 0;
         for (int ch = 0; ch < 8; ch++) {
-            int x = 16 + ch * (cell + 6);
+            if (!chOn[ch]) {
+                continue;
+            }
+            int x = 16 + col * (cell + 6);
+            col++;
             boolean on = ((smxFold >> ch) & 1) != 0;
             fill.setColor(on ? SPIKE : 0xFF2A0508);
             c.drawRect(x, y, x + cell, y + cell, fill);

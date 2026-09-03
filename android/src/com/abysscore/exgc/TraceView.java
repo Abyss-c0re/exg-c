@@ -17,6 +17,7 @@ public class TraceView extends View {
     private final boolean[] clip = new boolean[NCHAN];
     private final String[] site = new String[NCHAN];
     private final float[] rms = new float[NCHAN];
+    private final boolean[] on = new boolean[NCHAN];
     private final Paint line = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint grid = new Paint();
     private final Paint lab = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -70,6 +71,11 @@ public class TraceView extends View {
         }
         scaleUv = Math.max(20, ExgNative.scaleUv());
         for (int c = 0; c < NCHAN; c++) {
+            on[c] = ExgNative.active(c);
+            if (!on[c]) {
+                got[c] = 0;
+                continue;
+            }
             got[c] = ExgNative.copyWave(c, wave[c]);
             col[c] = ExgNative.color(c);
             clip[c] = ExgNative.clipped(c);
@@ -93,10 +99,26 @@ public class TraceView extends View {
         if (w < 8 || h < 8) {
             return;
         }
-        float row = h / (float) NCHAN;
-        float uv = scaleUv;
+        int nOn = 0;
         for (int ch = 0; ch < NCHAN; ch++) {
-            float y0 = row * ch;
+            if (on[ch]) {
+                nOn++;
+            }
+        }
+        if (nOn < 1) {
+            lab.setColor(0xFF8B93A0);
+            c.drawText("no channels on", 16, 36, lab);
+            return;
+        }
+        float row = h / (float) nOn;
+        float uv = scaleUv;
+        int rowi = 0;
+        for (int ch = 0; ch < NCHAN; ch++) {
+            if (!on[ch]) {
+                continue;
+            }
+            float y0 = row * rowi;
+            rowi++;
             float mid = y0 + row * 0.5f;
             c.drawLine(0, mid, w, mid, grid);
             lab.setColor(col[ch]);

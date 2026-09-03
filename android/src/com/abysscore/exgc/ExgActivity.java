@@ -423,6 +423,11 @@ public class ExgActivity extends Activity {
         int sel = ExgNative.elecSel();
         for (int i = 0; i < cubeChRow.getChildCount(); i++) {
             Button b = (Button) cubeChRow.getChildAt(i);
+            if (!ExgNative.active(i)) {
+                b.setVisibility(View.GONE);
+                continue;
+            }
+            b.setVisibility(View.VISIBLE);
             b.setText(ExgNative.elecLabel(i));
             b.setTextColor(ExgNative.color(i) | 0xFF000000);
             b.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
@@ -768,6 +773,7 @@ public class ExgActivity extends Activity {
             lab.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
                     0xFF000000 | ((r / 4) << 16) | ((gc / 4) << 8) | (b / 4)));
         }
+        refreshCubeChrome();
     }
 
     private void rebuildLearnChips() {
