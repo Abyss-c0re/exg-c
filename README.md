@@ -46,17 +46,16 @@ Config lives in `~/.config/exg-c.ini`, named profiles in `~/.config/exg-c/profil
 
 ## API
 
-Default: **on**, bind **lan** (`0.0.0.0`), HTTP **8765**, UDP **8766**, TCP **8767**, **125 Hz**.
-Push dest is empty until you type host:port. Type the ports in Settings — they are numbers, not a list.
+Default: **on**, bind **lan**, HTTP **8765**, UDP **8766**, TCP **8767**, **125 Hz**.
+Push dest is empty until you type `host:port` in Settings. Ports are numbers, not a list.
 
 Cooked samples (after notch/hp/lp/CAR/envelope). One **EXG1** little-endian frame, 68 bytes. `t_us` is wall-clock. Cook runs on the USB reader thread. The API thread wakes on a pipe; it does not poll-wait the samples.
 
 ```bash
 curl -s http://127.0.0.1:8765/health
 curl -s http://127.0.0.1:8765/sample
-# C receiver
 make recv
-./tools/exg-recv --port 8766 --ping 127.0.0.1:8766 --seconds 8
+./tools/exg-recv --port 8766 --seconds 8
 ```
 
 Loopback GET needs no token. LAN writes and streams need `X-EXG-Token` if you set one. POST connect/disconnect/pause/cfg run on the host tick, not on the socket thread.

@@ -998,7 +998,7 @@ public class ExgActivity extends Activity {
         });
     }
 
-    /* Dialog typing — 1440² extract IME is a black overlay on this handset. */
+    /* Dialog typing — extract IME is a black overlay on this handset. */
     private void askName(String title, String current, java.util.function.Consumer<String> on) {
         askName(title, current, on, null);
     }

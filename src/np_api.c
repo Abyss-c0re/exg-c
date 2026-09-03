@@ -207,7 +207,6 @@ void np_api_cfg_default(struct np_api_cfg *c)
     c->udp = 8766;
     c->tcp = 8767;
     c->hz = 125;
-    snprintf(c->push, sizeof(c->push), "127.0.0.1:8766");
 }
 
 static int nb(int fd)
