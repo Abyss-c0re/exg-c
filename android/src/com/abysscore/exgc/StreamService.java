@@ -7,6 +7,7 @@ import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.ServiceInfo;
 import android.net.wifi.WifiManager;
 import android.os.Build;
 import android.os.Handler;
@@ -51,18 +52,21 @@ public class StreamService extends Service {
                 nm.createNotificationChannel(ch);
             }
         }
-        startForeground(NOTE, bootNote());
+        goForeground(bootNote());
         PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
         if (pm != null) {
             wake = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "exgc:stream");
             wake.setReferenceCounted(false);
             wake.acquire();
         }
-        WifiManager wm = (WifiManager) getApplicationContext().getSystemService(WIFI_SERVICE);
-        if (wm != null) {
-            wifi = wm.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "exgc:stream");
-            wifi.setReferenceCounted(false);
-            wifi.acquire();
+        try {
+            WifiManager wm = (WifiManager) getApplicationContext().getSystemService(WIFI_SERVICE);
+            if (wm != null) {
+                wifi = wm.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "exgc:stream");
+                wifi.setReferenceCounted(false);
+                wifi.acquire();
+            }
+        } catch (RuntimeException ignored) {
         }
         UsbSerial.init(this);
         File dir = getFilesDir();
@@ -77,7 +81,7 @@ public class StreamService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        startForeground(NOTE, note());
+        goForeground(note());
         if (!ticking) {
             ticking = true;
             h.post(tick);
@@ -103,6 +107,14 @@ public class StreamService extends Service {
             h.postDelayed(this, 8);
         }
     };
+
+    private void goForeground(Notification n) {
+        if (Build.VERSION.SDK_INT >= 29) {
+            startForeground(NOTE, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
+        } else {
+            startForeground(NOTE, n);
+        }
+    }
 
     private Notification bootNote() {
         return buildNote("EXG stream", "starting");

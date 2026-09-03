@@ -102,7 +102,10 @@ public class ExgActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        StreamService.ensure(this, true);
+        try {
+            StreamService.ensure(this, true);
+        } catch (RuntimeException ignored) {
+        }
         UsbSerial.init(this);
         File dir = getFilesDir();
         if (dir != null) {
