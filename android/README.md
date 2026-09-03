@@ -88,7 +88,7 @@ Names: letters, digits, `-`, `_`.
 
 ## API
 
-Settings → **API**. Default is on, **lan**, HTTP `8765`, UDP `8766`, TCP `8767`, 125 Hz.
+Settings → **API**. Default is on, **lan**, HTTP `8788`, UDP `8766`, TCP `8767`, 125 Hz.
 
 `GET /health` `/status` `/sample` `/stream` `/stream.json` `/cfg`.
 `POST /connect` `/disconnect` `/pause` `/cfg`.

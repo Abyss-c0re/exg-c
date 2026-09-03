@@ -46,19 +46,19 @@ Config lives in `~/.config/exg-c.ini`, named profiles in `~/.config/exg-c/profil
 
 ## API
 
-Default: **on**, bind **lan** (`0.0.0.0`), HTTP **8765**, UDP **8766**, TCP **8767**, **125 Hz**.
+Default: **on**, bind **lan** (`0.0.0.0`), HTTP **8788**, UDP **8766**, TCP **8767**, **125 Hz**.
 Settings → API to turn it off, bind local-only, change ports, set a LAN token, or push UDP to `host:port`.
 
 Cooked samples (after notch/hp/lp/CAR/envelope). One **EXG1** little-endian frame, 68 bytes. The cook loop never waits on a socket.
 
 ```bash
-curl -s http://127.0.0.1:8765/health
-curl -s http://PHONE_OR_QUEST:8765/sample
-curl -Ns http://PHONE_OR_QUEST:8765/stream.json   # one JSON line per sample
+curl -s http://127.0.0.1:8788/health
+curl -s http://PHONE_OR_QUEST:8788/sample
+curl -Ns http://PHONE_OR_QUEST:8788/stream.json   # one JSON line per sample
 # binary UDP: send any datagram to :8766, frames come back
 # binary TCP: nc PHONE_OR_QUEST 8767
-curl -s -X POST http://127.0.0.1:8765/connect
-curl -s -X POST http://127.0.0.1:8765/cfg -d '{"hz":50,"car":1}'
+curl -s -X POST http://127.0.0.1:8788/connect
+curl -s -X POST http://127.0.0.1:8788/cfg -d '{"hz":50,"car":1}'
 ```
 
 Loopback GET needs no token. LAN writes and streams need `X-EXG-Token` if you set one. POST connect/disconnect/pause/cfg run on the host tick, not on the socket thread.

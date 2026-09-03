@@ -371,9 +371,9 @@ public class ExgActivity extends Activity {
                     refreshChrome();
                 }));
         apiHttp.setOnClickListener(v -> pick("HTTP port",
-                new String[] {"8765", "8787", "8080", "off"},
-                apiPortIndex(ExgNative.apiHttp(), new int[] {8765, 8787, 8080, 0}), i -> {
-                    ExgNative.setApiHttp(new int[] {8765, 8787, 8080, 0}[i]);
+                new String[] {"8788", "8765", "8080", "off"},
+                apiPortIndex(ExgNative.apiHttp(), new int[] {8788, 8765, 8080, 0}), i -> {
+                    ExgNative.setApiHttp(new int[] {8788, 8765, 8080, 0}[i]);
                     refreshChrome();
                 }));
         apiUdp.setOnClickListener(v -> pick("UDP port",

@@ -7773,7 +7773,7 @@ int np_host_api_http(void)
 void np_host_api_set_http(int port)
 {
     if (port < 0 || port > 65535) {
-        port = 8765;
+        port = 8788;
     }
     g.api_http = port;
     cfg_save();

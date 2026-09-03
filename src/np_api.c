@@ -200,7 +200,7 @@ void np_api_cfg_default(struct np_api_cfg *c)
     memset(c, 0, sizeof(*c));
     c->on = 1;
     c->lan = 1;
-    c->http = 8765;
+    c->http = 8788;
     c->udp = 8766;
     c->tcp = 8767;
     c->hz = 125;
@@ -395,6 +395,12 @@ static int sockets_open(void)
     have_push = parse_push(cfg.push, &push_to);
     if (cfg.http > 0) {
         http_fd = listen_tcp(ip, cfg.http);
+        if (http_fd < 0 && cfg.http != 8788) {
+            http_fd = listen_tcp(ip, 8788);
+            if (http_fd >= 0) {
+                cfg.http = 8788;
+            }
+        }
         if (http_fd < 0) {
             NP_API_LOG("http bind %s:%d failed", ip, cfg.http);
         }
@@ -1082,7 +1088,7 @@ static void np_api_cfg_clamp(struct np_api_cfg *c)
     c->on = c->on ? 1 : 0;
     c->lan = c->lan ? 1 : 0;
     if (c->http < 0 || c->http > 65535) {
-        c->http = 8765;
+        c->http = 8788;
     }
     if (c->udp < 0 || c->udp > 65535) {
         c->udp = 8766;
