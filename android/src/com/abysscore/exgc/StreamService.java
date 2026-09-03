@@ -25,6 +25,7 @@ public class StreamService extends Service {
     private PowerManager.WakeLock wake;
     private WifiManager.WifiLock wifi;
     private boolean ticking;
+    private long lastNoteMs;
 
     public static void ensure(Context c, boolean on) {
         Intent i = new Intent(c, StreamService.class);
@@ -96,9 +97,13 @@ public class StreamService extends Service {
                 return;
             }
             ExgNative.tick();
-            NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
-            if (nm != null) {
-                nm.notify(NOTE, note());
+            long now = android.os.SystemClock.uptimeMillis();
+            if (now - lastNoteMs >= 1000) {
+                lastNoteMs = now;
+                NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+                if (nm != null) {
+                    nm.notify(NOTE, note());
+                }
             }
             if (!ExgNative.apiOn()) {
                 stopSelf();
