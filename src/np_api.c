@@ -56,6 +56,7 @@ static int running;
 static pthread_t thr;
 static int started;
 static int http_fd = -1, udp_fd = -1, tcp_fd = -1;
+static int wake_r = -1, wake_w = -1;
 
 static pthread_mutex_t qmu = PTHREAD_MUTEX_INITIALIZER;
 static struct np_api_sample q[QN];
@@ -77,6 +78,8 @@ static int have_push;
 static int n_http_stream, n_tcp, n_udp;
 static char self_ip[32];
 static np_api_status_fn status_fn;
+
+static void close_fd(int *fd);
 
 static uint32_t now_ms(void)
 {
@@ -200,10 +203,11 @@ void np_api_cfg_default(struct np_api_cfg *c)
     memset(c, 0, sizeof(*c));
     c->on = 1;
     c->lan = 1;
-    c->http = 8788;
+    c->http = 8765;
     c->udp = 8766;
     c->tcp = 8767;
     c->hz = 125;
+    snprintf(c->push, sizeof(c->push), "127.0.0.1:8766");
 }
 
 static int nb(int fd)
@@ -217,6 +221,54 @@ static int nb(int fd)
         fcntl(fd, F_SETFL, fl | O_NONBLOCK);
     }
     return fd;
+}
+
+static void sock_lowdelay(int fd)
+{
+    int tos = 0x10; /* IPTOS_LOWDELAY */
+    int one = 1;
+    if (fd < 0) {
+        return;
+    }
+    setsockopt(fd, IPPROTO_IP, IP_TOS, &tos, sizeof(tos));
+    setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
+}
+
+static void wake_open(void)
+{
+    int p[2];
+    if (wake_r >= 0) {
+        return;
+    }
+    if (pipe(p) != 0) {
+        return;
+    }
+    wake_r = nb(p[0]);
+    wake_w = nb(p[1]);
+}
+
+static void wake_close(void)
+{
+    close_fd(&wake_r);
+    close_fd(&wake_w);
+}
+
+static void wake_kick(void)
+{
+    char x = 1;
+    if (wake_w >= 0) {
+        (void)write(wake_w, &x, 1);
+    }
+}
+
+static void wake_drain(void)
+{
+    char b[32];
+    if (wake_r < 0) {
+        return;
+    }
+    while (read(wake_r, b, sizeof(b)) > 0) {
+    }
 }
 
 static int listen_tcp(const char *ip, int port)
@@ -243,6 +295,7 @@ static int listen_tcp(const char *ip, int port)
         close(fd);
         return -1;
     }
+    sock_lowdelay(fd);
     return nb(fd);
 }
 
@@ -270,6 +323,7 @@ static int bind_udp(const char *ip, int port)
         close(fd);
         return -1;
     }
+    sock_lowdelay(fd);
     return nb(fd);
 }
 
@@ -395,12 +449,6 @@ static int sockets_open(void)
     have_push = parse_push(cfg.push, &push_to);
     if (cfg.http > 0) {
         http_fd = listen_tcp(ip, cfg.http);
-        if (http_fd < 0 && cfg.http != 8788) {
-            http_fd = listen_tcp(ip, 8788);
-            if (http_fd >= 0) {
-                cfg.http = 8788;
-            }
-        }
         if (http_fd < 0) {
             NP_API_LOG("http bind %s:%d failed", ip, cfg.http);
         }
@@ -692,7 +740,7 @@ static void handle_req(struct http_cli *c)
 
     if (!strcmp(path, "/") || !strcmp(path, "/index")) {
         snprintf(js, sizeof(js),
-                 "{\"ok\":true,\"v\":\"2.30\",\"api\":\"exg\","
+                 "{\"ok\":true,\"v\":\"2.31\",\"api\":\"exg\","
                  "\"bind\":\"%s\",\"ip\":\"%s\",\"http\":%d,\"udp\":%d,\"tcp\":%d,"
                  "\"hz\":%d,\"token\":%s,\"push\":\"%s\","
                  "\"get\":[\"/health\",\"/status\",\"/sample\",\"/stream\","
@@ -706,7 +754,7 @@ static void handle_req(struct http_cli *c)
     }
     if (!strcmp(path, "/health")) {
         snprintf(js, sizeof(js),
-                 "{\"ok\":true,\"v\":\"2.30\",\"on\":true,\"bind\":\"%s\","
+                 "{\"ok\":true,\"v\":\"2.31\",\"on\":true,\"bind\":\"%s\","
                  "\"ip\":\"%s\",\"http\":%d,\"udp\":%d,\"tcp\":%d,\"hz\":%d,"
                  "\"clients\":{\"http\":%d,\"tcp\":%d,\"udp\":%d}}",
                  cfg.lan ? "lan" : "local", self_ip, cfg.http, cfg.udp, cfg.tcp, cfg.hz,
@@ -893,6 +941,13 @@ static void udp_hear(void)
         if (n < 0) {
             return;
         }
+        if (n >= 12 && buf[0] == 'P' && buf[1] == 'I' && buf[2] == 'N' && buf[3] == 'G') {
+            unsigned char pong[12];
+            memcpy(pong, "PONG", 4);
+            memcpy(pong + 4, buf + 4, 8);
+            sendto(udp_fd, pong, 12, 0, (struct sockaddr *)&a, sl);
+            /* still remember the peer as a subscriber */
+        }
         freei = -1;
         oldest = 0;
         for (i = 0; i < MAX_UDP; i++) {
@@ -1037,12 +1092,18 @@ static void read_http(void)
 static void *api_thread(void *arg)
 {
     (void)arg;
+    wake_open();
     sockets_open();
     NP_API_LOG("listen bind=%s http=%d udp=%d tcp=%d hz=%d", cfg.lan ? "lan" : "local",
                cfg.http, cfg.udp, cfg.tcp, cfg.hz);
     while (running) {
-        struct pollfd p[2 + MAX_HTTP];
+        struct pollfd p[4 + MAX_HTTP];
         int np = 0, i;
+        if (wake_r >= 0) {
+            p[np].fd = wake_r;
+            p[np].events = POLLIN;
+            np++;
+        }
         if (http_fd >= 0) {
             p[np].fd = http_fd;
             p[np].events = POLLIN;
@@ -1066,10 +1127,11 @@ static void *api_thread(void *arg)
             }
         }
         if (np) {
-            poll(p, (nfds_t)np, 2);
+            poll(p, (nfds_t)np, 20);
         } else {
-            usleep(2000);
+            usleep(1000);
         }
+        wake_drain();
         accept_http();
         accept_tcp();
         udp_hear();
@@ -1088,7 +1150,7 @@ static void np_api_cfg_clamp(struct np_api_cfg *c)
     c->on = c->on ? 1 : 0;
     c->lan = c->lan ? 1 : 0;
     if (c->http < 0 || c->http > 65535) {
-        c->http = 8788;
+        c->http = 8765;
     }
     if (c->udp < 0 || c->udp > 65535) {
         c->udp = 8766;
@@ -1123,6 +1185,7 @@ void np_api_stop(void)
     pthread_join(thr, NULL);
     started = 0;
     sockets_close();
+    wake_close();
 }
 
 int np_api_apply(const struct np_api_cfg *c)
@@ -1230,6 +1293,7 @@ void np_api_push(const struct np_api_sample *s)
     q[qh] = x;
     qh = n;
     pthread_mutex_unlock(&qmu);
+    wake_kick();
 }
 
 int np_api_latest(struct np_api_sample *s)

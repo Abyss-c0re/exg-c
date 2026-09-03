@@ -16,13 +16,14 @@ BIN = np-exg
 
 TEST_CORE = tests/test_core
 LIVE = tests/live_collect
+RECV = tools/exg-recv
 TEST_SRC = src/np_serial.c src/np_knight.c src/np_ring.c src/np_dsp.c src/np_smx.c src/np_algo.c \
 	src/np_atom.c src/np_api.c
 TEST_NPL = nplearn/src/nplearn.c nplearn/src/nplearn_filt.c nplearn/src/nplearn_posix.c
 
-.PHONY: all lib clean cli test test-live deliver android
+.PHONY: all lib clean cli test test-live deliver android recv
 
-all: $(BIN)
+all: $(BIN) $(RECV)
 
 lib: $(LIB)
 
@@ -38,8 +39,13 @@ $(BIN): $(HOST) $(LIB)
 android:
 	./android/build.sh
 
+$(RECV): tools/exg-recv.c src/np_api.c include/np_api.h
+	$(CC) $(CFLAGS) -o $@ tools/exg-recv.c src/np_api.c $(LDFLAGS)
+
+recv: $(RECV)
+
 clean:
-	rm -f $(BIN) $(LIB) nplearn/src/*.o $(TEST_CORE) $(LIVE)
+	rm -f $(BIN) $(LIB) nplearn/src/*.o $(TEST_CORE) $(LIVE) $(RECV)
 
 cli: $(BIN)
 	./$(BIN) --cli --seconds 4

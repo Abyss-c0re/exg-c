@@ -39,6 +39,7 @@ public final class UsbSerial {
     private static final int FTDI_HOST = 0x40;
 
     private static Context app;
+    private static boolean inited;
     private static UsbManager mgr;
     private static UsbDeviceConnection conn;
     private static UsbInterface iface;
@@ -54,6 +55,10 @@ public final class UsbSerial {
     public static void init(Context ctx) {
         app = ctx.getApplicationContext();
         mgr = (UsbManager) app.getSystemService(Context.USB_SERVICE);
+        if (inited) {
+            return;
+        }
+        inited = true;
         IntentFilter f = new IntentFilter(ACTION_PERM);
         if (Build.VERSION.SDK_INT >= 33) {
             app.registerReceiver(permRx, f, Context.RECEIVER_NOT_EXPORTED);

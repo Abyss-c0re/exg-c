@@ -1130,6 +1130,36 @@ static void test_api(void)
             ok = 1;
         }
         expect(ok, "api UDP subscribe gets frame");
+        {
+            unsigned char pingb[12], pong[16];
+            struct timeval tv;
+            uint64_t tsend = 123456789ull;
+            pingb[0] = 'P';
+            pingb[1] = 'I';
+            pingb[2] = 'N';
+            pingb[3] = 'G';
+            pingb[4] = (unsigned char)tsend;
+            pingb[5] = (unsigned char)(tsend >> 8);
+            pingb[6] = (unsigned char)(tsend >> 16);
+            pingb[7] = (unsigned char)(tsend >> 24);
+            pingb[8] = (unsigned char)(tsend >> 32);
+            pingb[9] = (unsigned char)(tsend >> 40);
+            pingb[10] = (unsigned char)(tsend >> 48);
+            pingb[11] = (unsigned char)(tsend >> 56);
+            sendto(udp, pingb, 12, 0, (struct sockaddr *)&ua, sizeof(ua));
+            tv.tv_sec = 0;
+            tv.tv_usec = 200000;
+            setsockopt(udp, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+            ok = 0;
+            {
+                int rn = (int)recv(udp, pong, sizeof(pong), 0);
+                if (rn == 12 && pong[0] == 'P' && pong[1] == 'O' && pong[2] == 'N' &&
+                    pong[3] == 'G' && pong[4] == pingb[4] && pong[11] == pingb[11]) {
+                    ok = 1;
+                }
+            }
+            expect(ok, "api UDP PING/PONG");
+        }
         close(udp);
     }
 

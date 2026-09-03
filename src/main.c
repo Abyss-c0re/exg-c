@@ -315,6 +315,7 @@ static int live_sig = -1;
 static uint32_t live_wr;
 static float live_ch[NP_NCHAN][NP_RING];
 static int last_clip[NP_NCHAN];
+static pthread_mutex_t live_mu = PTHREAD_MUTEX_INITIALIZER;
 static uint32_t clean_t;
 static uint64_t clean_seen;
 static uint32_t clean_n[NP_NCHAN];
@@ -1760,7 +1761,7 @@ static void api_defaults(void)
     g.api_tcp = c.tcp;
     g.api_hz = c.hz;
     g.api_token[0] = 0;
-    g.api_push[0] = 0;
+    snprintf(g.api_push, sizeof(g.api_push), "%s", c.push);
 }
 
 static void api_json_esc(const char *in, char *out, int n)
@@ -1806,7 +1807,7 @@ static void api_status_json(char *out, int n)
         }
     }
     snprintf(out, (size_t)n,
-             "{\"ok\":true,\"v\":\"2.30\",\"connected\":%s,\"paused\":%s,\"sps\":%.1f,"
+             "{\"ok\":true,\"v\":\"2.31\",\"connected\":%s,\"paused\":%s,\"sps\":%.1f,"
              "\"frames\":%u,\"status\":\"%s\",\"id\":\"%s\",\"id_best\":%d,"
              "\"notch\":%d,\"hp\":%d,\"lp\":%d,\"car\":%d,\"band\":%d,\"mask\":%u,"
              "\"api\":\"%s\"}",
@@ -1854,7 +1855,7 @@ static void api_emit(const float *v, uint32_t frames)
     }
     hold -= (uint32_t)sps;
     memset(&s, 0, sizeof(s));
-    clock_gettime(CLOCK_MONOTONIC, &ts);
+    clock_gettime(CLOCK_REALTIME, &ts);
     s.t_us = (uint64_t)ts.tv_sec * 1000000ull + (uint64_t)ts.tv_nsec / 1000ull;
     s.frames = frames;
     s.nch = NP_NCHAN;
@@ -1942,7 +1943,7 @@ static void api_drain(void)
 }
 
 /* One IIR step per new sample. Display copies this. Never re-filter the window. */
-static void live_sync(void)
+static void live_sync_u(void)
 {
     uint64_t tot = 0;
     uint32_t need, c, i;
@@ -2009,10 +2010,18 @@ static void live_sync(void)
     live_seen = tot;
 }
 
+static void live_sync(void)
+{
+    pthread_mutex_lock(&live_mu);
+    live_sync_u();
+    pthread_mutex_unlock(&live_mu);
+}
+
 static uint32_t live_copy(int ch, float *dst, uint32_t n)
 {
     uint32_t have, i, start;
-    live_sync();
+    pthread_mutex_lock(&live_mu);
+    live_sync_u();
     have = live_seen < NP_RING ? (uint32_t)live_seen : NP_RING;
     if (n > have) {
         n = have;
@@ -2021,6 +2030,7 @@ static uint32_t live_copy(int ch, float *dst, uint32_t n)
     for (i = 0; i < n; i++) {
         dst[i] = live_ch[ch][(start + i) % NP_RING];
     }
+    pthread_mutex_unlock(&live_mu);
     return n;
 }
 
@@ -2519,7 +2529,7 @@ static void *reader_thread(void *arg)
          * handle never sees Knight bytes, so the board looked dead. */
         n = np_serial_read(g.fd, buf, (int)sizeof(buf));
         if (n == 0) {
-            usleep(2000);
+            usleep(400);
             continue;
         }
 #else
@@ -2554,6 +2564,7 @@ static void *reader_thread(void *arg)
             } else if (r > 0) {
                 struct timespec now;
                 np_ring_push(&g.ring, &s);
+                live_sync();
                 g.sps_n++;
                 clock_gettime(CLOCK_MONOTONIC, &now);
                 if (g.sps_t.tv_sec == 0) {
@@ -5896,6 +5907,9 @@ int np_host_start(const char *files_dir)
         }
     }
     cfg_load();
+    if (g.api_http == 8788) {
+        g.api_http = 8765;
+    }
     prof_scan();
     filt_reset();
     pthread_mutex_init(&g.mu, NULL);
@@ -7773,7 +7787,7 @@ int np_host_api_http(void)
 void np_host_api_set_http(int port)
 {
     if (port < 0 || port > 65535) {
-        port = 8788;
+        port = 8765;
     }
     g.api_http = port;
     cfg_save();
@@ -7899,6 +7913,9 @@ int main(int argc, char **argv)
         g.chrgb[i][2] = CHCOL[i][2];
     }
     cfg_load();
+    if (g.api_http == 8788) {
+        g.api_http = 8765;
+    }
     prof_scan();
     filt_reset();
     pthread_mutex_init(&g.mu, NULL);

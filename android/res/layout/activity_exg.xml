@@ -468,7 +468,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:paddingTop="12dp"
-                    android:text="API — local HTTP plus LAN stream. UDP is the live path."
+                    android:text="API — type the ports. UDP is the live path. Stream stays up in the background."
                     android:textColor="@color/muted" />
 
                 <TextView
@@ -515,7 +515,7 @@
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="http 8788" />
+                        android:text="http 8765" />
 
                     <Button
                         android:id="@+id/apiUdp"

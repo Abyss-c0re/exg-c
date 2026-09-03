@@ -356,38 +356,29 @@ public class ExgActivity extends Activity {
                 }));
         apiOn.setOnClickListener(v -> {
             ExgNative.setApiOn(!ExgNative.apiOn());
+            StreamService.ensure(this, ExgNative.apiOn());
             refreshChrome();
         });
-        apiBind.setOnClickListener(v -> pick("API bind",
-                new String[] {"local (127.0.0.1)", "lan (0.0.0.0)"},
-                ExgNative.apiLan() ? 1 : 0, i -> {
-                    ExgNative.setApiLan(i == 1);
-                    refreshChrome();
-                }));
-        apiHz.setOnClickListener(v -> pick("Stream rate",
-                new String[] {"125 Hz", "50 Hz", "25 Hz", "10 Hz"},
-                apiHzIndex(), i -> {
-                    ExgNative.setApiHz(new int[] {125, 50, 25, 10}[i]);
-                    refreshChrome();
-                }));
-        apiHttp.setOnClickListener(v -> pick("HTTP port",
-                new String[] {"8788", "8765", "8080", "off"},
-                apiPortIndex(ExgNative.apiHttp(), new int[] {8788, 8765, 8080, 0}), i -> {
-                    ExgNative.setApiHttp(new int[] {8788, 8765, 8080, 0}[i]);
-                    refreshChrome();
-                }));
-        apiUdp.setOnClickListener(v -> pick("UDP port",
-                new String[] {"8766", "9000", "off"},
-                apiPortIndex(ExgNative.apiUdp(), new int[] {8766, 9000, 0}), i -> {
-                    ExgNative.setApiUdp(new int[] {8766, 9000, 0}[i]);
-                    refreshChrome();
-                }));
-        apiTcp.setOnClickListener(v -> pick("TCP port",
-                new String[] {"8767", "9001", "off"},
-                apiPortIndex(ExgNative.apiTcp(), new int[] {8767, 9001, 0}), i -> {
-                    ExgNative.setApiTcp(new int[] {8767, 9001, 0}[i]);
-                    refreshChrome();
-                }));
+        apiBind.setOnClickListener(v -> {
+            ExgNative.setApiLan(!ExgNative.apiLan());
+            refreshChrome();
+        });
+        apiHz.setOnClickListener(v -> askPort("Stream rate Hz", ExgNative.apiHz(), p -> {
+            ExgNative.setApiHz(p < 1 ? 1 : p);
+            refreshChrome();
+        }));
+        apiHttp.setOnClickListener(v -> askPort("HTTP port (0 = off)", ExgNative.apiHttp(), p -> {
+            ExgNative.setApiHttp(p);
+            refreshChrome();
+        }));
+        apiUdp.setOnClickListener(v -> askPort("UDP port (0 = off)", ExgNative.apiUdp(), p -> {
+            ExgNative.setApiUdp(p);
+            refreshChrome();
+        }));
+        apiTcp.setOnClickListener(v -> askPort("TCP port (0 = off)", ExgNative.apiTcp(), p -> {
+            ExgNative.setApiTcp(p);
+            refreshChrome();
+        }));
         apiToken.setOnClickListener(v -> askName("LAN token (empty = off)",
                 ExgNative.apiToken(), s -> {
                     ExgNative.setApiToken(s);
@@ -406,6 +397,7 @@ public class ExgActivity extends Activity {
         lastLearnN = -1;
         refreshLearnChips();
         applyUiScale();
+        StreamService.ensure(this, ExgNative.apiOn());
         h.post(tick);
         h.postDelayed(() -> {
             if (!ExgNative.connected()) {
@@ -419,8 +411,10 @@ public class ExgActivity extends Activity {
     protected void onDestroy() {
         running = false;
         h.removeCallbacks(tick);
-        ExgNative.shutdown();
-        UsbSerial.close();
+        if (!ExgNative.apiOn()) {
+            ExgNative.shutdown();
+            UsbSerial.close();
+        }
         super.onDestroy();
     }
 
@@ -1147,27 +1141,41 @@ public class ExgActivity extends Activity {
         return 3;
     }
 
-    private int apiHzIndex() {
-        int h = ExgNative.apiHz();
-        if (h >= 125) {
-            return 0;
+    private void askPort(String title, int current, java.util.function.IntConsumer on) {
+        final EditText e = new EditText(this);
+        e.setText(current == 0 ? "" : String.valueOf(current));
+        e.setSelectAllOnFocus(true);
+        e.setTextColor(0xFFE8EAF0);
+        e.setHintTextColor(0xFF8B93A0);
+        e.setHint("port 1–65535, empty = off");
+        e.setInputType(InputType.TYPE_CLASS_NUMBER);
+        e.setImeOptions(EditorInfo.IME_FLAG_NO_EXTRACT_UI | EditorInfo.IME_FLAG_NO_FULLSCREEN
+                | EditorInfo.IME_ACTION_DONE);
+        AlertDialog d = new AlertDialog.Builder(this)
+                .setTitle(title)
+                .setView(e)
+                .setPositiveButton("OK", (dlg, w) -> {
+                    String s = e.getText().toString().trim();
+                    if (s.length() == 0) {
+                        on.accept(0);
+                        return;
+                    }
+                    try {
+                        int p = Integer.parseInt(s);
+                        if (p >= 0 && p <= 65535) {
+                            on.accept(p);
+                        }
+                    } catch (NumberFormatException ignored) {
+                    }
+                })
+                .setNegativeButton("Cancel", null)
+                .create();
+        if (d.getWindow() != null) {
+            d.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE
+                    | WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN);
         }
-        if (h >= 50) {
-            return 1;
-        }
-        if (h >= 25) {
-            return 2;
-        }
-        return 3;
-    }
-
-    private int apiPortIndex(int have, int[] opts) {
-        for (int i = 0; i < opts.length; i++) {
-            if (opts[i] == have) {
-                return i;
-            }
-        }
-        return 0;
+        d.show();
+        e.requestFocus();
     }
 
     private int uiIndex() {

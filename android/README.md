@@ -88,7 +88,8 @@ Names: letters, digits, `-`, `_`.
 
 ## API
 
-Settings → **API**. Default is on, **lan**, HTTP `8788`, UDP `8766`, TCP `8767`, 125 Hz.
+Settings → **API**. Default is on, **lan**, HTTP `8765`, UDP `8766`, TCP `8767`, 125 Hz.
+Type the port numbers. A persistent notification stays up while the stream is on so Quest can close the panel.
 
 `GET /health` `/status` `/sample` `/stream` `/stream.json` `/cfg`.
 `POST /connect` `/disconnect` `/pause` `/cfg`.
