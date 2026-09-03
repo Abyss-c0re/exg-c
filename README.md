@@ -21,6 +21,7 @@ Not a medical device. Not affiliated with NeuroPawn.
 - Learn: **Record** a named 1 s snap (gated at 80 sps). MATCH prints a percent only if one pose wins by ≥ 8 points. Cube Jaccard is not a score.
 - **CSV** dump, **Pause**, site names + RMS on the plot, FFT strip with a 50/60 Hz marker
 - **Take** a named stretch. **ID** names it only if one take wins. Two similar files say `same head — not distinct`, not a split percent.
+- **API** — local HTTP plus LAN stream. Cooked µV at up to 125 Hz. UDP is the live path. Async, configurable.
 
 Default montage: Fp1 Fp2 C3 C4 P3 P4 O1 O2.
 
@@ -42,6 +43,25 @@ Headless smoke test:
 `make test` is the mock suite. `make test-live` reads 5 s from `/dev/ttyUSB1` (desk, not cortex).
 
 Config lives in `~/.config/exg-c.ini`, named profiles in `~/.config/exg-c/profiles/`.
+
+## API
+
+Default: **on**, bind **lan** (`0.0.0.0`), HTTP **8765**, UDP **8766**, TCP **8767**, **125 Hz**.
+Settings → API to turn it off, bind local-only, change ports, set a LAN token, or push UDP to `host:port`.
+
+Cooked samples (after notch/hp/lp/CAR/envelope). One **EXG1** little-endian frame, 68 bytes. The cook loop never waits on a socket.
+
+```bash
+curl -s http://127.0.0.1:8765/health
+curl -s http://PHONE_OR_QUEST:8765/sample
+curl -Ns http://PHONE_OR_QUEST:8765/stream.json   # one JSON line per sample
+# binary UDP: send any datagram to :8766, frames come back
+# binary TCP: nc PHONE_OR_QUEST 8767
+curl -s -X POST http://127.0.0.1:8765/connect
+curl -s -X POST http://127.0.0.1:8765/cfg -d '{"hz":50,"car":1}'
+```
+
+Loopback GET needs no token. LAN writes and streams need `X-EXG-Token` if you set one. POST connect/disconnect/pause/cfg run on the host tick, not on the socket thread.
 
 ## Android
 

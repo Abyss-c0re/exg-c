@@ -7,10 +7,17 @@
 #include "np_smx.h"
 #include "nplearn.h"
 #include "np_atom.h"
+#include "np_api.h"
 
+#include <arpa/inet.h>
+#include <errno.h>
 #include <math.h>
+#include <netinet/in.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/socket.h>
+#include <sys/time.h>
+#include <unistd.h>
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -1001,6 +1008,159 @@ static void test_atom(void)
     }
 }
 
+static int http_get(const char *host, int port, const char *path, char *out, int n)
+{
+    int fd, w, r, got = 0;
+    char req[256];
+    struct sockaddr_in a;
+    fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0) {
+        return -1;
+    }
+    memset(&a, 0, sizeof(a));
+    a.sin_family = AF_INET;
+    a.sin_port = htons((uint16_t)port);
+    a.sin_addr.s_addr = inet_addr(host);
+    if (connect(fd, (struct sockaddr *)&a, sizeof(a)) < 0) {
+        close(fd);
+        return -1;
+    }
+    {
+        struct timeval tv;
+        tv.tv_sec = 0;
+        tv.tv_usec = 250000;
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    }
+    w = snprintf(req, sizeof(req), "GET %s HTTP/1.0\r\nHost: %s\r\n\r\n", path, host);
+    if (send(fd, req, (size_t)w, 0) < 0) {
+        close(fd);
+        return -1;
+    }
+    out[0] = 0;
+    while (got < n - 1) {
+        r = (int)recv(fd, out + got, (size_t)(n - 1 - got), 0);
+        if (r <= 0) {
+            break;
+        }
+        got += r;
+    }
+    out[got] = 0;
+    close(fd);
+    return got;
+}
+
+static void test_api(void)
+{
+    struct np_api_sample a, b;
+    unsigned char raw[NP_API_FRAME];
+    struct np_api_cfg c;
+    char body[2048];
+    int i, ok, op, arg;
+    int udp;
+    struct sockaddr_in ua;
+
+    memset(&a, 0, sizeof(a));
+    a.t_us = 123456789ull;
+    a.frames = 42;
+    a.nch = 8;
+    a.mask = 0x0F;
+    a.clip = 0x01;
+    a.flags = 5;
+    a.uv[0] = 12.5f;
+    a.uv[3] = -80.f;
+    a.sps = 125.f;
+    a.id_score = 0.91f;
+    a.id_best = 2;
+    expect(np_api_pack(raw, sizeof(raw), &a) == NP_API_FRAME, "api pack size");
+    expect(raw[0] == 'E' && raw[3] == '1', "api magic EXG1");
+    expect(np_api_unpack(raw, NP_API_FRAME, &b) == NP_API_FRAME, "api unpack");
+    expect(b.frames == 42 && b.mask == 0x0F && b.id_best == 2, "api fields");
+    expect(fabsf(b.uv[0] - 12.5f) < 0.001f && fabsf(b.uv[3] + 80.f) < 0.001f, "api uv");
+    expect(fabsf(b.sps - 125.f) < 0.01f && fabsf(b.id_score - 0.91f) < 0.001f, "api scores");
+
+    np_api_cfg_default(&c);
+    c.lan = 0;
+    c.http = 18765;
+    c.udp = 18766;
+    c.tcp = 0;
+    c.hz = 125;
+    c.token[0] = 0;
+    expect(np_api_apply(&c) == 0, "api listen local");
+    usleep(80000);
+    expect(np_api_on() == 1, "api on");
+    ok = 0;
+    for (i = 0; i < 20 && !ok; i++) {
+        if (http_get("127.0.0.1", 18765, "/health", body, sizeof(body)) > 0 &&
+            strstr(body, "\"ok\":true")) {
+            ok = 1;
+        } else {
+            usleep(20000);
+        }
+    }
+    expect(ok, "api GET /health");
+    expect(strstr(body, "\"bind\":\"local\"") != NULL, "api health local");
+
+    a.uv[1] = 333.f;
+    np_api_push(&a);
+    usleep(20000);
+    ok = http_get("127.0.0.1", 18765, "/sample", body, sizeof(body)) > 0 &&
+         strstr(body, "333");
+    expect(ok, "api GET /sample last push");
+
+    udp = socket(AF_INET, SOCK_DGRAM, 0);
+    expect(udp >= 0, "api udp socket");
+    if (udp >= 0) {
+        unsigned char pkt[NP_API_FRAME];
+        struct timeval tv;
+        memset(&ua, 0, sizeof(ua));
+        ua.sin_family = AF_INET;
+        ua.sin_port = htons(18766);
+        ua.sin_addr.s_addr = inet_addr("127.0.0.1");
+        sendto(udp, "SUB", 3, 0, (struct sockaddr *)&ua, sizeof(ua));
+        usleep(30000);
+        a.uv[2] = 777.f;
+        np_api_push(&a);
+        tv.tv_sec = 0;
+        tv.tv_usec = 200000;
+        setsockopt(udp, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+        ok = 0;
+        if (recv(udp, pkt, sizeof(pkt), 0) == NP_API_FRAME &&
+            np_api_unpack(pkt, NP_API_FRAME, &b) == NP_API_FRAME &&
+            fabsf(b.uv[2] - 777.f) < 0.01f) {
+            ok = 1;
+        }
+        expect(ok, "api UDP subscribe gets frame");
+        close(udp);
+    }
+
+    ok = http_get("127.0.0.1", 18765, "/", body, sizeof(body)) > 0 &&
+         strstr(body, "/stream") && strstr(body, "EXG1");
+    expect(ok, "api GET / index lists stream");
+
+    {
+        int fd = socket(AF_INET, SOCK_STREAM, 0);
+        char req[] = "POST /pause HTTP/1.0\r\nContent-Length: 0\r\n\r\n";
+        struct sockaddr_in ha;
+        memset(&ha, 0, sizeof(ha));
+        ha.sin_family = AF_INET;
+        ha.sin_port = htons(18765);
+        ha.sin_addr.s_addr = inet_addr("127.0.0.1");
+        if (fd >= 0 && connect(fd, (struct sockaddr *)&ha, sizeof(ha)) == 0) {
+            send(fd, req, sizeof(req) - 1, 0);
+            usleep(30000);
+        }
+        if (fd >= 0) {
+            close(fd);
+        }
+    }
+    usleep(20000);
+    expect(np_api_take_op(&op, &arg) == 1 && op == NP_API_OP_PAUSE, "api POST /pause queues");
+
+    np_api_stop();
+    expect(np_api_on() == 0, "api stop");
+    (void)errno;
+}
+
 int main(void)
 {
     test_cmds();
@@ -1020,6 +1180,7 @@ int main(void)
     test_id_event();
     test_process();
     test_atom();
+    test_api();
     if (fails) {
         fprintf(stderr, "%d FAIL\n", fails);
         return 1;

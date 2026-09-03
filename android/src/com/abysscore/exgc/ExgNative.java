@@ -157,4 +157,22 @@ public final class ExgNative {
     public static native void cycleBoard();
     public static native int uiScale();
     public static native void cycleUiScale();
+
+    public static native boolean apiOn();
+    public static native void setApiOn(boolean on);
+    public static native boolean apiLan();
+    public static native void setApiLan(boolean lan);
+    public static native int apiHz();
+    public static native void setApiHz(int hz);
+    public static native int apiHttp();
+    public static native void setApiHttp(int port);
+    public static native int apiUdp();
+    public static native void setApiUdp(int port);
+    public static native int apiTcp();
+    public static native void setApiTcp(int port);
+    public static native String apiToken();
+    public static native void setApiToken(String s);
+    public static native String apiPush();
+    public static native void setApiPush(String s);
+    public static native String apiLine();
 }

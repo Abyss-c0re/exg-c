@@ -170,4 +170,22 @@ int np_host_atom_id_best(void);
 float np_host_atom_id_score(int i);
 void np_host_atom_id_line(char *out, int n);
 
+int np_host_api_on(void);
+void np_host_api_set_on(int on);
+int np_host_api_lan(void);
+void np_host_api_set_lan(int lan);
+int np_host_api_hz(void);
+void np_host_api_set_hz(int hz);
+int np_host_api_http(void);
+void np_host_api_set_http(int port);
+int np_host_api_udp(void);
+void np_host_api_set_udp(int port);
+int np_host_api_tcp(void);
+void np_host_api_set_tcp(int port);
+void np_host_api_token(char *out, int n);
+void np_host_api_set_token(const char *s);
+void np_host_api_push(char *out, int n);
+void np_host_api_set_push(const char *s);
+void np_host_api_line(char *out, int n);
+
 #endif

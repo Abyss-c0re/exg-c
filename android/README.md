@@ -86,6 +86,15 @@ lists them — tap two to compare. Delete to drop one.
 
 Names: letters, digits, `-`, `_`.
 
+## API
+
+Settings → **API**. Default is on, **lan**, HTTP `8765`, UDP `8766`, TCP `8767`, 125 Hz.
+
+`GET /health` `/status` `/sample` `/stream` `/stream.json` `/cfg`.
+`POST /connect` `/disconnect` `/pause` `/cfg`.
+UDP: send any packet to `:8766` to subscribe. TCP: connect `:8767` and read EXG1 frames.
+Token (optional) is required for LAN, not for `127.0.0.1`. Push dest is `host:port` for a fixed UDP sink.
+
 ## Storage
 
 All of this is under `getFilesDir()`:

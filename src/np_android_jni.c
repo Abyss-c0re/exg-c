@@ -1356,4 +1356,145 @@ Java_com_abysscore_exgc_ExgNative_atomIdScore(JNIEnv *env, jclass cls, jint i)
     (void)cls;
     return np_host_atom_id_score(i);
 }
+
+JNIEXPORT jboolean JNICALL
+Java_com_abysscore_exgc_ExgNative_apiOn(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    return np_host_api_on() ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT void JNICALL
+Java_com_abysscore_exgc_ExgNative_setApiOn(JNIEnv *env, jclass cls, jboolean on)
+{
+    (void)env;
+    (void)cls;
+    np_host_api_set_on(on ? 1 : 0);
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_abysscore_exgc_ExgNative_apiLan(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    return np_host_api_lan() ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT void JNICALL
+Java_com_abysscore_exgc_ExgNative_setApiLan(JNIEnv *env, jclass cls, jboolean lan)
+{
+    (void)env;
+    (void)cls;
+    np_host_api_set_lan(lan ? 1 : 0);
+}
+
+JNIEXPORT jint JNICALL
+Java_com_abysscore_exgc_ExgNative_apiHz(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    return np_host_api_hz();
+}
+
+JNIEXPORT void JNICALL
+Java_com_abysscore_exgc_ExgNative_setApiHz(JNIEnv *env, jclass cls, jint hz)
+{
+    (void)env;
+    (void)cls;
+    np_host_api_set_hz(hz);
+}
+
+JNIEXPORT jint JNICALL
+Java_com_abysscore_exgc_ExgNative_apiHttp(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    return np_host_api_http();
+}
+
+JNIEXPORT void JNICALL
+Java_com_abysscore_exgc_ExgNative_setApiHttp(JNIEnv *env, jclass cls, jint port)
+{
+    (void)env;
+    (void)cls;
+    np_host_api_set_http(port);
+}
+
+JNIEXPORT jint JNICALL
+Java_com_abysscore_exgc_ExgNative_apiUdp(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    return np_host_api_udp();
+}
+
+JNIEXPORT void JNICALL
+Java_com_abysscore_exgc_ExgNative_setApiUdp(JNIEnv *env, jclass cls, jint port)
+{
+    (void)env;
+    (void)cls;
+    np_host_api_set_udp(port);
+}
+
+JNIEXPORT jint JNICALL
+Java_com_abysscore_exgc_ExgNative_apiTcp(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    return np_host_api_tcp();
+}
+
+JNIEXPORT void JNICALL
+Java_com_abysscore_exgc_ExgNative_setApiTcp(JNIEnv *env, jclass cls, jint port)
+{
+    (void)env;
+    (void)cls;
+    np_host_api_set_tcp(port);
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_abysscore_exgc_ExgNative_apiToken(JNIEnv *env, jclass cls)
+{
+    char buf[32];
+    (void)cls;
+    np_host_api_token(buf, sizeof(buf));
+    return jstr_from(env, buf);
+}
+
+JNIEXPORT void JNICALL
+Java_com_abysscore_exgc_ExgNative_setApiToken(JNIEnv *env, jclass cls, jstring s)
+{
+    char buf[32];
+    (void)cls;
+    jstr_to(env, s, buf, sizeof(buf));
+    np_host_api_set_token(buf);
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_abysscore_exgc_ExgNative_apiPush(JNIEnv *env, jclass cls)
+{
+    char buf[64];
+    (void)cls;
+    np_host_api_push(buf, sizeof(buf));
+    return jstr_from(env, buf);
+}
+
+JNIEXPORT void JNICALL
+Java_com_abysscore_exgc_ExgNative_setApiPush(JNIEnv *env, jclass cls, jstring s)
+{
+    char buf[64];
+    (void)cls;
+    jstr_to(env, s, buf, sizeof(buf));
+    np_host_api_set_push(buf);
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_abysscore_exgc_ExgNative_apiLine(JNIEnv *env, jclass cls)
+{
+    char buf[160];
+    (void)cls;
+    np_host_api_line(buf, sizeof(buf));
+    return jstr_from(env, buf);
+}
 #endif

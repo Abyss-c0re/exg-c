@@ -10,6 +10,7 @@
 #include "np_smx.h"
 #include "np_host.h"
 #include "np_atom.h"
+#include "np_api.h"
 #ifdef NP_ANDROID_UI
 #include "sdl2_min.h"
 #include <android/log.h>
@@ -189,6 +190,14 @@ struct np_app {
     float atom_id[32];
     int atom_id_best;
     int atom_clip;
+    int api_on;
+    int api_lan;
+    int api_http;
+    int api_udp;
+    int api_tcp;
+    int api_hz;
+    char api_token[NP_API_TOKEN];
+    char api_push[NP_API_PUSH];
 };
 
 static float atom_raw[NP_ATOM_RING][NP_NCHAN * NP_ATOM_WIN];
@@ -1225,6 +1234,21 @@ static int cfg_write_ex(const char *path, int with_map)
     fprintf(f, "zoom=%.2f\n", (double)g.cube_zoom);
     fprintf(f, "view=%d\n", g.cube_view ? 1 : 0);
     if (with_map) {
+        fprintf(f, "\n[api]\n");
+        fprintf(f, "on=%d\n", g.api_on ? 1 : 0);
+        fprintf(f, "bind=%s\n", g.api_lan ? "lan" : "local");
+        fprintf(f, "http=%d\n", g.api_http);
+        fprintf(f, "udp=%d\n", g.api_udp);
+        fprintf(f, "tcp=%d\n", g.api_tcp);
+        fprintf(f, "hz=%d\n", g.api_hz);
+        if (g.api_token[0]) {
+            fprintf(f, "token=%s\n", g.api_token);
+        }
+        if (g.api_push[0]) {
+            fprintf(f, "push=%s\n", g.api_push);
+        }
+    }
+    if (with_map) {
         for (i = 0; i < NP_NCHAN; i++) {
             if (g.elec[i].name[0]) {
                 fprintf(f, "elec%d=%s\n", i + 1, g.elec[i].name);
@@ -1260,6 +1284,7 @@ static int cfg_read(const char *path)
         int v;
         float fa, fb;
         char ename[24];
+        char longv[64];
         if (sscanf(line, "window_s=%d", &v) == 1) {
             g.window_s = v;
         } else if (sscanf(line, "autoscale=%d", &v) == 1) {
@@ -1339,6 +1364,23 @@ static int cfg_read(const char *path)
                 g.active[ch - 1] = v ? 1 : 0;
             } else if (sscanf(line, "rld%d=%d", &ch, &v) == 2 && ch >= 1 && ch <= NP_NCHAN) {
                 g.rld[ch - 1] = v ? 1 : 0;
+            } else if (sscanf(line, "on=%d", &v) == 1 && strstr(line, "token") == NULL) {
+                /* last on= wins; api section uses on= after channels */
+                g.api_on = v ? 1 : 0;
+            } else if (sscanf(line, "bind=%23s", ename) == 1) {
+                g.api_lan = strcmp(ename, "local") != 0;
+            } else if (sscanf(line, "http=%d", &v) == 1) {
+                g.api_http = v;
+            } else if (sscanf(line, "udp=%d", &v) == 1) {
+                g.api_udp = v;
+            } else if (sscanf(line, "tcp=%d", &v) == 1) {
+                g.api_tcp = v;
+            } else if (sscanf(line, "hz=%d", &v) == 1 && v >= 1 && v <= 125) {
+                g.api_hz = v;
+            } else if (sscanf(line, "token=%31s", longv) == 1) {
+                snprintf(g.api_token, sizeof(g.api_token), "%s", longv);
+            } else if (sscanf(line, "push=%63s", longv) == 1) {
+                snprintf(g.api_push, sizeof(g.api_push), "%s", longv);
             }
         }
     }
@@ -1707,6 +1749,198 @@ static void band_apply(int band)
     data_recook();
 }
 
+static void api_defaults(void)
+{
+    struct np_api_cfg c;
+    np_api_cfg_default(&c);
+    g.api_on = c.on;
+    g.api_lan = c.lan;
+    g.api_http = c.http;
+    g.api_udp = c.udp;
+    g.api_tcp = c.tcp;
+    g.api_hz = c.hz;
+    g.api_token[0] = 0;
+    g.api_push[0] = 0;
+}
+
+static void api_json_esc(const char *in, char *out, int n)
+{
+    int o = 0;
+    if (!out || n < 2) {
+        return;
+    }
+    out[0] = 0;
+    if (!in) {
+        return;
+    }
+    for (; *in && o < n - 2; in++) {
+        unsigned char c = (unsigned char)*in;
+        if (c == '"' || c == '\\') {
+            if (o + 2 >= n) {
+                break;
+            }
+            out[o++] = '\\';
+            out[o++] = (char)c;
+        } else if (c < 32) {
+            out[o++] = ' ';
+        } else {
+            out[o++] = (char)c;
+        }
+    }
+    out[o] = 0;
+}
+
+static void api_status_json(char *out, int n)
+{
+    char st[160], id[80], ste[180], ide[96], line[96];
+    unsigned mask = 0;
+    int c;
+    np_host_status(st, sizeof(st));
+    np_host_id(id, sizeof(id));
+    np_api_line(line, sizeof(line));
+    api_json_esc(st, ste, sizeof(ste));
+    api_json_esc(id, ide, sizeof(ide));
+    for (c = 0; c < NP_NCHAN; c++) {
+        if (g.active[c]) {
+            mask |= 1u << c;
+        }
+    }
+    snprintf(out, (size_t)n,
+             "{\"ok\":true,\"v\":\"2.30\",\"connected\":%s,\"paused\":%s,\"sps\":%.1f,"
+             "\"frames\":%u,\"status\":\"%s\",\"id\":\"%s\",\"id_best\":%d,"
+             "\"notch\":%d,\"hp\":%d,\"lp\":%d,\"car\":%d,\"band\":%d,\"mask\":%u,"
+             "\"api\":\"%s\"}",
+             g.connected ? "true" : "false", g.paused ? "true" : "false",
+             g.sps > 1.f ? (double)g.sps : 0.0, np_host_frames(), ste, ide, g.atom_id_best,
+             g.notch_hz, g.hp_hz, g.lp_hz, g.car ? 1 : 0, g.band, mask, line);
+}
+
+static void api_apply(void)
+{
+    struct np_api_cfg c;
+    memset(&c, 0, sizeof(c));
+    c.on = g.api_on;
+    c.lan = g.api_lan;
+    c.http = g.api_http;
+    c.udp = g.api_udp;
+    c.tcp = g.api_tcp;
+    c.hz = g.api_hz;
+    snprintf(c.token, sizeof(c.token), "%s", g.api_token);
+    snprintf(c.push, sizeof(c.push), "%s", g.api_push);
+    np_api_set_status_fn(api_status_json);
+    np_api_apply(&c);
+}
+
+static void api_emit(const float *v, uint32_t frames)
+{
+    static uint32_t hold;
+    struct np_api_sample s;
+    struct timespec ts;
+    int c, hz, sps;
+    if (!np_api_on() || !v) {
+        return;
+    }
+    hz = np_api_hz();
+    sps = (int)design_sps();
+    if (sps < 1) {
+        sps = 125;
+    }
+    if (hz < 1) {
+        hz = sps;
+    }
+    hold += (uint32_t)hz;
+    if (hold < (uint32_t)sps) {
+        return;
+    }
+    hold -= (uint32_t)sps;
+    memset(&s, 0, sizeof(s));
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    s.t_us = (uint64_t)ts.tv_sec * 1000000ull + (uint64_t)ts.tv_nsec / 1000ull;
+    s.frames = frames;
+    s.nch = NP_NCHAN;
+    for (c = 0; c < NP_NCHAN; c++) {
+        s.uv[c] = v[c];
+        if (g.active[c]) {
+            s.mask = (uint8_t)(s.mask | (1u << c));
+        }
+        if (np_sample_rail(v[c]) || last_clip[c]) {
+            s.clip = (uint8_t)(s.clip | (1u << c));
+        }
+    }
+    s.flags = (uint8_t)((g.connected ? 1 : 0) | (g.paused ? 2 : 0) |
+                        (g.learn.match ? 4 : 0));
+    s.sps = g.sps;
+    s.id_best = (int8_t)g.atom_id_best;
+    s.id_score = (g.atom_id_best >= 0 && g.atom_id_best < 32) ? g.atom_id[g.atom_id_best] : 0.f;
+    np_api_push(&s);
+}
+
+static void api_drain(void)
+{
+    int op, arg;
+    int need = 0;
+    while (np_api_take_op(&op, &arg)) {
+        switch (op) {
+        case NP_API_OP_CONNECT:
+            np_host_connect();
+            break;
+        case NP_API_OP_DISC:
+            np_host_disconnect();
+            break;
+        case NP_API_OP_PAUSE:
+            np_host_toggle_pause();
+            break;
+        case NP_API_OP_NOTCH:
+            np_host_set_notch(arg);
+            break;
+        case NP_API_OP_HP:
+            np_host_set_hp(arg);
+            break;
+        case NP_API_OP_LP:
+            np_host_set_lp(arg);
+            break;
+        case NP_API_OP_CAR:
+            if ((arg ? 1 : 0) != (g.car ? 1 : 0)) {
+                np_host_toggle_car();
+            }
+            break;
+        case NP_API_OP_BAND:
+            np_host_set_band(arg);
+            break;
+        case NP_API_OP_HZ:
+            g.api_hz = arg < 1 ? 1 : (arg > 125 ? 125 : arg);
+            need = 1;
+            break;
+        case NP_API_OP_LAN:
+            g.api_lan = arg ? 1 : 0;
+            need = 1;
+            break;
+        case NP_API_OP_ON:
+            g.api_on = arg ? 1 : 0;
+            need = 1;
+            break;
+        case NP_API_OP_HTTP:
+            g.api_http = arg;
+            need = 1;
+            break;
+        case NP_API_OP_UDP:
+            g.api_udp = arg;
+            need = 1;
+            break;
+        case NP_API_OP_TCP:
+            g.api_tcp = arg;
+            need = 1;
+            break;
+        default:
+            break;
+        }
+    }
+    if (need) {
+        cfg_save();
+        api_apply();
+    }
+}
+
 /* One IIR step per new sample. Display copies this. Never re-filter the window. */
 static void live_sync(void)
 {
@@ -1769,6 +2003,7 @@ static void live_sync(void)
             }
             live_ch[c][(live_wr + i) % NP_RING] = v[c];
         }
+        api_emit(v, (uint32_t)(live_seen + i + 1));
     }
     live_wr += need;
     live_seen = tot;
@@ -5638,6 +5873,7 @@ int np_host_start(const char *files_dir)
     g.cube_yaw = 0.55f;
     g.cube_pitch = 0.40f;
     g.cube_zoom = 1.0f;
+    api_defaults();
     snprintf(g.prof, sizeof(g.prof), "default");
     np_elec_default(g.elec);
     for (i = 0; i < NP_NCHAN; i++) {
@@ -5682,6 +5918,7 @@ int np_host_start(const char *files_dir)
     }
     g.nports = np_list_ports(g.ports, NP_MAX_PORTS);
     host_ready = 1;
+    api_apply();
     set_status(1, g.nports ? "ready - tap Connect" : "plug Knight, grant USB, tap Connect");
     return 0;
 }
@@ -5695,6 +5932,7 @@ void np_host_shutdown(void)
     pthread_cond_signal(&g.qcv);
     pthread_join(g.cmd_thr, NULL);
     do_disconnect();
+    np_api_stop();
     host_ready = 0;
 }
 
@@ -5797,6 +6035,8 @@ void np_host_tick(void)
     if (!host_ready) {
         return;
     }
+    api_drain();
+    live_sync();
     smx_tick();
     atom_tick();
     learn_tick();
@@ -7490,6 +7730,112 @@ void np_host_set_ui_scale(int tenths)
     cfg_save();
 }
 
+int np_host_api_on(void)
+{
+    return g.api_on ? 1 : 0;
+}
+void np_host_api_set_on(int on)
+{
+    g.api_on = on ? 1 : 0;
+    cfg_save();
+    api_apply();
+}
+int np_host_api_lan(void)
+{
+    return g.api_lan ? 1 : 0;
+}
+void np_host_api_set_lan(int lan)
+{
+    g.api_lan = lan ? 1 : 0;
+    cfg_save();
+    api_apply();
+}
+int np_host_api_hz(void)
+{
+    return g.api_hz < 1 ? 125 : g.api_hz;
+}
+void np_host_api_set_hz(int hz)
+{
+    if (hz < 1) {
+        hz = 1;
+    }
+    if (hz > 125) {
+        hz = 125;
+    }
+    g.api_hz = hz;
+    cfg_save();
+    api_apply();
+}
+int np_host_api_http(void)
+{
+    return g.api_http;
+}
+void np_host_api_set_http(int port)
+{
+    if (port < 0 || port > 65535) {
+        port = 8765;
+    }
+    g.api_http = port;
+    cfg_save();
+    api_apply();
+}
+int np_host_api_udp(void)
+{
+    return g.api_udp;
+}
+void np_host_api_set_udp(int port)
+{
+    if (port < 0 || port > 65535) {
+        port = 8766;
+    }
+    g.api_udp = port;
+    cfg_save();
+    api_apply();
+}
+int np_host_api_tcp(void)
+{
+    return g.api_tcp;
+}
+void np_host_api_set_tcp(int port)
+{
+    if (port < 0 || port > 65535) {
+        port = 8767;
+    }
+    g.api_tcp = port;
+    cfg_save();
+    api_apply();
+}
+void np_host_api_token(char *out, int n)
+{
+    if (!out || n < 1) {
+        return;
+    }
+    snprintf(out, (size_t)n, "%s", g.api_token);
+}
+void np_host_api_set_token(const char *s)
+{
+    snprintf(g.api_token, sizeof(g.api_token), "%s", s ? s : "");
+    cfg_save();
+    api_apply();
+}
+void np_host_api_push(char *out, int n)
+{
+    if (!out || n < 1) {
+        return;
+    }
+    snprintf(out, (size_t)n, "%s", g.api_push);
+}
+void np_host_api_set_push(const char *s)
+{
+    snprintf(g.api_push, sizeof(g.api_push), "%s", s ? s : "");
+    cfg_save();
+    api_apply();
+}
+void np_host_api_line(char *out, int n)
+{
+    np_api_line(out, n);
+}
+
 static void usage(const char *a0)
 {
     fprintf(stderr,
@@ -7537,6 +7883,7 @@ int main(int argc, char **argv)
     g.cube_yaw = 0.55f;
     g.cube_pitch = 0.40f;
     g.cube_zoom = 1.0f;
+    api_defaults();
     g.cube_view = 0;
     g.site_focus = 0;
     g.virt_focus = 0;
@@ -7579,6 +7926,7 @@ int main(int argc, char **argv)
         }
     }
     g.nports = np_list_ports(g.ports, NP_MAX_PORTS);
+    api_apply();
 
     for (i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--cli")) {

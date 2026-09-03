@@ -66,6 +66,8 @@ public class ExgActivity extends Activity {
     private Button algo;
     private Button uiScale;
     private Button board;
+    private TextView apiLine;
+    private Button apiOn, apiBind, apiHz, apiHttp, apiUdp, apiTcp, apiToken, apiPush;
     private final float[] imu = new float[9];
     private TextView profNow;
     private Button learnName;
@@ -156,6 +158,15 @@ public class ExgActivity extends Activity {
         algo = findViewById(R.id.algo);
         uiScale = findViewById(R.id.uiScale);
         board = findViewById(R.id.board);
+        apiLine = findViewById(R.id.apiLine);
+        apiOn = findViewById(R.id.apiOn);
+        apiBind = findViewById(R.id.apiBind);
+        apiHz = findViewById(R.id.apiHz);
+        apiHttp = findViewById(R.id.apiHttp);
+        apiUdp = findViewById(R.id.apiUdp);
+        apiTcp = findViewById(R.id.apiTcp);
+        apiToken = findViewById(R.id.apiToken);
+        apiPush = findViewById(R.id.apiPush);
         profNow = findViewById(R.id.profNow);
         learnName = findViewById(R.id.learnName);
         chGrid = findViewById(R.id.chGrid);
@@ -343,6 +354,50 @@ public class ExgActivity extends Activity {
                     ExgNative.setBoardImu(i == 0);
                     refreshChrome();
                 }));
+        apiOn.setOnClickListener(v -> {
+            ExgNative.setApiOn(!ExgNative.apiOn());
+            refreshChrome();
+        });
+        apiBind.setOnClickListener(v -> pick("API bind",
+                new String[] {"local (127.0.0.1)", "lan (0.0.0.0)"},
+                ExgNative.apiLan() ? 1 : 0, i -> {
+                    ExgNative.setApiLan(i == 1);
+                    refreshChrome();
+                }));
+        apiHz.setOnClickListener(v -> pick("Stream rate",
+                new String[] {"125 Hz", "50 Hz", "25 Hz", "10 Hz"},
+                apiHzIndex(), i -> {
+                    ExgNative.setApiHz(new int[] {125, 50, 25, 10}[i]);
+                    refreshChrome();
+                }));
+        apiHttp.setOnClickListener(v -> pick("HTTP port",
+                new String[] {"8765", "8787", "8080", "off"},
+                apiPortIndex(ExgNative.apiHttp(), new int[] {8765, 8787, 8080, 0}), i -> {
+                    ExgNative.setApiHttp(new int[] {8765, 8787, 8080, 0}[i]);
+                    refreshChrome();
+                }));
+        apiUdp.setOnClickListener(v -> pick("UDP port",
+                new String[] {"8766", "9000", "off"},
+                apiPortIndex(ExgNative.apiUdp(), new int[] {8766, 9000, 0}), i -> {
+                    ExgNative.setApiUdp(new int[] {8766, 9000, 0}[i]);
+                    refreshChrome();
+                }));
+        apiTcp.setOnClickListener(v -> pick("TCP port",
+                new String[] {"8767", "9001", "off"},
+                apiPortIndex(ExgNative.apiTcp(), new int[] {8767, 9001, 0}), i -> {
+                    ExgNative.setApiTcp(new int[] {8767, 9001, 0}[i]);
+                    refreshChrome();
+                }));
+        apiToken.setOnClickListener(v -> askName("LAN token (empty = off)",
+                ExgNative.apiToken(), s -> {
+                    ExgNative.setApiToken(s);
+                    refreshChrome();
+                }));
+        apiPush.setOnClickListener(v -> askName("UDP push dest  host:port",
+                ExgNative.apiPush(), s -> {
+                    ExgNative.setApiPush(s);
+                    refreshChrome();
+                }));
         port.setOnClickListener(v -> pickPort());
         cubeAlgo.setOnClickListener(v -> pickAlgo());
         buildChannels();
@@ -447,6 +502,9 @@ public class ExgActivity extends Activity {
         if (on && sps > 1f) {
             st = st + "   " + (int) sps + " sps   " + fr + " frames";
         }
+        if (ExgNative.apiOn()) {
+            st = st + "   " + ExgNative.apiLine();
+        }
         status.setText(st);
         status.setTextColor(ExgNative.statusOk() ? 0xFF3CB46E : 0xFFF0A040);
         {
@@ -532,6 +590,22 @@ public class ExgActivity extends Activity {
         int us = ExgNative.uiScale();
         uiScale.setText("UI " + (us == 10 ? "1.0x" : (us == 20 ? "2.0x" : "1.5x")));
         board.setText(ExgNative.boardImu() ? "8-ch + IMU" : "8-ch EXG");
+        boolean apion = ExgNative.apiOn();
+        apiOn.setText(apion ? "API on" : "API off");
+        apiOn.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
+                apion ? 0xFF2E8A58 : 0xFF2A3038));
+        apiBind.setText(ExgNative.apiLan() ? "lan" : "local");
+        apiHz.setText(ExgNative.apiHz() + " Hz");
+        apiHttp.setText(ExgNative.apiHttp() == 0 ? "http off" : ("http " + ExgNative.apiHttp()));
+        apiUdp.setText(ExgNative.apiUdp() == 0 ? "udp off" : ("udp " + ExgNative.apiUdp()));
+        apiTcp.setText(ExgNative.apiTcp() == 0 ? "tcp off" : ("tcp " + ExgNative.apiTcp()));
+        {
+            String tok = ExgNative.apiToken();
+            apiToken.setText(tok == null || tok.length() == 0 ? "token (off)" : "token set");
+            String dest = ExgNative.apiPush();
+            apiPush.setText(dest == null || dest.length() == 0 ? "push dest" : dest);
+            apiLine.setText(ExgNative.apiLine());
+        }
         if (ExgNative.boardImu()) {
             imuLine.setVisibility(View.VISIBLE);
             if (ExgNative.imuOk()) {
@@ -1071,6 +1145,29 @@ public class ExgActivity extends Activity {
             return 2;
         }
         return 3;
+    }
+
+    private int apiHzIndex() {
+        int h = ExgNative.apiHz();
+        if (h >= 125) {
+            return 0;
+        }
+        if (h >= 50) {
+            return 1;
+        }
+        if (h >= 25) {
+            return 2;
+        }
+        return 3;
+    }
+
+    private int apiPortIndex(int have, int[] opts) {
+        for (int i = 0; i < opts.length; i++) {
+            if (opts[i] == have) {
+                return i;
+            }
+        }
+        return 0;
     }
 
     private int uiIndex() {
