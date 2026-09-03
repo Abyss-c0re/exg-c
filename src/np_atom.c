@@ -204,6 +204,96 @@ float np_atom_rms_close_to_mean(const float *live, int nlive, const float *ref, 
     return np_atom_rms_close(last, 1, mean, 1);
 }
 
+#define NP_PAT_FAR 0.85f
+#define NP_PAT_SAME 0.90f
+
+int np_atom_rms_pattern(const float *ref, int nref, const float *base, int nbase, float out[8])
+{
+    float tmean[8], bmean[8];
+    int t, c, nfar = 0;
+
+    if (!out) {
+        return 0;
+    }
+    memset(out, 0, 8 * sizeof(float));
+    if (!ref || nref < 1) {
+        return 0;
+    }
+    memset(tmean, 0, sizeof(tmean));
+    for (t = 0; t < nref; t++) {
+        for (c = 0; c < 8; c++) {
+            tmean[c] += ref[t * 8 + c];
+        }
+    }
+    for (c = 0; c < 8; c++) {
+        tmean[c] /= (float)nref;
+    }
+    if (!base || nbase < 1) {
+        int best = 0;
+        float beste = -1.f;
+        for (t = 0; t < nref; t++) {
+            float e = 0.f;
+            for (c = 0; c < 8; c++) {
+                e += ref[t * 8 + c];
+            }
+            if (e > beste) {
+                beste = e;
+                best = t;
+            }
+        }
+        memcpy(out, ref + best * 8, 8 * sizeof(float));
+        return 1;
+    }
+    memset(bmean, 0, sizeof(bmean));
+    for (t = 0; t < nbase; t++) {
+        for (c = 0; c < 8; c++) {
+            bmean[c] += base[t * 8 + c];
+        }
+    }
+    for (c = 0; c < 8; c++) {
+        bmean[c] /= (float)nbase;
+    }
+    /* Whole take looks like rest — the pattern is rest, not a phantom burst. */
+    if (np_atom_rms_close(tmean, 1, bmean, 1) >= NP_PAT_SAME) {
+        memcpy(out, tmean, 8 * sizeof(float));
+        return nref;
+    }
+    for (t = 0; t < nref; t++) {
+        if (np_atom_rms_close(ref + t * 8, 1, bmean, 1) < NP_PAT_FAR) {
+            for (c = 0; c < 8; c++) {
+                out[c] += ref[t * 8 + c];
+            }
+            nfar++;
+        }
+    }
+    if (nfar < 1) {
+        return 0;
+    }
+    for (c = 0; c < 8; c++) {
+        out[c] /= (float)nfar;
+    }
+    return nfar;
+}
+
+float np_atom_rms_close_to_pattern(const float *live, int nlive, const float *ref, int nref,
+                                   const float *base, int nbase)
+{
+    float pat[8], last[8];
+    int c, npat;
+
+    if (!live || nlive < 1) {
+        return 0.f;
+    }
+    npat = np_atom_rms_pattern(ref, nref, base, nbase, pat);
+    if (npat < 1) {
+        return 0.f;
+    }
+    for (c = 0; c < 8; c++) {
+        last[c] = live[(nlive - 1) * 8 + c];
+    }
+    return np_atom_rms_close(last, 1, pat, 1);
+}
+
 float np_atom_file_close(const char *pa, const char *pb)
 {
     uint64_t aa[NP_ATOM_RING], bb[NP_ATOM_RING];

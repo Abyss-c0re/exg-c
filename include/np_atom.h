@@ -31,8 +31,14 @@ void np_atom_rms8(const float *planar, int n_ch, int n_samp, int stride, float r
 float np_atom_rms_cos(const float *live, int nlive, const float *ref, int nref);
 /* Newest-aligned closeness on log RMS. 1 = same loudness+shape, 2× all-ch ≈ 0.5. */
 float np_atom_rms_close(const float *live, int nlive, const float *ref, int nref);
-/* Last live second vs mean RMS of the take. ID uses this — not an 8 s mean. */
+/* Last live second vs mean RMS of the take. Dilutes a gesture with rest padding. */
 float np_atom_rms_close_to_mean(const float *live, int nlive, const float *ref, int nref);
+/* Distinctive seconds vs baseline (rest/CALM). Rest-like take → full mean.
+ * Action → mean of seconds farther than 0.85 from baseline. 0 if none. */
+int np_atom_rms_pattern(const float *ref, int nref, const float *base, int nbase, float out[8]);
+/* Last live second vs that pattern. No live accumulation. */
+float np_atom_rms_close_to_pattern(const float *live, int nlive, const float *ref, int nref,
+                                   const float *base, int nbase);
 /* Two NPAT files: log-RMS if both v2. 0 if either is empty or v1. */
 float np_atom_file_close(const char *pa, const char *pb);
 

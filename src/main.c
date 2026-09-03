@@ -7336,34 +7336,62 @@ static void atom_identify(void)
     if (!g.learn.match || nlist < 1 || g.atom_n < 1) {
         return;
     }
-    /* Last 1 s vs each take's mean. An 8 s mean names rest while the 1 s plot shows clench. */
+    /* Last 1 s vs each take's pattern vs rest/CALM. Never the whole file mean. */
     k = 1;
     atom_last(liveb, liver, k);
-    for (i = 0; i < nlist; i++) {
-        uint64_t tb[NP_ATOM_RING];
-        float tr[NP_ATOM_RING * 8];
-        char path[NP_MAX_PATH];
-        int tn, win = 0, have_rms = 0;
-        float r, s;
-        if (atom_path(path, (int)sizeof(path), atom_listed[i]) != 0) {
-            continue;
+    {
+        float base[NP_ATOM_RING * 8];
+        int nbase = 0, bi;
+        memset(base, 0, sizeof(base));
+        for (bi = 0; bi < nlist; bi++) {
+            const char *nm = atom_listed[bi];
+            char path[NP_MAX_PATH];
+            int tn, win = 0, have = 0;
+            if (!nm[0]) {
+                continue;
+            }
+            if ((nm[0] != 'r' && nm[0] != 'R') || (nm[1] != 'e' && nm[1] != 'E') ||
+                (nm[2] != 's' && nm[2] != 'S') || (nm[3] != 't' && nm[3] != 'T') || nm[4]) {
+                continue;
+            }
+            if (atom_path(path, (int)sizeof(path), nm) != 0) {
+                continue;
+            }
+            tn = np_atom_load2(path, liveb, base, NP_ATOM_RING, &win, &have);
+            if (tn > 0 && have) {
+                nbase = tn;
+            }
+            break;
         }
-        tn = np_atom_load2(path, tb, tr, NP_ATOM_RING, &win, &have_rms);
-        if (tn < 1) {
-            continue;
+        if (nbase < 1 && g.calm.have) {
+            memcpy(base, g.calm.rms, 8 * sizeof(float));
+            nbase = 1;
         }
-        /* Hamming unity is not ID. No RMS → no score. */
-        r = have_rms ? np_atom_rms_close_to_mean(liver, k, tr, tn) : 0.f;
-        s = r;
-        g.atom_id[i] = s;
-        if (s > bests) {
-            secs = bests;
-            second = best;
-            bests = s;
-            best = i;
-        } else if (s > secs) {
-            secs = s;
-            second = i;
+        for (i = 0; i < nlist; i++) {
+            uint64_t tb[NP_ATOM_RING];
+            float tr[NP_ATOM_RING * 8];
+            char path[NP_MAX_PATH];
+            int tn, win = 0, have_rms = 0;
+            float r, s;
+            if (atom_path(path, (int)sizeof(path), atom_listed[i]) != 0) {
+                continue;
+            }
+            tn = np_atom_load2(path, tb, tr, NP_ATOM_RING, &win, &have_rms);
+            if (tn < 1) {
+                continue;
+            }
+            r = have_rms ? np_atom_rms_close_to_pattern(liver, k, tr, tn, base, nbase) : 0.f;
+            s = r;
+            g.atom_id[i] = s;
+            if (s > bests) {
+                secs = bests;
+                second = best;
+                bests = s;
+                best = i;
+            } else if (s > secs) {
+                secs = s;
+                second = i;
+            }
         }
     }
     (void)second;

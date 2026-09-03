@@ -983,6 +983,19 @@ static void test_atom(void)
             vs_rest = np_atom_rms_close_to_mean(mix, 5, rest, 5);
             vs_act = np_atom_rms_close_to_mean(mix, 5, act, 5);
             expect(vs_act > vs_rest + 0.08f, "last-1s vs mean names the clench");
+            {
+                float pat[8];
+                int np;
+                np = np_atom_rms_pattern(act, 5, rest, 5, pat);
+                expect(np == 4, "a pattern is 4 distinctive seconds, not the rest tail");
+                vs_rest = np_atom_rms_close_to_pattern(clench, 1, rest, 5, rest, 5);
+                vs_act = np_atom_rms_close_to_pattern(clench, 1, act, 5, rest, 5);
+                expect(vs_act > 0.95f && vs_act > vs_rest + 0.20f,
+                       "clench matches a-pattern, not rest");
+                vs_rest = np_atom_rms_close_to_pattern(rest + 4 * 8, 1, rest, 5, rest, 5);
+                vs_act = np_atom_rms_close_to_pattern(rest + 4 * 8, 1, act, 5, rest, 5);
+                expect(vs_rest > vs_act + 0.08f, "rest second matches rest, not a-pattern");
+            }
             (void)j;
         }
     }
