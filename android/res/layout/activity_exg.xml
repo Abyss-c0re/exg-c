@@ -36,7 +36,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:backgroundTint="@color/btn"
-            android:text="this board"
+            android:text="USB"
             android:textColor="@color/ink" />
 
         <Button
@@ -482,7 +482,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:paddingTop="12dp"
-                    android:text="Share leftover: turn share on. Follow leftover: pick a nearby name. Allow/No on the share side. Leftover rides Bluetooth. Wifi address is sent after Allow if wifi is up."
+                    android:text="Board reaches this app three ways. USB: Knight on this device. Bluetooth: pick a nearby name, Allow/No, leftover rides that link. LAN: leftover on wifi after a pair that saw wifi. Share leftover is how this device offers the board out."
                     android:textColor="@color/muted" />
 
                 <TextView

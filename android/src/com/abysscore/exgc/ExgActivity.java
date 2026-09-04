@@ -193,14 +193,20 @@ public class ExgActivity extends Activity {
                 refreshChrome();
                 return;
             }
-            if (ExgNative.linkApi()) {
+            int path = ExgNative.linkPath();
+            if (path == 2) {
+                String d = ExgNative.linkDest();
+                if (d != null && d.startsWith("bt:") && d.length() > 3) {
+                    followSaved(d.substring(3));
+                } else {
+                    pickNearby();
+                }
+                return;
+            }
+            if (path == 1) {
                 String d = ExgNative.linkDest();
                 if (d == null || d.length() < 1 || d.startsWith("bt:")) {
-                    if (d != null && d.startsWith("bt:") && d.length() > 3) {
-                        followSaved(d.substring(3));
-                    } else {
-                        pickNearby();
-                    }
+                    pickLan();
                     return;
                 }
             }
@@ -209,7 +215,7 @@ public class ExgActivity extends Activity {
             refreshChrome();
         });
         link.setOnClickListener(v -> {
-            ExgNative.setLinkApi(!ExgNative.linkApi());
+            ExgNative.cycleLink();
             refreshChrome();
         });
 
@@ -433,8 +439,11 @@ public class ExgActivity extends Activity {
                     refreshChrome();
                 }));
         port.setOnClickListener(v -> {
-            if (ExgNative.linkApi()) {
+            int path = ExgNative.linkPath();
+            if (path == 2) {
                 pickNearby();
+            } else if (path == 1) {
+                pickLan();
             } else {
                 pickPort();
             }
@@ -449,11 +458,8 @@ public class ExgActivity extends Activity {
         h.post(tick);
         h.postDelayed(() -> {
             if (!ExgNative.connected()) {
-                if (ExgNative.linkApi()) {
-                    String d = ExgNative.linkDest();
-                    if (d == null || d.length() < 1) {
-                        return;
-                    }
+                if (ExgNative.linkPath() != 0) {
+                    return;
                 }
                 ExgNative.connect();
                 refreshChrome();
@@ -553,20 +559,25 @@ public class ExgActivity extends Activity {
 
     private void refreshChrome() {
         boolean on = ExgNative.connected();
-        boolean apiLink = ExgNative.linkApi();
+        int path = ExgNative.linkPath();
         connect.setText(on ? "Disconnect" : "Connect");
         connect.setBackgroundTintList(android.content.res.ColorStateList.valueOf(on ? 0xFF8A3038 : 0xFF2E8A58));
-        link.setText(apiLink ? "follow leftover" : "this board");
+        if (path == 2) {
+            link.setText("Bluetooth");
+        } else if (path == 1) {
+            link.setText("LAN");
+        } else {
+            link.setText("USB");
+        }
         link.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
-                apiLink ? 0xFF2E6A8A : 0xFF2A3038));
+                path == 0 ? 0xFF2A3038 : 0xFF2E6A8A));
         String ports = ExgNative.ports();
-        if (apiLink) {
+        if (path == 2) {
+            port.setText(BtPair.followLive() ? "on bluetooth" : "nearby leftover…");
+        } else if (path == 1) {
             String d = ExgNative.linkDest();
-            if (BtPair.followLive()) {
-                port.setText("on bluetooth");
-            } else {
-                port.setText(d == null || d.length() == 0 ? "nearby leftover…" : "leftover ready");
-            }
+            port.setText(d == null || d.length() == 0 || d.startsWith("bt:")
+                    ? "leftover on wifi…" : "leftover on LAN");
         } else {
             port.setText(ports == null || ports.length() == 0 ? "no Knight" : ports.split("\n")[0]);
         }
@@ -1229,6 +1240,40 @@ public class ExgActivity extends Activity {
         }
     }
 
+    private void pickLan() {
+        java.util.ArrayList<String> names = new java.util.ArrayList<String>();
+        java.util.ArrayList<Integer> idx = new java.util.ArrayList<Integer>();
+        int n = ExgNative.followN();
+        for (int i = 0; i < n; i++) {
+            String d = ExgNative.followDest(i);
+            String nm = ExgNative.followName(i);
+            if (d != null && d.length() > 0 && !d.startsWith("bt:") && nm != null) {
+                names.add(nm.replace('_', ' ') + "  on LAN");
+                idx.add(i);
+            }
+        }
+        if (names.isEmpty()) {
+            new AlertDialog.Builder(this)
+                    .setTitle("LAN")
+                    .setMessage("No leftover on wifi yet. Pair on Bluetooth while the share has wifi, then LAN can use that path.")
+                    .setPositiveButton("OK", null)
+                    .show();
+            return;
+        }
+        String[] items = names.toArray(new String[0]);
+        new AlertDialog.Builder(this)
+                .setTitle("Leftover on LAN")
+                .setItems(items, (d, which) -> {
+                    ExgNative.followUse(idx.get(which));
+                    ExgNative.setLinkPath(1);
+                    ExgNative.connect();
+                    StreamService.ensure(this, ExgNative.apiOn() || ExgNative.connected());
+                    refreshChrome();
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
     private void followSaved(String name) {
         ensureNear();
         BtPair.followName(name, new BtPair.FollowSink() {
@@ -1353,8 +1398,12 @@ public class ExgActivity extends Activity {
     }
 
     private void pickPort() {
-        if (ExgNative.linkApi()) {
-            pickNearby();
+        if (ExgNative.linkPath() != 0) {
+            if (ExgNative.linkPath() == 1) {
+                pickLan();
+            } else {
+                pickNearby();
+            }
             return;
         }
         String raw = ExgNative.ports();
@@ -1362,7 +1411,7 @@ public class ExgActivity extends Activity {
         if (items.length == 0) {
             new AlertDialog.Builder(this)
                     .setTitle("This board")
-                    .setMessage("No Knight on USB. Tap follow leftover to pair nearby.")
+                    .setMessage("No Knight on USB. Switch to LAN or Bluetooth to take leftover from a share.")
                     .setPositiveButton("OK", null)
                     .show();
             return;

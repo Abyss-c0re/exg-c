@@ -1,4 +1,4 @@
-# App (2.48)
+# App (2.49)
 
 What the host does. The LAN wire is [API.md](API.md).
 
@@ -115,5 +115,5 @@ Viz is the crimson 8³ lattice. One mapped 10-10 cell per channel tracks leftove
 - Package `com.abysscore.exgc`. Quest uses `com.oculus.intent.category.2D`.
 - Stream service is `startService` from a visible activity, then `startForeground` (`dataSync`). Not `startForegroundService`.
 - Service stays up while the API **server** is on **or** the app is connected (USB or API client).
-- **this board / follow leftover** next to Connect. Follow leftover picks a nearby name over Bluetooth. The sharing side gets **Allow / No**. Leftover then rides that Bluetooth link. Wifi address is shared after Allow if wifi is up. Who I follow / who can follow are in Settings.
+- **USB / LAN / Bluetooth** next to Connect. USB is the Knight here. Bluetooth picks a nearby name (Allow/No) and leftover rides that link. LAN is leftover on wifi after a pair that saw wifi. Share leftover is how this device offers the board out.
 - Files live under the app directory (see android README). `run-as` cannot read them unless the package is debuggable.

@@ -2975,24 +2975,28 @@ void do_connect(void)
     if (g.connected) {
         return;
     }
-    if (g.link) {
-        if (!g.link_dest[0]) {
-            set_status(0, "pick leftover nearby");
+    if (g.link == 2) {
+        set_status(0, "pick leftover nearby");
+        return;
+    }
+    if (g.link == 1) {
+        if (!g.link_dest[0] || !strncmp(g.link_dest, "bt:", 3)) {
+            set_status(0, "no leftover on LAN — pair first or pick a saved share");
             return;
         }
         np_link_set_hooks(link_on_sample, apply_link_cfg);
         if (np_link_start(g.link_dest, g.link_token) != 0) {
-            set_status(0, "could not reach leftover");
+            set_status(0, "could not reach leftover on LAN");
             return;
         }
         g.connected = 1;
         g.stall_t = SDL_GetTicks();
-        set_status(1, "following leftover — waiting");
+        set_status(1, "following leftover on LAN — waiting");
         return;
     }
     g.nports = np_list_ports(g.ports, NP_MAX_PORTS);
     if (g.nports <= 0) {
-        set_status(0, NP_TOUCH ? "no USB serial (plug Knight / grant USB)"
+        set_status(0, NP_TOUCH ? "no Knight on USB — try LAN or Bluetooth"
                                : "no /dev/ttyUSB* or /dev/ttyACM*");
         return;
     }
@@ -5717,12 +5721,18 @@ void np_host_api_line(char *out, int n)
 
 int np_host_link(void)
 {
-    return g.link ? 1 : 0;
+    return g.link;
 }
 
-void np_host_set_link(int api)
+void np_host_set_link(int path)
 {
-    int want = api ? 1 : 0;
+    int want = path;
+    if (want < 0) {
+        want = 0;
+    }
+    if (want > 2) {
+        want = 2;
+    }
     if (g.link == want) {
         return;
     }
@@ -5731,7 +5741,18 @@ void np_host_set_link(int api)
     }
     g.link = want;
     cfg_save();
-    set_status(1, g.link ? "follow leftover — pick nearby" : "this board — Knight USB");
+    if (g.link == 0) {
+        set_status(1, "USB — Knight on this device");
+    } else if (g.link == 1) {
+        set_status(1, "LAN — leftover on wifi");
+    } else {
+        set_status(1, "Bluetooth — leftover nearby");
+    }
+}
+
+void np_host_cycle_link(void)
+{
+    np_host_set_link((g.link + 1) % 3);
 }
 
 void np_host_link_dest(char *out, int n)
@@ -5778,6 +5799,17 @@ void np_host_follow_name(int i, char *out, int n)
     }
 }
 
+void np_host_follow_dest(int i, char *out, int n)
+{
+    if (!out || n < 2) {
+        return;
+    }
+    out[0] = 0;
+    if (i >= 0 && i < peers.nfollow) {
+        snprintf(out, (size_t)n, "%s", peers.follow[i].dest);
+    }
+}
+
 void np_host_follow_use(int i)
 {
     if (i < 0 || i >= peers.nfollow) {
@@ -5785,7 +5817,7 @@ void np_host_follow_use(int i)
     }
     snprintf(g.link_dest, sizeof(g.link_dest), "%s", peers.follow[i].dest);
     snprintf(g.link_token, sizeof(g.link_token), "%s", peers.follow[i].grant);
-    g.link = 1;
+    g.link = strncmp(peers.follow[i].dest, "bt:", 3) == 0 ? 2 : 1;
     cfg_save();
 }
 

@@ -186,7 +186,10 @@ public final class ExgNative {
     public static native String apiLine();
 
     public static native boolean linkApi();
+    public static native int linkPath();
+    public static native void cycleLink();
     public static native void setLinkApi(boolean api);
+    public static native void setLinkPath(int path);
     public static native String linkDest();
     public static native void setLinkDest(String s);
     public static native String linkToken();
@@ -194,6 +197,7 @@ public final class ExgNative {
 
     public static native int followN();
     public static native String followName(int i);
+    public static native String followDest(int i);
     public static native void followUse(int i);
     public static native void followDel(int i);
     public static native int allowN();

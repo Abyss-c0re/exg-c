@@ -1591,7 +1591,23 @@ Java_com_abysscore_exgc_ExgNative_linkApi(JNIEnv *env, jclass cls)
 {
     (void)env;
     (void)cls;
-    return np_host_link() ? JNI_TRUE : JNI_FALSE;
+    return np_host_link() != 0 ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jint JNICALL
+Java_com_abysscore_exgc_ExgNative_linkPath(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    return np_host_link();
+}
+
+JNIEXPORT void JNICALL
+Java_com_abysscore_exgc_ExgNative_cycleLink(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    np_host_cycle_link();
 }
 
 JNIEXPORT void JNICALL
@@ -1599,7 +1615,15 @@ Java_com_abysscore_exgc_ExgNative_setLinkApi(JNIEnv *env, jclass cls, jboolean a
 {
     (void)env;
     (void)cls;
-    np_host_set_link(api ? 1 : 0);
+    np_host_set_link(api ? 2 : 0);
+}
+
+JNIEXPORT void JNICALL
+Java_com_abysscore_exgc_ExgNative_setLinkPath(JNIEnv *env, jclass cls, jint path)
+{
+    (void)env;
+    (void)cls;
+    np_host_set_link(path);
 }
 
 JNIEXPORT jstring JNICALL
@@ -1652,6 +1676,15 @@ Java_com_abysscore_exgc_ExgNative_followName(JNIEnv *env, jclass cls, jint i)
     char buf[24];
     (void)cls;
     np_host_follow_name(i, buf, sizeof(buf));
+    return jstr_from(env, buf);
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_abysscore_exgc_ExgNative_followDest(JNIEnv *env, jclass cls, jint i)
+{
+    char buf[64];
+    (void)cls;
+    np_host_follow_dest(i, buf, sizeof(buf));
     return jstr_from(env, buf);
 }
 

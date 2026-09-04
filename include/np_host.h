@@ -203,7 +203,8 @@ void np_host_api_set_push(const char *s);
 void np_host_api_line(char *out, int n);
 
 int np_host_link(void);
-void np_host_set_link(int api);
+void np_host_set_link(int path); /* 0 USB  1 LAN  2 Bluetooth */
+void np_host_cycle_link(void);
 void np_host_link_dest(char *out, int n);
 void np_host_set_link_dest(const char *s);
 void np_host_link_token(char *out, int n);
@@ -211,6 +212,7 @@ void np_host_set_link_token(const char *s);
 
 int np_host_follow_n(void);
 void np_host_follow_name(int i, char *out, int n);
+void np_host_follow_dest(int i, char *out, int n);
 void np_host_follow_use(int i);
 void np_host_follow_del(int i);
 int np_host_allow_n(void);

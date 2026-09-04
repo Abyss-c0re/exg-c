@@ -1237,7 +1237,7 @@ static void test_api(void)
          strstr(body, "/stream") && strstr(body, "EXG1");
     expect(ok, "api GET / index lists stream");
     expect(strstr(body, "stream.json") == NULL, "api index has no NDJSON live path");
-    expect(strstr(body, "\"v\":\"2.48\"") != NULL, "api index version 2.48");
+    expect(strstr(body, "\"v\":\"2.49\"") != NULL, "api index version 2.49");
     expect(strstr(body, "\"ip\":\"127.0.0.1\"") != NULL, "api local ip is loopback");
     {
         char host[64];
