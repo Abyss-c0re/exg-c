@@ -104,6 +104,30 @@ np_api_unpack(raw, NP_API_FRAME, &s);
 
 `np_api_push` queues a frame and kicks the pipe. Host code must not `send` on the cook thread.
 
+## State matrix (local fold — not a send)
+
+Do **not** dump EXG1 into a 512-bit 8³ hive cube. 512 bits is a viz lattice. The signal in one frame is eight cooked µV.
+
+CubalC already has the honest width: **64 bits** = 8 channels × 8 feature bits (`cubalc_eeg_pack_ch8` / `np_atom_pack`). That is 8 bytes. The 68-byte EXG1 stays the sample. The matrix is **derived**, locally, unsent.
+
+| | |
+|--|--|
+| Input | EXG1 `uv[8]` (or a short ring of them) |
+| Scale | per-channel leftover baseline (`CALM` rms / `id_base`), floor 25 µV. **Not** 50 µV absolute |
+| Window | one sample is thin; **~20–32 samples (160–256 ms)** is the CubalC window |
+| Output | `uint64_t` atom, CubalC bit layout |
+| Cube viz | `np_atom_faces8` — those 64 bits on the z=0 face (x=ch, y=feature). Interior stays 0 |
+
+50 µV pack saturates this worn head (2 mV lockstep). Relative pack flips energy bits on a 4× leftover burst. Hamming of the atom is **not** ID.
+
+```c
+float base[8]; /* still leftover rms */
+uint64_t a = np_atom_from_uv8(s.uv, base);          /* one frame */
+a = np_atom_pack_rel(planar, 8, 24, 24, base);      /* 192 ms window */
+uint8_t cube[512];
+np_atom_faces8(a, cube);                            /* 64 cells, not 512 */
+```
+
 ## What this is not
 
 - Not a JSON 125 Hz stream.

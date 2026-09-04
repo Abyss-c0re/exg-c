@@ -106,6 +106,12 @@ Per-channel **bias ON** (teal) / **bias off** (dark). Connect sends `RLDADD` or 
 
 Profile load keeps the electrode map and **recooks** plates/takes from raw. It does not re-record.
 
+## State matrix
+
+The app cube is leftover **algo bits** (1 bit/channel/s) on 10-10 cells. That is not EXG1.
+
+To fold an EXG1 frame into CubalC: **64 bits**, leftover-relative, not a 512-bit pad. See [API.md](API.md#state-matrix-local-fold--not-a-send).
+
 ## Quest / phone
 
 - Package `com.abysscore.exgc`. Quest uses `com.oculus.intent.category.2D`.

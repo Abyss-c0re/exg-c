@@ -961,6 +961,31 @@ static void test_atom(void)
             ba = np_atom_pack(actw, 8, 125, 125, calm);
             expect(np_atom_hamming(br, ba) >= 16, "CALM scale Hamming sees 4x");
             {
+                float base[8];
+                uint64_t rr, aa;
+                uint8_t cube[512];
+                int on = 0, i, interior = 0;
+                for (ch = 0; ch < 8; ch++) {
+                    base[ch] = calm;
+                }
+                rr = np_atom_pack_rel(restw, 8, 125, 125, base);
+                aa = np_atom_pack_rel(actw, 8, 125, 125, base);
+                expect(np_atom_hamming(rr, aa) >= 16, "pack_rel leftover baseline sees 4x");
+                expect(np_atom_from_uv8(restw, base) != 0 || restw[0] != 0.f,
+                       "from_uv8 runs");
+                np_atom_faces8(aa, cube);
+                for (i = 0; i < 512; i++) {
+                    if (cube[i]) {
+                        on++;
+                        if (i >= 64) {
+                            interior++;
+                        }
+                    }
+                }
+                expect(on == np_atom_popcount(aa), "faces8 is 64 signal bits");
+                expect(interior == 0, "faces8 does not pad the 8^3 interior");
+            }
+            {
                 float rr[8], ar[8];
                 np_atom_rms8(restw, 8, 125, 125, rr);
                 np_atom_rms8(actw, 8, 125, 125, ar);

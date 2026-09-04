@@ -89,6 +89,64 @@ uint64_t np_atom_pack(const float *planar, int n_ch, int n_samp, int stride, flo
     return a;
 }
 
+static float rel_scale(float base)
+{
+    if (base < 25.f) {
+        return 25.f;
+    }
+    return base;
+}
+
+uint64_t np_atom_pack_rel(const float *planar, int n_ch, int n_samp, int stride,
+                          const float base_uv[8])
+{
+    uint64_t a = 0;
+    int c;
+    if (!planar || n_ch < 1 || n_samp < 1 || stride < n_samp) {
+        return 0;
+    }
+    if (n_ch > 8) {
+        n_ch = 8;
+    }
+    for (c = 0; c < n_ch; c++) {
+        float sc = base_uv ? rel_scale(base_uv[c]) : NP_ATOM_SCALE;
+        uint8_t bits = pack_ch8(planar + c * stride, n_samp, sc);
+        a |= (uint64_t)bits << (c * 8);
+    }
+    return a;
+}
+
+uint64_t np_atom_from_uv8(const float uv[8], const float base_uv[8])
+{
+    float planar[8];
+    int c;
+    if (!uv) {
+        return 0;
+    }
+    for (c = 0; c < 8; c++) {
+        planar[c] = uv[c];
+    }
+    return np_atom_pack_rel(planar, 8, 1, 1, base_uv);
+}
+
+void np_atom_faces8(uint64_t atom, uint8_t cube[512])
+{
+    int c, b;
+    if (!cube) {
+        return;
+    }
+    memset(cube, 0, 512);
+    for (c = 0; c < 8; c++) {
+        uint8_t bits = (uint8_t)((atom >> (8 * c)) & 0xffu);
+        for (b = 0; b < 8; b++) {
+            if (bits & (uint8_t)(1u << b)) {
+                /* face z=0: x=channel, y=feature. 64 cells. Rest stay 0. */
+                cube[c + b * 8] = 1;
+            }
+        }
+    }
+}
+
 int np_atom_popcount(uint64_t a)
 {
     int n = 0;
