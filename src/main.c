@@ -138,6 +138,7 @@ struct np_app {
     } off, on, cal, calm;
     int cal_arm;
     int cal_cut;
+    int set_gen; /* 1 = action-readable defaults applied */
     float cal_hz; /* line tone from noise plate; 0 = none */
     float noise_psd[NP_PSD_BINS];
     float noise_psd_ch[NP_NCHAN][NP_PSD_BINS];
@@ -1288,6 +1289,7 @@ static int cfg_write_ex(const char *path, int with_map)
     fprintf(f, "show_uv=%d\n", g.show_uv);
     fprintf(f, "detrend=%d\n", g.detrend);
     fprintf(f, "cal_cut=%d\n", g.cal_cut);
+    fprintf(f, "set_gen=%d\n", g.set_gen);
     fprintf(f, "board=%d\n", (int)g.board);
     fprintf(f, "algo=%d\n", g.algo);
     fprintf(f, "\n[cube]\n");
@@ -1375,6 +1377,8 @@ static int cfg_read(const char *path)
             g.detrend = v;
         } else if (sscanf(line, "cal_cut=%d", &v) == 1) {
             g.cal_cut = v;
+        } else if (sscanf(line, "set_gen=%d", &v) == 1) {
+            g.set_gen = v;
         } else if (sscanf(line, "board=%d", &v) == 1) {
             g.board = v ? NP_BOARD_KNIGHT_IMU : NP_BOARD_KNIGHT;
         } else if (sscanf(line, "algo=%d", &v) == 1 && v >= 0 && v < NP_ALGO_N) {
@@ -1472,6 +1476,22 @@ static void cfg_save(void)
     mkdir(root, 0755);
     cfg_path(path, sizeof(path));
     cfg_write(path);
+}
+
+static void apply_readable_defaults(void)
+{
+    /* Worn head is 200–300 µV raw; off-head ~1 mV; lockstep floor hides
+     * actions. Line-kill leftover is what ID can name. */
+    g.band = 1;
+    g.notch_hz = -1;
+    g.hp_hz = 2;
+    g.lp_hz = 0;
+    g.car = 1;
+    g.envelope = 0;
+    g.detrend = 1;
+    g.cal_cut = 1;
+    g.scale_uv = 1000;
+    g.window_s = 2;
 }
 
 static void cfg_load(void)
@@ -1827,21 +1847,23 @@ static void band_apply(int band)
         g.detrend = 0;
     } else if (band == NP_BAND_LINE) {
         g.notch_hz = g.cal_hz > 1.f ? -1 : 50;
-        g.hp_hz = 1;
+        g.hp_hz = 2;
         g.lp_hz = 0;
         g.car = 1;
         g.envelope = 0;
         g.detrend = 1;
+        g.scale_uv = 1000;
         if (g.cal.have) {
             g.cal_cut = 1;
         }
     } else if (band == NP_BAND_EEG) {
         g.notch_hz = g.cal_hz > 1.f ? -1 : 50;
-        g.hp_hz = 1;
+        g.hp_hz = 2;
         g.lp_hz = 40;
         g.car = 1;
         g.envelope = 0;
         g.detrend = 1;
+        g.scale_uv = 200;
         if (g.cal.have) {
             g.cal_cut = 1;
         }
@@ -1849,9 +1871,10 @@ static void band_apply(int band)
         g.notch_hz = 50;
         g.hp_hz = 20;
         g.lp_hz = 0;
-        g.car = 0;
+        g.car = 1;
         g.envelope = 1;
         g.detrend = 1;
+        g.scale_uv = 2000;
     }
     filt_reset();
     cfg_save();
@@ -5977,15 +6000,7 @@ int np_host_start(const char *files_dir)
     g.window_s = 2;
     g.autoscale = 0;
     g.og = 0;
-    g.scale_uv = 200;
-    g.notch_hz = 50;
-    g.hp_hz = 1;
-    g.lp_hz = 0;
-    g.car = 0;
-    g.envelope = 0;
-    g.band = 0;
-    g.detrend = 0;
-    g.cal_cut = 1;
+    apply_readable_defaults();
     g.grid = 1;
     g.show_uv = 1;
     g.ui_scale = 15;
@@ -6017,6 +6032,12 @@ int np_host_start(const char *files_dir)
         }
     }
     cfg_load();
+    if (g.set_gen < 1) {
+        apply_readable_defaults();
+        g.set_gen = 1;
+        filt_reset();
+        cfg_save();
+    }
     if (g.api_http == 8788) {
         g.api_http = 8765;
     }
@@ -6341,8 +6362,12 @@ void np_host_set_rld(int ch, int on)
         return;
     }
     g.rld[ch] = on ? 1 : 0;
+    cfg_save();
     if (g.connected) {
         cmd_push(g.rld[ch] ? CMD_RLDADD : CMD_RLDRM, ch + 1, 0);
+        set_status(1, "ch%d bias %s", ch + 1, g.rld[ch] ? "on" : "off");
+    } else {
+        set_status(1, "ch%d bias %s (applies on Connect)", ch + 1, g.rld[ch] ? "on" : "off");
     }
 }
 void np_host_cycle_gain(int ch)
@@ -8019,15 +8044,7 @@ int main(int argc, char **argv)
     g.window_s = 2;
     g.autoscale = 0;
     g.og = 0;
-    g.scale_uv = 200;
-    g.notch_hz = 50;
-    g.hp_hz = 1;
-    g.lp_hz = 0;
-    g.car = 0;
-    g.envelope = 0;
-    g.band = 0;
-    g.detrend = 0;
-    g.cal_cut = 1;
+    apply_readable_defaults();
     g.grid = 1;
     g.show_uv = 1;
 #ifdef __ANDROID__
@@ -8058,6 +8075,12 @@ int main(int argc, char **argv)
         g.chrgb[i][2] = CHCOL[i][2];
     }
     cfg_load();
+    if (g.set_gen < 1) {
+        apply_readable_defaults();
+        g.set_gen = 1;
+        filt_reset();
+        cfg_save();
+    }
     if (g.api_http == 8788) {
         g.api_http = 8765;
     }

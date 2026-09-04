@@ -385,7 +385,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:paddingTop="12dp"
-                    android:text="Process — CAR kills shared 50 Hz. Envelope shows a clench as a hump."
+                    android:text="Process — line-kill + CAR is the readable leftover. Raw is the open-input check. Bias (RLD) is per channel: tap bias ON / bias off."
                     android:textColor="@color/muted" />
 
                 <LinearLayout
@@ -555,7 +555,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:paddingTop="12dp"
-                    android:text="Channels — tap the site name for RGB, tap gN for gain"
+                    android:text="Channels — site name = color. ON = acquire. bias = RLD. gN = gain."
                     android:textColor="@color/muted" />
 
                 <LinearLayout

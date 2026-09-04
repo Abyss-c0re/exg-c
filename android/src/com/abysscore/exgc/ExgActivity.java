@@ -806,13 +806,19 @@ public class ExgActivity extends Activity {
             Button on = new Button(this);
             Button rld = new Button(this);
             Button gn = new Button(this);
+            LinearLayout.LayoutParams lpLab = new LinearLayout.LayoutParams(0,
+                    LinearLayout.LayoutParams.WRAP_CONTENT, 1.4f);
+            LinearLayout.LayoutParams lpBtn = new LinearLayout.LayoutParams(0,
+                    LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
             on.setOnClickListener(v -> {
                 ExgNative.setActive(ch, !ExgNative.active(ch));
                 refreshChannels();
+                refreshChrome();
             });
             rld.setOnClickListener(v -> {
                 ExgNative.setRld(ch, !ExgNative.rld(ch));
                 refreshChannels();
+                refreshChrome();
             });
             gn.setOnClickListener(v -> pick(ExgNative.elecName(ch) + " gain",
                     new String[] {"1", "2", "3", "4", "6", "8", "12"},
@@ -820,10 +826,10 @@ public class ExgActivity extends Activity {
                         ExgNative.setGain(ch, new int[] {1, 2, 3, 4, 6, 8, 12}[i]);
                         refreshChannels();
                     }));
-            row.addView(lab);
-            row.addView(on);
-            row.addView(rld);
-            row.addView(gn);
+            row.addView(lab, lpLab);
+            row.addView(on, lpBtn);
+            row.addView(rld, lpBtn);
+            row.addView(gn, lpBtn);
             row.setTag(ch);
             chGrid.addView(row);
         }
@@ -838,8 +844,14 @@ public class ExgActivity extends Activity {
             Button on = (Button) row.getChildAt(1);
             Button rld = (Button) row.getChildAt(2);
             Button gn = (Button) row.getChildAt(3);
-            on.setText(ExgNative.active(ch) ? "ON" : "off");
-            rld.setText(ExgNative.rld(ch) ? "RLD" : "rld");
+            boolean live = ExgNative.active(ch);
+            boolean bias = ExgNative.rld(ch);
+            on.setText(live ? "ON" : "off");
+            on.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
+                    live ? 0xFF2E8A58 : 0xFF3A3030));
+            rld.setText(bias ? "bias ON" : "bias off");
+            rld.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
+                    bias ? 0xFF2E6A8A : 0xFF3A3030));
             gn.setText("g" + ExgNative.gain(ch));
             Button lab = (Button) row.getChildAt(0);
             lab.setText(ExgNative.elecName(ch));
