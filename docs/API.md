@@ -1,4 +1,4 @@
-# API (2.47)
+# API (2.48)
 
 C only (`include/np_api.h`, `src/np_api.c`). No Python in this tree.
 
@@ -16,7 +16,7 @@ Default: **off**. Settings → **API on**. Then:
 
 Cook runs on the **USB reader** thread. The API thread wakes on a pipe and sends. Sockets do not block the cook. There is no fake sample delay.
 
-`/` and `/health` advertise `"v":"2.47"`. Live stream is **EXG1** binary. There is no `/stream.json`.
+`/` and `/health` advertise `"v":"2.48"`. Live stream is **EXG1** binary. There is no `/stream.json`.
 
 `GET /cfg` is the settings mirror: API bind plus leftover filters, 8 colors, 8 10-10 names, active mask, and the ID line. Token value is never returned (only `true`/`false`). Dest and token are typed on the client. A client sends any non-PING UDP to subscribe, then EXG1 at the server rate.
 

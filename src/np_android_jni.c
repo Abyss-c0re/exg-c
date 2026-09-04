@@ -1,5 +1,6 @@
 #ifdef NP_ANDROID_UI
 #include "np_host.h"
+#include "np_api.h"
 
 #include <jni.h>
 #include <stdio.h>
@@ -1775,5 +1776,60 @@ Java_com_abysscore_exgc_ExgNative_pairGrant(JNIEnv *env, jclass cls)
     (void)cls;
     np_host_pair_grant(buf, sizeof(buf));
     return jstr_from(env, buf);
+}
+
+JNIEXPORT jint JNICALL
+Java_com_abysscore_exgc_ExgNative_copyExg1(JNIEnv *env, jclass cls, jbyteArray dst)
+{
+    unsigned char raw[NP_API_FRAME];
+    int n;
+    (void)cls;
+    if (!dst || (*env)->GetArrayLength(env, dst) < NP_API_FRAME) {
+        return 0;
+    }
+    n = np_host_copy_exg1(raw, NP_API_FRAME);
+    if (n > 0) {
+        (*env)->SetByteArrayRegion(env, dst, 0, n, (jbyte *)raw);
+    }
+    return n;
+}
+
+JNIEXPORT jint JNICALL
+Java_com_abysscore_exgc_ExgNative_feedExg1(JNIEnv *env, jclass cls, jbyteArray src)
+{
+    unsigned char raw[NP_API_FRAME];
+    (void)cls;
+    if (!src || (*env)->GetArrayLength(env, src) < NP_API_FRAME) {
+        return -1;
+    }
+    (*env)->GetByteArrayRegion(env, src, 0, NP_API_FRAME, (jbyte *)raw);
+    return np_host_feed_exg1(raw, NP_API_FRAME);
+}
+
+JNIEXPORT void JNICALL
+Java_com_abysscore_exgc_ExgNative_applyCfgJson(JNIEnv *env, jclass cls, jstring js)
+{
+    char buf[1600];
+    (void)cls;
+    jstr_to(env, js, buf, sizeof(buf));
+    np_host_apply_cfg_json(buf);
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_abysscore_exgc_ExgNative_viewJson(JNIEnv *env, jclass cls)
+{
+    char buf[1400];
+    (void)cls;
+    buf[0] = 0;
+    np_host_view_json(buf, sizeof(buf));
+    return jstr_from(env, buf);
+}
+
+JNIEXPORT void JNICALL
+Java_com_abysscore_exgc_ExgNative_linkWire(JNIEnv *env, jclass cls, jboolean on)
+{
+    (void)env;
+    (void)cls;
+    np_host_link_wire(on ? 1 : 0);
 }
 #endif

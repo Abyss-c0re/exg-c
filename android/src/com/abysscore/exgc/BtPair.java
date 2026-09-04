@@ -22,8 +22,8 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * Bluetooth handshake only. After Allow, leftover rides wifi.
- * Names are device names — not "phone".
+ * Bluetooth handshake, then leftover on the same link.
+ * Wifi address is optional spare. Names are device names.
  */
 public final class BtPair {
     static final UUID SVC = UUID.fromString("c0de8e6c-6578-4000-8000-6578672d6331");
@@ -40,8 +40,10 @@ public final class BtPair {
     }
 
     private static volatile boolean listen;
+    private static volatile boolean followLive;
     private static Thread listenThr;
     private static BluetoothServerSocket server;
+    private static volatile BluetoothSocket followSock;
     private static BroadcastReceiver scanRx;
     private static final Map<String, BluetoothDevice> found = new LinkedHashMap<String, BluetoothDevice>();
 
@@ -89,18 +91,20 @@ public final class BtPair {
                 return;
             }
             while (listen && server != null) {
-                BluetoothSocket s = null;
                 try {
-                    s = server.accept();
-                    handleIn(s);
-                } catch (Exception ignored) {
-                } finally {
-                    if (s != null) {
+                    final BluetoothSocket s = server.accept();
+                    new Thread(() -> {
                         try {
-                            s.close();
+                            handleIn(s);
                         } catch (Exception ignored) {
+                        } finally {
+                            try {
+                                s.close();
+                            } catch (Exception ignored) {
+                            }
                         }
-                    }
+                    }, "leftover-out").start();
+                } catch (Exception ignored) {
                 }
             }
         }, "leftover-share");
@@ -136,6 +140,7 @@ public final class BtPair {
         }
         if (grantIn.length() > 0 && ExgNative.grantOk(grantIn)) {
             writeOk(out, grantIn);
+            pumpOut(out);
             return;
         }
         int st = ExgNative.pairBegin(name);
@@ -149,6 +154,7 @@ public final class BtPair {
         }
         if (st == 2) {
             writeOk(out, ExgNative.pairGrant());
+            pumpOut(out);
         } else {
             out.write("NO\n".getBytes(UTF8));
         }
@@ -165,8 +171,44 @@ public final class BtPair {
             udp = http + 1;
         }
         String msg = "OK\nGRANT " + (grant == null ? "" : grant) + "\nHOST " + host + "\nPORT "
-                + http + "\nUDP " + udp + "\n";
+                + http + "\nUDP " + udp + "\nLIVE\n";
         out.write(msg.getBytes(UTF8));
+    }
+
+    private static void pumpOut(OutputStream out) throws Exception {
+        byte[] frame = new byte[68];
+        long lastCfg = 0;
+        int lastSeq4 = -1;
+        while (listen) {
+            int n = ExgNative.copyExg1(frame);
+            if (n >= 68) {
+                int seq = (frame[4] & 255) | ((frame[5] & 255) << 8);
+                if (seq != lastSeq4) {
+                    out.write(frame, 0, n);
+                    lastSeq4 = seq;
+                }
+            }
+            long now = System.currentTimeMillis();
+            if (now - lastCfg >= 250) {
+                String js = ExgNative.viewJson();
+                if (js != null && js.length() > 0) {
+                    byte[] jsb = js.getBytes(UTF8);
+                    int ln = jsb.length;
+                    if (ln > 1400) {
+                        ln = 1400;
+                    }
+                    out.write(new byte[] {'C', 'F', 'G', '1', (byte) (ln & 255),
+                            (byte) ((ln >> 8) & 255)});
+                    out.write(jsb, 0, ln);
+                }
+                lastCfg = now;
+            }
+            try {
+                Thread.sleep(8);
+            } catch (InterruptedException e) {
+                return;
+            }
+        }
     }
 
     static void scan(Context c, ScanSink sink) {
@@ -247,7 +289,7 @@ public final class BtPair {
                 s = dev.createInsecureRfcommSocketToServiceRecord(SVC);
                 s.connect();
                 OutputStream out = s.getOutputStream();
-                BufferedReader in = new BufferedReader(new InputStreamReader(s.getInputStream(), UTF8));
+                java.io.InputStream raw = s.getInputStream();
                 String grant = ExgNative.followGrant(shown);
                 String req = "NAME " + selfName() + "\n";
                 if (grant != null && grant.length() > 0) {
@@ -258,9 +300,9 @@ public final class BtPair {
                 out.write(req.getBytes(UTF8));
                 String host = "", g = grant == null ? "" : grant;
                 int port = 8765, udp = 8766;
-                String line;
                 boolean ok = false;
-                while ((line = in.readLine()) != null) {
+                String line;
+                while ((line = readLine(raw)) != null) {
                     if (line.equals("NO")) {
                         sink.no("refused");
                         return;
@@ -282,21 +324,33 @@ public final class BtPair {
                         } catch (NumberFormatException ignored) {
                         }
                     }
-                    if (ok && host.length() > 0 && g.length() > 0) {
+                    if (line.equals("LIVE") && ok && g.length() > 0) {
+                        break;
+                    }
+                    if (ok && g.length() > 0 && host.length() > 0) {
+                        /* older share without LIVE — wifi only */
                         break;
                     }
                 }
-                if (!ok || host.length() < 1) {
-                    sink.no("no leftover share");
+                if (!ok || g.length() < 1) {
+                    sink.no("leftover refused");
                     return;
                 }
-                String dest = host + ":" + port + "/" + udp;
+                String dest = host.length() > 0 ? (host + ":" + port + "/" + udp)
+                        : ("bt:" + shown.replace(' ', '_'));
                 ExgNative.followRemember(shown.replace(' ', '_'), dest, g);
                 ExgNative.setLinkApi(true);
+                ExgNative.linkWire(true);
+                followSock = s;
+                followLive = true;
                 sink.ok(shown);
+                pumpIn(s);
             } catch (Exception e) {
                 sink.no("could not reach leftover");
             } finally {
+                followLive = false;
+                followSock = null;
+                ExgNative.linkWire(false);
                 if (s != null) {
                     try {
                         s.close();
@@ -305,6 +359,112 @@ public final class BtPair {
                 }
             }
         }, "leftover-follow").start();
+    }
+
+    private static String readLine(java.io.InputStream in) throws Exception {
+        StringBuilder b = new StringBuilder();
+        for (;;) {
+            int c = in.read();
+            if (c < 0) {
+                return b.length() == 0 ? null : b.toString();
+            }
+            if (c == '\n') {
+                return b.toString();
+            }
+            if (c != '\r') {
+                b.append((char) c);
+            }
+        }
+    }
+
+    private static void pumpIn(BluetoothSocket s) throws Exception {
+        java.io.InputStream in = s.getInputStream();
+        byte[] mag = new byte[4];
+        byte[] frame = new byte[68];
+        while (followLive) {
+            if (!readFull(in, mag, 4)) {
+                return;
+            }
+            if (mag[0] == 'E' && mag[1] == 'X' && mag[2] == 'G' && mag[3] == '1') {
+                System.arraycopy(mag, 0, frame, 0, 4);
+                if (!readFull(in, frame, 4, 64)) {
+                    return;
+                }
+                ExgNative.feedExg1(frame);
+            } else if (mag[0] == 'C' && mag[1] == 'F' && mag[2] == 'G' && mag[3] == '1') {
+                byte[] ln = new byte[2];
+                if (!readFull(in, ln, 2)) {
+                    return;
+                }
+                int n = (ln[0] & 255) | ((ln[1] & 255) << 8);
+                if (n < 1 || n > 1600) {
+                    return;
+                }
+                byte[] js = new byte[n];
+                if (!readFull(in, js, n)) {
+                    return;
+                }
+                ExgNative.applyCfgJson(new String(js, UTF8));
+            } else {
+                return;
+            }
+        }
+    }
+
+    private static boolean readFull(java.io.InputStream in, byte[] b, int n) throws Exception {
+        return readFull(in, b, 0, n);
+    }
+
+    private static boolean readFull(java.io.InputStream in, byte[] b, int off, int n)
+            throws Exception {
+        int g = 0;
+        while (g < n) {
+            int r = in.read(b, off + g, n - g);
+            if (r < 0) {
+                return false;
+            }
+            g += r;
+        }
+        return true;
+    }
+
+    static void followStop() {
+        followLive = false;
+        if (followSock != null) {
+            try {
+                followSock.close();
+            } catch (Exception ignored) {
+            }
+            followSock = null;
+        }
+    }
+
+    static boolean followLive() {
+        return followLive;
+    }
+
+    static void followName(final String shown, final FollowSink sink) {
+        BluetoothDevice d = found.get(shown);
+        if (d == null) {
+            BluetoothAdapter ad = BluetoothAdapter.getDefaultAdapter();
+            if (ad != null) {
+                try {
+                    for (BluetoothDevice b : ad.getBondedDevices()) {
+                        String n = b.getName();
+                        if (n != null && (n.equals(shown) || n.replace(' ', '_').equals(shown))) {
+                            d = b;
+                            break;
+                        }
+                    }
+                } catch (SecurityException ignored) {
+                }
+            }
+        }
+        if (d == null) {
+            sink.no("not nearby");
+            return;
+        }
+        follow(d, shown, sink);
     }
 
     static ArrayList<String> foundNames() {

@@ -188,14 +188,19 @@ public class ExgActivity extends Activity {
 
         connect.setOnClickListener(v -> {
             if (ExgNative.connected()) {
+                BtPair.followStop();
                 ExgNative.disconnect();
                 refreshChrome();
                 return;
             }
             if (ExgNative.linkApi()) {
                 String d = ExgNative.linkDest();
-                if (d == null || d.length() < 1) {
-                    pickNearby();
+                if (d == null || d.length() < 1 || d.startsWith("bt:")) {
+                    if (d != null && d.startsWith("bt:") && d.length() > 3) {
+                        followSaved(d.substring(3));
+                    } else {
+                        pickNearby();
+                    }
                     return;
                 }
             }
@@ -557,7 +562,11 @@ public class ExgActivity extends Activity {
         String ports = ExgNative.ports();
         if (apiLink) {
             String d = ExgNative.linkDest();
-            port.setText(d == null || d.length() == 0 ? "nearby leftover…" : "leftover ready");
+            if (BtPair.followLive()) {
+                port.setText("on bluetooth");
+            } else {
+                port.setText(d == null || d.length() == 0 ? "nearby leftover…" : "leftover ready");
+            }
         } else {
             port.setText(ports == null || ports.length() == 0 ? "no Knight" : ports.split("\n")[0]);
         }
@@ -1220,6 +1229,26 @@ public class ExgActivity extends Activity {
         }
     }
 
+    private void followSaved(String name) {
+        ensureNear();
+        BtPair.followName(name, new BtPair.FollowSink() {
+            @Override
+            public void ok(String n) {
+                h.post(() -> {
+                    StreamService.ensure(ExgActivity.this,
+                            ExgNative.apiOn() || ExgNative.connected());
+                    refreshChrome();
+                });
+            }
+            @Override
+            public void no(String why) {
+                h.post(() -> {
+                    pickNearby();
+                });
+            }
+        });
+    }
+
     private void pickNearby() {
         ensureNear();
         final java.util.ArrayList<String> names = new java.util.ArrayList<String>();
@@ -1262,7 +1291,6 @@ public class ExgActivity extends Activity {
                                     @Override
                                     public void ok(String n) {
                                         h.post(() -> {
-                                            ExgNative.connect();
                                             StreamService.ensure(ExgActivity.this,
                                                     ExgNative.apiOn() || ExgNative.connected());
                                             refreshChrome();
@@ -1297,9 +1325,7 @@ public class ExgActivity extends Activity {
             b.setText(nm.replace('_', ' '));
             b.setOnClickListener(v -> {
                 ExgNative.followUse(ix);
-                ExgNative.connect();
-                StreamService.ensure(this, ExgNative.apiOn() || ExgNative.connected());
-                refreshChrome();
+                followSaved(nm);
             });
             b.setOnLongClickListener(v -> {
                 ExgNative.followDel(ix);

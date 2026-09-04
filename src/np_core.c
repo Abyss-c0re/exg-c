@@ -5928,3 +5928,45 @@ void np_host_pair_grant(char *out, int n)
     snprintf(out, (size_t)n, "%s", pair_grant);
     pthread_mutex_unlock(&pair_mu);
 }
+
+int np_host_copy_exg1(unsigned char *dst, int cap)
+{
+    struct np_api_sample s;
+    if (!np_api_latest(&s)) {
+        return 0;
+    }
+    return np_api_pack(dst, cap, &s);
+}
+
+int np_host_feed_exg1(const unsigned char *raw, int n)
+{
+    struct np_api_sample s;
+    if (np_api_unpack(raw, n, &s) != NP_API_FRAME) {
+        return -1;
+    }
+    link_on_sample(&s);
+    return 0;
+}
+
+void np_host_apply_cfg_json(const char *js)
+{
+    apply_link_cfg(js);
+}
+
+void np_host_view_json(char *out, int n)
+{
+    api_view_json(out, n);
+}
+
+void np_host_link_wire(int on)
+{
+    if (on) {
+        g.link = 1;
+        g.connected = 1;
+        np_link_set_hooks(link_on_sample, apply_link_cfg);
+        set_status(1, "following leftover on bluetooth");
+    } else if (g.link) {
+        g.connected = 0;
+        set_status(1, "disconnected");
+    }
+}

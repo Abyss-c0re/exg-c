@@ -208,4 +208,9 @@ public final class ExgNative {
     public static native void pairAccept();
     public static native void pairReject();
     public static native String pairGrant();
+    public static native int copyExg1(byte[] dst);
+    public static native int feedExg1(byte[] src);
+    public static native void applyCfgJson(String js);
+    public static native String viewJson();
+    public static native void linkWire(boolean on);
 }

@@ -482,7 +482,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:paddingTop="12dp"
-                    android:text="Share leftover: turn share on + wifi. Follow leftover: tap follow leftover, pick a nearby name. Bluetooth asks first. Address is shared after Allow."
+                    android:text="Share leftover: turn share on. Follow leftover: pick a nearby name. Allow/No on the share side. Leftover rides Bluetooth. Wifi address is sent after Allow if wifi is up."
                     android:textColor="@color/muted" />
 
                 <TextView

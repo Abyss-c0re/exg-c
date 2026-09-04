@@ -228,4 +228,11 @@ void np_host_pair_accept(void);
 void np_host_pair_reject(void);
 void np_host_pair_grant(char *out, int n);
 
+/* Bluetooth leftover wire. Same EXG1 as wifi. */
+int np_host_copy_exg1(unsigned char *dst, int cap);
+int np_host_feed_exg1(const unsigned char *raw, int n);
+void np_host_apply_cfg_json(const char *js);
+void np_host_view_json(char *out, int n);
+void np_host_link_wire(int on);
+
 #endif
