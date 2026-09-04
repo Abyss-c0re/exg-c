@@ -67,7 +67,7 @@ Use loopback in examples. Do not bake a LAN unicast or a lab hostname into a des
 
 ## UDP (live)
 
-Send any datagram to `:8766` to subscribe (except **PING**). The host sends EXG1 to subscribers and to an optional typed push dest.
+Subscribe with `SUB1` plus the pair grant (4-byte prefix, then the grant). PING does not subscribe. Tests with no grant table still take any non-PING datagram. The host sends EXG1 to subscribers and to an optional typed push dest.
 
 **PING** (12 bytes): `PING` + 8-byte little-endian client stamp.  
 **PONG** (20 bytes): `PONG` + same stamp + 8-byte server `CLOCK_REALTIME` µs.  
