@@ -1999,7 +1999,7 @@ static void link_on_sample(const struct np_api_sample *s)
     g.sps = s->sps;
     g.paused = (s->flags & 2) ? 1 : 0;
     if (!g.status_ok) {
-        set_status(1, "API client");
+        set_status(1, "following other phone");
     }
 }
 
@@ -2951,17 +2951,17 @@ void do_connect(void)
     }
     if (g.link) {
         if (!g.link_dest[0]) {
-            set_status(0, "type API dest  host:port");
+            set_status(0, "type the other phone  name:settings-port");
             return;
         }
         np_link_set_hooks(link_on_sample, apply_link_cfg);
         if (np_link_start(g.link_dest, g.link_token) != 0) {
-            set_status(0, "API dest failed");
+            set_status(0, "other phone name failed");
             return;
         }
         g.connected = 1;
         g.stall_t = SDL_GetTicks();
-        set_status(1, "API client — waiting");
+        set_status(1, "following other phone — waiting");
         return;
     }
     g.nports = np_list_ports(g.ports, NP_MAX_PORTS);
@@ -5700,7 +5700,7 @@ void np_host_set_link(int api)
     }
     g.link = want;
     cfg_save();
-    set_status(1, g.link ? "link API — type dest, Connect" : "link USB");
+    set_status(1, g.link ? "other phone — type name:settings-port, Connect" : "this board — Knight USB");
 }
 
 void np_host_link_dest(char *out, int n)

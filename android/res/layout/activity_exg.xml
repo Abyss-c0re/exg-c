@@ -28,7 +28,7 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:backgroundTint="@color/btn"
-            android:text="(no port)"
+            android:text="no Knight"
             android:textColor="@color/ink" />
 
         <Button
@@ -36,7 +36,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:backgroundTint="@color/btn"
-            android:text="USB"
+            android:text="this board"
             android:textColor="@color/ink" />
 
         <Button
@@ -482,7 +482,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:paddingTop="12dp"
-                    android:text="API — type the ports. UDP is the live path. Stream stays up in the background."
+                    android:text="Share leftover from this phone: API on + wifi. Follow another phone: tap other phone, type its name and settings port, Connect. Leftover is the next port."
                     android:textColor="@color/muted" />
 
                 <TextView
@@ -510,7 +510,7 @@
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="lan" />
+                        android:text="wifi" />
 
                     <Button
                         android:id="@+id/apiHz"
@@ -529,21 +529,21 @@
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="http 8765" />
+                        android:text="settings 8765" />
 
                     <Button
                         android:id="@+id/apiUdp"
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="udp 8766" />
+                        android:text="leftover 8766" />
 
                     <Button
                         android:id="@+id/apiTcp"
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="tcp 8767" />
+                        android:text="spare 8767" />
                 </LinearLayout>
 
                 <LinearLayout
@@ -555,14 +555,14 @@
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="token (off)" />
+                        android:text="lock off" />
 
                     <Button
                         android:id="@+id/apiPush"
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="push dest" />
+                        android:text="extra send off" />
                 </LinearLayout>
 
                 <LinearLayout
@@ -574,14 +574,14 @@
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="client dest" />
+                        android:text="follow other phone…" />
 
                     <Button
                         android:id="@+id/linkToken"
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="client token" />
+                        android:text="other lock off" />
                 </LinearLayout>
 
                 <TextView

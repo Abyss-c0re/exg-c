@@ -202,7 +202,7 @@ public class ExgActivity extends Activity {
             refreshChrome();
         });
         linkDest.setOnClickListener(v -> askDest());
-        linkToken.setOnClickListener(v -> askName("API client token (empty = none)",
+        linkToken.setOnClickListener(v -> askName("Other phone lock word (empty = none)",
                 ExgNative.linkToken(), s -> {
                     ExgNative.setLinkToken(s);
                     refreshChrome();
@@ -393,28 +393,28 @@ public class ExgActivity extends Activity {
             ExgNative.setApiLan(!ExgNative.apiLan());
             refreshChrome();
         });
-        apiHz.setOnClickListener(v -> askPort("Stream rate Hz", ExgNative.apiHz(), p -> {
+        apiHz.setOnClickListener(v -> askPort("Leftover samples per second", ExgNative.apiHz(), p -> {
             ExgNative.setApiHz(p < 1 ? 1 : p);
             refreshChrome();
         }));
-        apiHttp.setOnClickListener(v -> askPort("HTTP port (0 = off)", ExgNative.apiHttp(), p -> {
+        apiHttp.setOnClickListener(v -> askPort("Settings port — other phone types this after the colon. 0 = off", ExgNative.apiHttp(), p -> {
             ExgNative.setApiHttp(p);
             refreshChrome();
         }));
-        apiUdp.setOnClickListener(v -> askPort("UDP port (0 = off)", ExgNative.apiUdp(), p -> {
+        apiUdp.setOnClickListener(v -> askPort("Leftover port — live traces. Default is settings+1. 0 = off", ExgNative.apiUdp(), p -> {
             ExgNative.setApiUdp(p);
             refreshChrome();
         }));
-        apiTcp.setOnClickListener(v -> askPort("TCP port (0 = off)", ExgNative.apiTcp(), p -> {
+        apiTcp.setOnClickListener(v -> askPort("Spare port — not needed to follow. 0 = off", ExgNative.apiTcp(), p -> {
             ExgNative.setApiTcp(p);
             refreshChrome();
         }));
-        apiToken.setOnClickListener(v -> askName("LAN token (empty = off)",
+        apiToken.setOnClickListener(v -> askName("Lock word (empty = off). Other phone types the same word.",
                 ExgNative.apiToken(), s -> {
                     ExgNative.setApiToken(s);
                     refreshChrome();
                 }));
-        apiPush.setOnClickListener(v -> askName("UDP push dest  host:port",
+        apiPush.setOnClickListener(v -> askName("Extra leftover send  name:port  (empty = off)",
                 ExgNative.apiPush(), s -> {
                     ExgNative.setApiPush(s);
                     refreshChrome();
@@ -543,15 +543,15 @@ public class ExgActivity extends Activity {
         boolean apiLink = ExgNative.linkApi();
         connect.setText(on ? "Disconnect" : "Connect");
         connect.setBackgroundTintList(android.content.res.ColorStateList.valueOf(on ? 0xFF8A3038 : 0xFF2E8A58));
-        link.setText(apiLink ? "API" : "USB");
+        link.setText(apiLink ? "other phone" : "this board");
         link.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
                 apiLink ? 0xFF2E6A8A : 0xFF2A3038));
         String ports = ExgNative.ports();
         if (apiLink) {
             String d = ExgNative.linkDest();
-            port.setText(d == null || d.length() == 0 ? "type dest" : d);
+            port.setText(d == null || d.length() == 0 ? "other phone…" : d);
         } else {
-            port.setText(ports == null || ports.length() == 0 ? "(no port)" : ports.split("\n")[0]);
+            port.setText(ports == null || ports.length() == 0 ? "no Knight" : ports.split("\n")[0]);
         }
         String st = ExgNative.status();
         float sps = ExgNative.sps();
@@ -657,20 +657,20 @@ public class ExgActivity extends Activity {
         apiOn.setText(apion ? "API on" : "API off");
         apiOn.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
                 apion ? 0xFF2E8A58 : 0xFF2A3038));
-        apiBind.setText(ExgNative.apiLan() ? "lan" : "local");
-        apiHz.setText(ExgNative.apiHz() + " Hz");
-        apiHttp.setText(ExgNative.apiHttp() == 0 ? "http off" : ("http " + ExgNative.apiHttp()));
-        apiUdp.setText(ExgNative.apiUdp() == 0 ? "udp off" : ("udp " + ExgNative.apiUdp()));
-        apiTcp.setText(ExgNative.apiTcp() == 0 ? "tcp off" : ("tcp " + ExgNative.apiTcp()));
+        apiBind.setText(ExgNative.apiLan() ? "wifi" : "this phone");
+        apiHz.setText(ExgNative.apiHz() + " /s");
+        apiHttp.setText(ExgNative.apiHttp() == 0 ? "settings off" : ("settings " + ExgNative.apiHttp()));
+        apiUdp.setText(ExgNative.apiUdp() == 0 ? "leftover off" : ("leftover " + ExgNative.apiUdp()));
+        apiTcp.setText(ExgNative.apiTcp() == 0 ? "spare off" : ("spare " + ExgNative.apiTcp()));
         {
             String tok = ExgNative.apiToken();
-            apiToken.setText(tok == null || tok.length() == 0 ? "token (off)" : "token set");
+            apiToken.setText(tok == null || tok.length() == 0 ? "lock off" : "lock on");
             String dest = ExgNative.apiPush();
-            apiPush.setText(dest == null || dest.length() == 0 ? "push dest" : dest);
+            apiPush.setText(dest == null || dest.length() == 0 ? "extra send off" : dest);
             String peer = ExgNative.linkDest();
-            linkDest.setText(peer == null || peer.length() == 0 ? "client dest" : peer);
+            linkDest.setText(peer == null || peer.length() == 0 ? "follow other phone…" : peer);
             String ctok = ExgNative.linkToken();
-            linkToken.setText(ctok == null || ctok.length() == 0 ? "client token" : "client token set");
+            linkToken.setText(ctok == null || ctok.length() == 0 ? "other lock off" : "other lock on");
             apiLine.setText(ExgNative.apiLine());
         }
         if (ExgNative.boardImu()) {
@@ -1110,17 +1110,27 @@ public class ExgActivity extends Activity {
 
     /* Dialog typing — extract IME is a black overlay on this handset. */
     private void askName(String title, String current, java.util.function.Consumer<String> on) {
-        askName(title, current, on, null);
+        askName(title, current, "letters, digits, - _", on, null);
+    }
+
+    private void askName(String title, String current, String hint,
+            java.util.function.Consumer<String> on) {
+        askName(title, current, hint, on, null);
     }
 
     private void askName(String title, String current, java.util.function.Consumer<String> on,
             Runnable cancel) {
+        askName(title, current, "letters, digits, - _", on, cancel);
+    }
+
+    private void askName(String title, String current, String hint,
+            java.util.function.Consumer<String> on, Runnable cancel) {
         final EditText e = new EditText(this);
         e.setText(current);
         e.setSelectAllOnFocus(true);
         e.setTextColor(0xFFE8EAF0);
         e.setHintTextColor(0xFF8B93A0);
-        e.setHint("letters, digits, - _");
+        e.setHint(hint);
         e.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
                 | InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD);
         e.setImeOptions(EditorInfo.IME_FLAG_NO_EXTRACT_UI | EditorInfo.IME_FLAG_NO_FULLSCREEN
@@ -1172,7 +1182,8 @@ public class ExgActivity extends Activity {
     }
 
     private void askDest() {
-        askName("API dest  host:port", ExgNative.linkDest(), s -> {
+        askName("Other phone", ExgNative.linkDest(),
+                "name:8765  leftover is next port", s -> {
             ExgNative.setLinkDest(s);
             refreshChrome();
         });
@@ -1187,13 +1198,13 @@ public class ExgActivity extends Activity {
         String[] items = (raw == null || raw.length() == 0) ? new String[0] : raw.split("\n");
         if (items.length == 0) {
             new AlertDialog.Builder(this)
-                    .setTitle("USB")
-                    .setMessage("no USB serial — switch to API to type a dest")
+                    .setTitle("This board")
+                    .setMessage("No Knight on USB. Tap other phone to follow leftover from another phone.")
                     .setPositiveButton("OK", null)
                     .show();
             return;
         }
-        pick("Port", items, 0, i -> {
+        pick("Knight USB", items, 0, i -> {
             ExgNative.setPortI(i);
             refreshChrome();
         });

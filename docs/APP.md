@@ -1,4 +1,4 @@
-# App (2.45)
+# App (2.46)
 
 What the host does. The LAN wire is [API.md](API.md).
 
