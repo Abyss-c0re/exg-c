@@ -4,7 +4,7 @@ A C host for a **[Knight](https://www.neuropawn.tech/)** ADS1299 board — or an
 
 Not a medical device. Not affiliated with NeuroPawn.
 
-Shipped app: **2.42** (`com.abysscore.exgc`, versionCode 51). One framework, two skins:
+Shipped app: **2.43** (`com.abysscore.exgc`, versionCode 52). One framework, two skins:
 
 | Piece | Role |
 |-------|------|
@@ -33,7 +33,7 @@ Quest / phone notes: [android/README.md](android/README.md).
 - **Cube viz** — crimson 8³ lattice. Mapped electrode cells track leftover µV (same color and millivolt as the traces). **float on/off**, drag to spin, +/− or pinch to zoom. **map** assigns 10-10 sites.
 - **API** off by default. When on: HTTP 8765, UDP 8766, TCP 8767, bind lan, 125 Hz. Live path is **EXG1** binary, not JSON.
 
-Default montage: Fp1 Fp2 C3 C4 P3 P4 O1 O2.
+Default montage: **FCz–CPz**, **CP4–FC3**, **FC4–CP3**, **C3–C4**. Eight leftover sites; four bipolar leftover traces. Map can still assign any 10-10 name.
 
 ## Linux
 

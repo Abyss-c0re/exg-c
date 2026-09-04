@@ -113,7 +113,7 @@ struct np_app {
     } off, on, cal, calm;
     int cal_arm;
     int cal_cut;
-    int set_gen; /* 1 = leftover defaults, 2 = API off unless turned on */
+    int set_gen; /* 1 leftover defaults, 2 API off, 3 pair montage */
     float cal_hz; /* line tone from noise plate; 0 = none */
     float noise_psd[NP_PSD_BINS];
     float noise_psd_ch[NP_NCHAN][NP_PSD_BINS];

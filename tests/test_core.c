@@ -549,11 +549,35 @@ static void test_elec_view(void)
            "10-20 names are core markings");
     expect(!np_1010_core(np_1010_find("AF3")) && !np_1010_core(np_1010_find("FCz")),
            "10-10 intermediates are not 10-20 core");
-    expect(strcmp(e[0].name, "Fp1") == 0 && strcmp(e[1].name, "Fp2") == 0, "default ch1 Fp1 ch2 Fp2");
-    expect(strcmp(e[2].name, "C3") == 0 && strcmp(e[7].name, "O2") == 0, "default C3..O2");
+    expect(strcmp(e[0].name, "FCz") == 0 && strcmp(e[1].name, "CPz") == 0, "default ch1 FCz ch2 CPz");
+    expect(strcmp(e[6].name, "C3") == 0 && strcmp(e[7].name, "C4") == 0, "default C3 C4");
+    {
+        int p, ca, cb, ok = 1;
+        expect(np_pair_count() == 4, "four leftover pairs");
+        expect(strcmp(np_pair_site_a(0), "FCz") == 0 && strcmp(np_pair_site_b(0), "CPz") == 0,
+               "pair 0 FCz-CPz");
+        expect(strcmp(np_pair_site_a(1), "CP4") == 0 && strcmp(np_pair_site_b(1), "FC3") == 0,
+               "pair 1 CP4-FC3");
+        expect(strcmp(np_pair_site_a(2), "FC4") == 0 && strcmp(np_pair_site_b(2), "CP3") == 0,
+               "pair 2 FC4-CP3");
+        expect(strcmp(np_pair_site_a(3), "C3") == 0 && strcmp(np_pair_site_b(3), "C4") == 0,
+               "pair 3 C3-C4");
+        for (p = 0; p < 4; p++) {
+            if (np_pair_chs(e, p, &ca, &cb) != 0 || ca < 0 || cb < 0 || ca == cb) {
+                ok = 0;
+            }
+        }
+        expect(ok, "each pair maps two distinct channels");
+    }
     np_elec_to_xyz(&e[0], 1.f, &x, &y, &z);
     expect(fabsf(x * x + y * y + z * z - 1.f) < 1e-5f, "site on unit sphere");
-    expect(x < 0.f && z > 0.f, "Fp1 is left-front");
+    {
+        struct np_elec fp;
+        float fx, fy, fz;
+        np_elec_set_site(&fp, np_1010_find("Fp1"));
+        np_elec_to_xyz(&fp, 1.f, &fx, &fy, &fz);
+        expect(fx < 0.f && fz > 0.f, "Fp1 is left-front");
+    }
     {
         float fx, fy;
         np_1010_flat(np_1010_find("Fp1"), &fx, &fy);
@@ -564,7 +588,7 @@ static void test_elec_view(void)
     np_elec_from_xyz(x, y, z, &back);
     expect(fabsf(back.az - e[0].az) < 0.05f && fabsf(back.el - e[0].el) < 0.05f,
            "xyz round-trip az/el");
-    expect(strcmp(np_1010_name(np_1010_nearest(e[2].az, e[2].el)), "C3") == 0, "nearest snap C3");
+    expect(strcmp(np_1010_name(np_1010_nearest(e[6].az, e[6].el)), "C3") == 0, "nearest snap C3");
 
     np_view_apply(0.7f, 0.4f, 1.f, 0.f, 0.f, &x, &y, &z);
     np_view_undo(0.7f, 0.4f, x, y, z, &x2, &y2, &z2);
@@ -584,9 +608,15 @@ static void test_elec_view(void)
         np_elec_cube_xyz(&e[0], &x1, &y1, &z1);
         np_elec_cube_xyz(&e[0], &x2, &y2, &z2);
         expect(x1 == x2 && y1 == y2 && z1 == z2, "channel cell does not move");
-        expect(x1 < 0.f && z1 > 0.f, "Fp1 cube cell is left-front");
+        expect(fabsf(x1) < 0.35f && z1 > 0.f, "FCz cube cell is midline-front");
         np_elec_cube_xyz(&e[1], &x2, &y2, &z2);
-        expect(!(x1 == x2 && z1 == z2), "Fp1 and Fp2 occupy different cells");
+        expect(!(x1 == x2 && z1 == z2), "FCz and CPz occupy different cells");
+        {
+            struct np_elec fp;
+            np_elec_set_site(&fp, np_1010_find("Fp1"));
+            np_elec_cube_xyz(&fp, &x1, &y1, &z1);
+            expect(x1 < 0.f && z1 > 0.f, "Fp1 cube cell is left-front");
+        }
     }
     sites = 0;
     for (i = 0; i < n; i++) {
@@ -1200,7 +1230,7 @@ static void test_api(void)
          strstr(body, "/stream") && strstr(body, "EXG1");
     expect(ok, "api GET / index lists stream");
     expect(strstr(body, "stream.json") == NULL, "api index has no NDJSON live path");
-    expect(strstr(body, "\"v\":\"2.42\"") != NULL, "api index version 2.42");
+    expect(strstr(body, "\"v\":\"2.43\"") != NULL, "api index version 2.43");
     expect(strstr(body, "\"ip\":\"127.0.0.1\"") != NULL, "api local ip is loopback");
 
     {

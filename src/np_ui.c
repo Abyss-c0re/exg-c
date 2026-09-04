@@ -1033,12 +1033,34 @@ static void draw_cube(int x, int y, int w, int h)
             s_node_sx[i] = s_node_sy[i] = -20000;
         }
         {
-            float uv[8];
+            float uv[8], puv[4];
             float sc = (float)g.scale_uv;
+            int p;
             if (sc < 25.f) {
                 sc = 25.f;
             }
             np_host_leftover_uv(uv);
+            np_host_pair_uv(puv);
+            for (p = 0; p < NP_PAIR_N; p++) {
+                int ca, cb, ax, ay, bx, by;
+                float rel, cax, cay, caz, cbx, cby, cbz;
+                if (np_host_pair_chs(p, &ca, &cb) != 0 || !g.active[ca] || !g.active[cb]) {
+                    continue;
+                }
+                rel = puv[p] / sc;
+                if (rel > 2.f) {
+                    rel = 2.f;
+                }
+                if (rel < 0.03f) {
+                    continue;
+                }
+                np_elec_cube_xyz(&g.elec[ca], &cax, &cay, &caz);
+                np_elec_cube_xyz(&g.elec[cb], &cbx, &cby, &cbz);
+                cam_pt(cax, cay, caz, &ax, &ay, NULL);
+                cam_pt(cbx, cby, cbz, &bx, &by, NULL);
+                SDL_SetRenderDrawColor(R, 255, 20, 26, (Uint8)(50 + 180 * (rel > 1.f ? 1.f : rel)));
+                SDL_RenderDrawLine(R, ax, ay, bx, by);
+            }
             for (c = 0; c < NP_NCHAN; c++) {
                 float cx, cy, cz, rel;
                 int sx, sy, rad;
@@ -2061,7 +2083,7 @@ static void click(int x, int y)
         case 39:
             np_elec_default(g.elec);
             cfg_save();
-            set_status(1, "default  Fp1 Fp2 C3 C4 P3 P4 O1 O2");
+            set_status(1, "default  FCz-CPz CP4-FC3 FC4-CP3 C3-C4");
             break;
         case 47:
             cube_zoom_by(-1);

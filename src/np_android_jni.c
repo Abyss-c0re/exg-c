@@ -576,6 +576,50 @@ Java_com_abysscore_exgc_ExgNative_leftoverUv(JNIEnv *env, jclass cls, jfloatArra
     (*env)->SetFloatArrayRegion(env, dst, 0, 8, uv);
 }
 
+JNIEXPORT jint JNICALL
+Java_com_abysscore_exgc_ExgNative_pairN(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    return np_host_pair_n();
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_abysscore_exgc_ExgNative_pairLabel(JNIEnv *env, jclass cls, jint i)
+{
+    char buf[24];
+    (void)cls;
+    np_host_pair_label(i, buf, sizeof(buf));
+    return jstr_from(env, buf);
+}
+
+JNIEXPORT void JNICALL
+Java_com_abysscore_exgc_ExgNative_pairChs(JNIEnv *env, jclass cls, jint i, jintArray dst)
+{
+    int a = -1, b = -1;
+    jint ab[2];
+    (void)cls;
+    if (!dst || (*env)->GetArrayLength(env, dst) < 2) {
+        return;
+    }
+    np_host_pair_chs(i, &a, &b);
+    ab[0] = a;
+    ab[1] = b;
+    (*env)->SetIntArrayRegion(env, dst, 0, 2, ab);
+}
+
+JNIEXPORT void JNICALL
+Java_com_abysscore_exgc_ExgNative_pairUv(JNIEnv *env, jclass cls, jfloatArray dst)
+{
+    float uv[4];
+    (void)cls;
+    if (!dst || (*env)->GetArrayLength(env, dst) < 4) {
+        return;
+    }
+    np_host_pair_uv(uv);
+    (*env)->SetFloatArrayRegion(env, dst, 0, 4, uv);
+}
+
 JNIEXPORT void JNICALL
 Java_com_abysscore_exgc_ExgNative_cycleNotch(JNIEnv *env, jclass cls)
 {

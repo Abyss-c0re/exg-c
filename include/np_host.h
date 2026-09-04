@@ -81,6 +81,11 @@ void np_host_set_port_i(int i);
 void np_host_copy_cube(unsigned char dst[512]);
 /* Leftover RMS µV, same cook as the traces. Inactive channels are 0. */
 void np_host_leftover_uv(float uv[8]);
+int np_host_pair_n(void);
+void np_host_pair_label(int i, char *out, int n);
+int np_host_pair_chs(int i, int *a, int *b);
+/* Leftover RMS of A−B, same cook as the traces. 0 if a site is off. */
+void np_host_pair_uv(float uv[4]);
 int np_host_notch(void);
 /* Effective notch Hz (AUTO → plate). 0 if idle. */
 int np_host_notch_eff(void);

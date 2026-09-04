@@ -49,6 +49,7 @@ struct np_elec {
 };
 
 #define NP_HEAD_R 1.15f
+#define NP_PAIR_N 4 /* FCz-CPz, CP4-FC3, FC4-CP3, C3-C4 */
 
 void np_smx_init(struct np_smx *m);
 void np_smx_push(struct np_smx *m, const uint8_t bits[NP_NCHAN], int nch, uint8_t mask);
@@ -62,6 +63,11 @@ unsigned int np_smx_fold_ch(const struct np_smx *m);
 int np_smx_cubes(const struct np_smx *m, struct np_cube *out, int cap);
 
 void np_elec_default(struct np_elec e[NP_NCHAN]);
+int np_pair_count(void);
+const char *np_pair_site_a(int pair);
+const char *np_pair_site_b(int pair);
+/* Channel indices for a named pair, or -1 if a site is unmapped. */
+int np_pair_chs(const struct np_elec e[NP_NCHAN], int pair, int *cha, int *chb);
 void np_elec_set_site(struct np_elec *e, int site);
 void np_elec_to_xyz(const struct np_elec *e, float r, float *x, float *y, float *z);
 void np_elec_from_xyz(float x, float y, float z, struct np_elec *e);

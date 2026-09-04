@@ -3392,6 +3392,11 @@ int np_host_start(const char *files_dir)
         g.set_gen = 2;
         cfg_save();
     }
+    if (g.set_gen < 3) {
+        np_elec_default(g.elec);
+        g.set_gen = 3;
+        cfg_save();
+    }
     if (g.api_http == 8788) {
         g.api_http = 8765;
     }
@@ -4182,6 +4187,56 @@ void np_host_copy_cube(unsigned char dst[512])
 void np_host_leftover_uv(float uv[8])
 {
     leftover_now(uv, NULL);
+}
+
+int np_host_pair_n(void)
+{
+    return np_pair_count();
+}
+
+void np_host_pair_label(int i, char *out, int n)
+{
+    if (!out || n < 4) {
+        return;
+    }
+    snprintf(out, (size_t)n, "%s-%s", np_pair_site_a(i), np_pair_site_b(i));
+}
+
+int np_host_pair_chs(int i, int *a, int *b)
+{
+    return np_pair_chs(g.elec, i, a, b);
+}
+
+void np_host_pair_uv(float uv[4])
+{
+    float a[NP_RING], b[NP_RING], d[NP_RING];
+    int p;
+    if (!uv) {
+        return;
+    }
+    memset(uv, 0, 4 * sizeof(float));
+    for (p = 0; p < NP_PAIR_N; p++) {
+        int ca, cb;
+        uint32_t na, nb, n, i;
+        float dc = 0, rms = 0, pk = 0;
+        if (np_pair_chs(g.elec, p, &ca, &cb) != 0) {
+            continue;
+        }
+        if (!g.active[ca] || !g.active[cb]) {
+            continue;
+        }
+        na = view_copy(ca, a, 32);
+        nb = view_copy(cb, b, 32);
+        n = na < nb ? na : nb;
+        if (n < 4) {
+            continue;
+        }
+        for (i = 0; i < n; i++) {
+            d[i] = a[i] - b[i];
+        }
+        ch_stats(d, n, &dc, &rms, &pk);
+        uv[p] = rms;
+    }
 }
 int np_host_notch(void)
 {

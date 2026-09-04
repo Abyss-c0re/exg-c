@@ -616,17 +616,86 @@ void np_elec_set_site(struct np_elec *e, int site)
     np_1010_elaz(site, &e->az, &e->el);
 }
 
+static const char *k_elec_default[NP_NCHAN] = {"FCz", "CPz", "CP4", "FC3",
+                                               "FC4", "CP3", "C3", "C4"};
+static const char *k_pair[NP_PAIR_N][2] = {
+    {"FCz", "CPz"},
+    {"CP4", "FC3"},
+    {"FC4", "CP3"},
+    {"C3", "C4"},
+};
+
 void np_elec_default(struct np_elec e[NP_NCHAN])
 {
-    /* Docs start at Fp1/Fp2. Balanced 8-ch 10-20 on the 10-10 frame. */
-    static const char *d[NP_NCHAN] = {"Fp1", "Fp2", "C3", "C4", "P3", "P4", "O1", "O2"};
+    /* Sensorimotor belt: four leftover pairs, not Fp/O. */
     int i;
     if (!e) {
         return;
     }
     for (i = 0; i < NP_NCHAN; i++) {
-        np_elec_set_site(&e[i], np_1010_find(d[i]));
+        np_elec_set_site(&e[i], np_1010_find(k_elec_default[i]));
     }
+}
+
+int np_pair_count(void)
+{
+    return NP_PAIR_N;
+}
+
+const char *np_pair_site_a(int pair)
+{
+    if (pair < 0 || pair >= NP_PAIR_N) {
+        return "";
+    }
+    return k_pair[pair][0];
+}
+
+const char *np_pair_site_b(int pair)
+{
+    if (pair < 0 || pair >= NP_PAIR_N) {
+        return "";
+    }
+    return k_pair[pair][1];
+}
+
+static int ch_named(const struct np_elec e[NP_NCHAN], const char *name)
+{
+    int c;
+    if (!e || !name || !name[0]) {
+        return -1;
+    }
+    for (c = 0; c < NP_NCHAN; c++) {
+        if (strcmp(e[c].name, name) == 0) {
+            return c;
+        }
+    }
+    return -1;
+}
+
+int np_pair_chs(const struct np_elec e[NP_NCHAN], int pair, int *cha, int *chb)
+{
+    int a, b;
+    if (cha) {
+        *cha = -1;
+    }
+    if (chb) {
+        *chb = -1;
+    }
+    if (!e || pair < 0 || pair >= NP_PAIR_N) {
+        return -1;
+    }
+    a = ch_named(e, k_pair[pair][0]);
+    b = ch_named(e, k_pair[pair][1]);
+    if (a < 0 || b < 0) {
+        return -1;
+    }
+    if (cha) {
+        *cha = a;
+    }
+    if (chb) {
+        *chb = b;
+    }
+    return 0;
 }
 
 void np_1010_cube_xyz(int site, float *x, float *y, float *z)

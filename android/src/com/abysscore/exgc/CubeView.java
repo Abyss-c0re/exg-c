@@ -46,6 +46,9 @@ public class CubeView extends View {
     private final String[] elecLab = new String[NCHAN];
     private final int[] elecCol = new int[NCHAN];
     private final float[] leftover = new float[NCHAN];
+    private final float[] pairUv = new float[4];
+    private final int[][] pairCh = new int[4][2];
+    private int npair;
     private int elecSel;
     private int siteFocus;
     private int smxSeq;
@@ -127,6 +130,16 @@ public class CubeView extends View {
         ncell = ExgNative.vizCells(cellXyz, cellS, cellRgba);
         ExgNative.copyCube(cubeBits);
         ExgNative.leftoverUv(leftover);
+        npair = Math.min(4, ExgNative.pairN());
+        ExgNative.pairUv(pairUv);
+        {
+            int[] ab = new int[2];
+            for (int p = 0; p < npair; p++) {
+                ExgNative.pairChs(p, ab);
+                pairCh[p][0] = ab[0];
+                pairCh[p][1] = ab[1];
+            }
+        }
         onCount = 0;
         for (int i = 0; i < NCELL; i++) {
             boolean on = cubeBits[i] != 0;
@@ -351,6 +364,7 @@ public class CubeView extends View {
             drawGlow(c, w, cubeB);
             drawWire(c, cx, cy, k);
             drawLattice(c, cx, cy, k);
+            drawPairs(c, cx, cy, k);
             drawElecResonance(c, cx, cy, k);
             drawCore(c, cx, cy, k);
             ink.setColor(SPIKE);
@@ -517,6 +531,33 @@ public class CubeView extends View {
                             py[i] + (float) Math.sin(ang * 2.1) * jit * 1.3f, stroke);
                 }
             }
+        }
+    }
+
+    private void drawPairs(Canvas c, float cx, float cy, float k) {
+        float[] a = new float[4], b = new float[4];
+        float sc = ExgNative.scaleUv();
+        if (sc < 25f) {
+            sc = 25f;
+        }
+        for (int p = 0; p < npair; p++) {
+            int ca = pairCh[p][0], cb = pairCh[p][1];
+            float rel = pairUv[p] / sc;
+            if (ca < 0 || cb < 0 || !chOn[ca] || !chOn[cb]) {
+                continue;
+            }
+            if (rel > 2f) {
+                rel = 2f;
+            }
+            if (rel < 0.03f) {
+                continue;
+            }
+            project(elecX[ca], elecY[ca], elecZ[ca], cx, cy, k, a);
+            project(elecX[cb], elecY[cb], elecZ[cb], cx, cy, k, b);
+            int alpha = (int) (50 + 180 * Math.min(1f, rel));
+            stroke.setColor((alpha << 24) | 0x00FF141A);
+            stroke.setStrokeWidth(1.6f + 4.5f * rel);
+            c.drawLine(a[0], a[1], b[0], b[1], stroke);
         }
     }
 
