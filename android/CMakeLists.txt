@@ -4,7 +4,7 @@ project(exg-c-android C)
 set(EXG_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/..")
 
 add_library(exg SHARED
-    ${EXG_ROOT}/src/main.c
+    ${EXG_ROOT}/src/np_core.c
     ${EXG_ROOT}/src/np_serial_android.c
     ${EXG_ROOT}/src/np_android_jni.c
     ${EXG_ROOT}/src/sdl_stub.c

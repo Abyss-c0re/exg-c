@@ -4,6 +4,8 @@ A host app for a **[Knight](https://www.neuropawn.tech/)** ADS1299 board — or 
 
 Plug the board in, watch eight traces, clean line noise, map sites on a cube, save a profile. One C host. Linux window or Android APK.
 
+**C stack:** `src/np_core.c` is the framework (USB, cook, plates, ID, API, `np_host_*`). `src/np_ui.c` is the desktop SDL window. Android Java talks to the same host through JNI. The product API is `include/np_host.h`.
+
 ![Android host on a Knight FTDI board (`usb:0403:6001`)](docs/android.png)
 
 Not a medical device. Not affiliated with NeuroPawn.

@@ -8,7 +8,7 @@ SDL = /usr/lib/x86_64-linux-gnu/libSDL2-2.0.so.0
 endif
 AR = ar
 
-HOST = src/main.c src/np_serial.c src/np_knight.c src/np_ring.c src/np_dsp.c src/np_font.c \
+HOST = src/np_core.c src/np_ui.c src/np_serial.c src/np_knight.c src/np_ring.c src/np_dsp.c src/np_font.c \
 	src/np_smx.c src/np_algo.c src/np_atom.c src/np_api.c
 NPL = nplearn/src/nplearn.c nplearn/src/nplearn_filt.c nplearn/src/nplearn_posix.c
 LIB = libnplearn.a
