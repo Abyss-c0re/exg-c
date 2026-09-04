@@ -15,9 +15,7 @@ import android.os.IBinder;
 import android.os.Looper;
 import android.os.PowerManager;
 
-import java.io.File;
-
-/** Keeps USB + API alive when the 2D panel is closed. */
+/** Keeps the API alive when the 2D panel is closed. */
 public class StreamService extends Service {
     private static final String CH = "exg-stream";
     private static final int NOTE = 31;
@@ -30,11 +28,9 @@ public class StreamService extends Service {
     public static void ensure(Context c, boolean on) {
         Intent i = new Intent(c, StreamService.class);
         if (on) {
-            if (Build.VERSION.SDK_INT >= 26) {
-                c.startForegroundService(i);
-            } else {
-                c.startService(i);
-            }
+            /* From a visible activity, startService — not startForegroundService.
+             * Horizon delays service onCreate; the FGS 5s deadline then kills us. */
+            c.startService(i);
         } else {
             c.stopService(i);
         }
@@ -68,15 +64,6 @@ public class StreamService extends Service {
                 wifi.acquire();
             }
         } catch (RuntimeException ignored) {
-        }
-        UsbSerial.init(this);
-        File dir = getFilesDir();
-        if (dir != null) {
-            new File(dir, "exg-c/profiles").mkdirs();
-        }
-        ExgNative.start(dir != null ? dir.getAbsolutePath() : getApplicationInfo().dataDir);
-        if (ExgNative.apiOn() && !ExgNative.connected()) {
-            ExgNative.connect();
         }
     }
 
@@ -114,10 +101,17 @@ public class StreamService extends Service {
     };
 
     private void goForeground(Notification n) {
-        if (Build.VERSION.SDK_INT >= 29) {
-            startForeground(NOTE, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
-        } else {
-            startForeground(NOTE, n);
+        try {
+            if (Build.VERSION.SDK_INT >= 29) {
+                startForeground(NOTE, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
+            } else {
+                startForeground(NOTE, n);
+            }
+        } catch (RuntimeException e) {
+            try {
+                startForeground(NOTE, n);
+            } catch (RuntimeException ignored) {
+            }
         }
     }
 

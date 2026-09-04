@@ -102,10 +102,6 @@ public class ExgActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        try {
-            StreamService.ensure(this, true);
-        } catch (RuntimeException ignored) {
-        }
         UsbSerial.init(this);
         File dir = getFilesDir();
         if (dir != null) {
@@ -401,7 +397,6 @@ public class ExgActivity extends Activity {
         lastLearnN = -1;
         refreshLearnChips();
         applyUiScale();
-        StreamService.ensure(this, ExgNative.apiOn());
         h.post(tick);
         h.postDelayed(() -> {
             if (!ExgNative.connected()) {
@@ -409,6 +404,15 @@ public class ExgActivity extends Activity {
                 refreshChrome();
             }
         }, 400);
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        try {
+            StreamService.ensure(this, ExgNative.apiOn());
+        } catch (RuntimeException ignored) {
+        }
     }
 
     @Override
