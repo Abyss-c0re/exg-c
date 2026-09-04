@@ -10,6 +10,8 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.net.wifi.WifiManager;
 import android.os.Build;
+import android.os.Handler;
+import android.os.Looper;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
@@ -290,12 +292,41 @@ public final class BtPair {
             sink.done();
             return;
         }
+        final boolean[] finished = { false };
+        final ScanSink once = new ScanSink() {
+            @Override
+            public void found(String name, BluetoothDevice dev) {
+                sink.found(name, dev);
+            }
+
+            @Override
+            public void done() {
+                synchronized (finished) {
+                    if (finished[0]) {
+                        return;
+                    }
+                    finished[0] = true;
+                }
+                try {
+                    ad.cancelDiscovery();
+                } catch (SecurityException ignored) {
+                }
+                if (scanRx != null) {
+                    try {
+                        c.unregisterReceiver(scanRx);
+                    } catch (RuntimeException ignored) {
+                    }
+                    scanRx = null;
+                }
+                sink.done();
+            }
+        };
         try {
             for (BluetoothDevice d : ad.getBondedDevices()) {
                 String n = d.getName();
                 if (n != null && n.length() > 0) {
                     found.put(n, d);
-                    sink.found(n, d);
+                    once.found(n, d);
                 }
             }
         } catch (SecurityException ignored) {
@@ -325,26 +356,37 @@ public final class BtPair {
                         return;
                     }
                     found.put(n, d);
-                    sink.found(n, d);
+                    once.found(n, d);
                 } else if (BluetoothAdapter.ACTION_DISCOVERY_FINISHED.equals(a)) {
-                    try {
-                        ctx.unregisterReceiver(this);
-                    } catch (RuntimeException ignored) {
-                    }
-                    scanRx = null;
-                    sink.done();
+                    once.done();
                 }
             }
         };
         IntentFilter f = new IntentFilter();
         f.addAction(BluetoothDevice.ACTION_FOUND);
         f.addAction(BluetoothAdapter.ACTION_DISCOVERY_FINISHED);
-        c.registerReceiver(scanRx, f);
-        try {
-            ad.startDiscovery();
-        } catch (SecurityException e) {
-            sink.done();
+        if (Build.VERSION.SDK_INT >= 33) {
+            c.registerReceiver(scanRx, f, Context.RECEIVER_EXPORTED);
+        } else {
+            c.registerReceiver(scanRx, f);
         }
+        boolean started = false;
+        try {
+            started = ad.startDiscovery();
+        } catch (SecurityException e) {
+            once.done();
+            return;
+        }
+        if (!started) {
+            once.done();
+            return;
+        }
+        new Handler(Looper.getMainLooper()).postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                once.done();
+            }
+        }, 12000);
     }
 
     static void follow(final BluetoothDevice dev, final String shown, final FollowSink sink) {

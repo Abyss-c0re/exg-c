@@ -1870,7 +1870,7 @@ static void api_status_json(char *out, int n)
         }
     }
     snprintf(out, (size_t)n,
-             "{\"ok\":true,\"v\":\"2.31\",\"connected\":%s,\"paused\":%s,\"sps\":%.1f,"
+             "{\"ok\":true,\"v\":\"2.52\",\"connected\":%s,\"paused\":%s,\"sps\":%.1f,"
              "\"frames\":%u,\"status\":\"%s\",\"id\":\"%s\",\"id_best\":%d,"
              "\"notch\":%d,\"hp\":%d,\"lp\":%d,\"car\":%d,\"band\":%d,\"mask\":%u,"
              "\"api\":\"%s\"}",
@@ -6137,7 +6137,7 @@ void np_host_view_json(char *out, int n)
 void np_host_link_wire(int on)
 {
     if (on) {
-        g.link = 1;
+        g.link = 2;
         g.connected = 1;
         np_link_set_hooks(link_on_sample, apply_link_cfg);
         set_status(1, "following EXG on bluetooth");
