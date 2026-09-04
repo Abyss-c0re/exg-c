@@ -2663,9 +2663,9 @@ static void *enable_thread(void *arg)
     if (g.connected) {
         set_status(1, "connected %s", g.nports ? g.ports[g.port_i] : "");
         if (!g.cal.have) {
-            g.cal_phase = 1;
+            g.cal_phase = 5;
             g.cal_t0 = 0;
-            set_status(1, "Leave the headset on the desk…");
+            set_status(1, "Put it on the desk… 5s");
         }
     }
     g.en_running = 0;
@@ -6313,11 +6313,12 @@ void np_host_set_color(int ch, int r, int gc, int b)
 }
 #define CAL_DESK_MS 8000u
 #define CAL_WEAR_MS 8000u
+#define CAL_PLACE_MS 5000u
 
 static void cal_tick(void)
 {
     uint32_t now, dt;
-    if (g.cal_phase != 1 && g.cal_phase != 3) {
+    if (g.cal_phase != 1 && g.cal_phase != 3 && g.cal_phase != 5) {
         return;
     }
     if (!g.connected || (g.sps > 0.f && g.sps < 80.f)) {
@@ -6328,6 +6329,12 @@ static void cal_tick(void)
         g.cal_t0 = now ? now : 1;
     }
     dt = now - g.cal_t0;
+    if (g.cal_phase == 5 && dt >= CAL_PLACE_MS) {
+        g.cal_phase = 1;
+        g.cal_t0 = now ? now : 1;
+        set_status(1, "Desk plate — leave it down");
+        return;
+    }
     if (g.cal_phase == 1 && dt >= CAL_DESK_MS) {
         cal_capture();
         g.cal_cut = 1;
@@ -6353,7 +6360,7 @@ void np_host_cal_start(void)
         set_status(0, "wait for 125 sps");
         return;
     }
-    if (g.cal_phase == 1 || g.cal_phase == 3) {
+    if (g.cal_phase == 1 || g.cal_phase == 3 || g.cal_phase == 5) {
         return;
     }
     if (g.cal_phase == 2 || (g.cal.have && !g.calm.have)) {
@@ -6362,9 +6369,9 @@ void np_host_cal_start(void)
         set_status(1, "Sit still…");
         return;
     }
-    g.cal_phase = 1;
+    g.cal_phase = 5;
     g.cal_t0 = now ? now : 1;
-    set_status(1, "Leave the headset on the desk…");
+    set_status(1, "Put it on the desk… 5s");
 }
 
 int np_host_cal_phase(void)
@@ -6375,12 +6382,12 @@ int np_host_cal_phase(void)
 int np_host_cal_progress(void)
 {
     uint32_t now, dt, need;
-    if (g.cal_phase != 1 && g.cal_phase != 3) {
+    if (g.cal_phase != 1 && g.cal_phase != 3 && g.cal_phase != 5) {
         return g.cal_phase == 4 ? 100 : 0;
     }
     now = SDL_GetTicks();
     dt = now - g.cal_t0;
-    need = g.cal_phase == 1 ? CAL_DESK_MS : CAL_WEAR_MS;
+    need = g.cal_phase == 5 ? CAL_PLACE_MS : (g.cal_phase == 1 ? CAL_DESK_MS : CAL_WEAR_MS);
     if (dt >= need) {
         return 99;
     }
@@ -6393,7 +6400,13 @@ void np_host_cal_line(char *out, int n)
     if (!out || n < 4) {
         return;
     }
-    if (g.cal_phase == 1) {
+    if (g.cal_phase == 5) {
+        left = (int)(CAL_PLACE_MS / 1000u) - (int)((SDL_GetTicks() - g.cal_t0) / 1000u);
+        if (left < 1) {
+            left = 1;
+        }
+        snprintf(out, (size_t)n, "Put it down… %ds", left);
+    } else if (g.cal_phase == 1) {
         left = (int)(CAL_DESK_MS / 1000u) - (int)((SDL_GetTicks() - g.cal_t0) / 1000u);
         if (left < 0) {
             left = 0;

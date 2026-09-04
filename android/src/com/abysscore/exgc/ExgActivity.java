@@ -513,14 +513,14 @@ public class ExgActivity extends Activity {
             String cl = ExgNative.calLine();
             int ph = ExgNative.calPhase();
             int pg = ExgNative.calProgress();
-            if (ph == 1 || ph == 3) {
+            if (ph == 1 || ph == 3 || ph == 5) {
                 calibrate.setText(cl + "  " + pg + "%");
             } else {
                 calibrate.setText(cl);
             }
             calibrate.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
                     ph == 4 || (ExgNative.calHave() && ExgNative.calmHave()) ? 0xFF2E8A58
-                            : (ph == 1 || ph == 3 ? 0xFF8A6030 : 0xFF2A3038)));
+                            : (ph == 1 || ph == 3 || ph == 5 ? 0xFF8A6030 : 0xFF2A3038)));
         }
         clean.setText(ExgNative.cleanOn() ? "Cancel noise" : "Noise off");
         clean.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
