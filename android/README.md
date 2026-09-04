@@ -88,7 +88,7 @@ Names: letters, digits, `-`, `_`.
 
 ## API
 
-Settings → **API**. Default is on, **lan**, HTTP `8765`, UDP `8766`, TCP `8767`, 125 Hz.
+Settings → **API**. Default is **off**. When you turn it on: **lan**, HTTP `8765`, UDP `8766`, TCP `8767`, 125 Hz.
 Type the port numbers. A persistent notification stays up while the stream is on so Quest can close the panel.
 
 `GET /health` `/status` `/sample` `/stream` `/cfg`. Live stream is EXG1 binary, not JSON.

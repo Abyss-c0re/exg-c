@@ -1089,6 +1089,8 @@ static void test_api(void)
     expect(fabsf(b.sps - 125.f) < 0.01f && fabsf(b.id_score - 0.91f) < 0.001f, "api scores");
 
     np_api_cfg_default(&c);
+    expect(c.on == 0, "api default off");
+    c.on = 1;
     c.lan = 0;
     c.http = 18765;
     c.udp = 18766;

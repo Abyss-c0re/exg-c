@@ -46,7 +46,7 @@ Config lives in `~/.config/exg-c.ini`, named profiles in `~/.config/exg-c/profil
 
 ## API
 
-Default: **on**, bind **lan**, HTTP **8765**, UDP **8766**, TCP **8767**, **125 Hz**.
+Default: **off**. When you turn it on: bind **lan**, HTTP **8765**, UDP **8766**, TCP **8767**, **125 Hz**.
 Push dest is empty until you type `host:port` in Settings. Ports are numbers, not a list.
 
 Cooked samples (after notch/hp/lp/CAR/envelope). One **EXG1** little-endian frame, 68 bytes. `t_us` is wall-clock. Cook runs on the USB reader thread. The API thread wakes on a pipe; it does not poll-wait the samples.

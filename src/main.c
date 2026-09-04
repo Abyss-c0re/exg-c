@@ -138,7 +138,7 @@ struct np_app {
     } off, on, cal, calm;
     int cal_arm;
     int cal_cut;
-    int set_gen; /* 1 = action-readable defaults applied */
+    int set_gen; /* 1 = leftover defaults, 2 = API off unless turned on */
     float cal_hz; /* line tone from noise plate; 0 = none */
     float noise_psd[NP_PSD_BINS];
     float noise_psd_ch[NP_NCHAN][NP_PSD_BINS];
@@ -6059,6 +6059,11 @@ int np_host_start(const char *files_dir)
         filt_reset();
         cfg_save();
     }
+    if (g.set_gen < 2) {
+        g.api_on = 0;
+        g.set_gen = 2;
+        cfg_save();
+    }
     if (g.api_http == 8788) {
         g.api_http = 8765;
     }
@@ -8101,6 +8106,11 @@ int main(int argc, char **argv)
         apply_readable_defaults();
         g.set_gen = 1;
         filt_reset();
+        cfg_save();
+    }
+    if (g.set_gen < 2) {
+        g.api_on = 0;
+        g.set_gen = 2;
         cfg_save();
     }
     if (g.api_http == 8788) {

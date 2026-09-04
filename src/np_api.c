@@ -201,7 +201,7 @@ void np_api_cfg_default(struct np_api_cfg *c)
         return;
     }
     memset(c, 0, sizeof(*c));
-    c->on = 1;
+    c->on = 0;
     c->lan = 1;
     c->http = 8765;
     c->udp = 8766;
