@@ -91,7 +91,7 @@ Names: letters, digits, `-`, `_`.
 Settings → **API**. Default is on, **lan**, HTTP `8765`, UDP `8766`, TCP `8767`, 125 Hz.
 Type the port numbers. A persistent notification stays up while the stream is on so Quest can close the panel.
 
-`GET /health` `/status` `/sample` `/stream` `/stream.json` `/cfg`.
+`GET /health` `/status` `/sample` `/stream` `/cfg`. Live stream is EXG1 binary, not JSON.
 `POST /connect` `/disconnect` `/pause` `/cfg`.
 UDP: send any packet to `:8766` to subscribe. TCP: connect `:8767` and read EXG1 frames.
 Token (optional) is required for LAN, not for `127.0.0.1`. Push dest is `host:port` for a fixed UDP sink.

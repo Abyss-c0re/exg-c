@@ -49,7 +49,9 @@ public class StreamService extends Service {
                 nm.createNotificationChannel(ch);
             }
         }
-        goForeground(bootNote());
+        if (!goForeground(bootNote())) {
+            return;
+        }
         PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
         if (pm != null) {
             wake = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "exgc:stream");
@@ -69,7 +71,9 @@ public class StreamService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        goForeground(note());
+        if (!goForeground(note())) {
+            return START_NOT_STICKY;
+        }
         if (!ticking) {
             ticking = true;
             h.post(tick);
@@ -100,18 +104,17 @@ public class StreamService extends Service {
         }
     };
 
-    private void goForeground(Notification n) {
+    private boolean goForeground(Notification n) {
         try {
             if (Build.VERSION.SDK_INT >= 29) {
                 startForeground(NOTE, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
             } else {
                 startForeground(NOTE, n);
             }
+            return true;
         } catch (RuntimeException e) {
-            try {
-                startForeground(NOTE, n);
-            } catch (RuntimeException ignored) {
-            }
+            stopSelf();
+            return false;
         }
     }
 

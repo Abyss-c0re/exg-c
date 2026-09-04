@@ -48,6 +48,8 @@ void np_host_toggle_clean(void);
 int np_host_cal_have(void);
 int np_host_calm_have(void);
 int np_host_clean(void);
+/* 1 only when Wiener CLEAN actually runs (noise plate + window ≥ FFT). */
+int np_host_clean_live(void);
 
 void np_host_set_name(const char *s);
 void np_host_get_name(char *out, int n);
@@ -77,6 +79,8 @@ void np_host_cycle_port(void);
 void np_host_set_port_i(int i);
 void np_host_copy_cube(unsigned char dst[512]);
 int np_host_notch(void);
+/* Effective notch Hz (AUTO → plate). 0 if idle. */
+int np_host_notch_eff(void);
 int np_host_hp(void);
 void np_host_cycle_notch(void);
 void np_host_set_notch(int hz);

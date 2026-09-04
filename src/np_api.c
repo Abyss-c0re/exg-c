@@ -36,7 +36,7 @@
 
 struct http_cli {
     int fd;
-    int stream; /* 0 request 1 binary 2 ndjson */
+    int stream; /* 0 request 1 binary EXG1 */
     int hdr_ok;
     int off;
     char buf[REQ_MAX];
@@ -336,27 +336,8 @@ static void close_fd(int *fd)
 
 static void pick_ip(void)
 {
-    /* Best-effort first non-loopback IPv4 from UDP connect trick. */
-    int fd;
-    struct sockaddr_in a, self;
-    socklen_t sl = sizeof(self);
+    /* Bind label only. Never probe a private unicast. */
     snprintf(self_ip, sizeof(self_ip), "%s", cfg.lan ? "0.0.0.0" : "127.0.0.1");
-    fd = socket(AF_INET, SOCK_DGRAM, 0);
-    if (fd < 0) {
-        return;
-    }
-    memset(&a, 0, sizeof(a));
-    a.sin_family = AF_INET;
-    a.sin_port = htons(9);
-    a.sin_addr.s_addr = htonl((192u << 24) | (168u << 16) | (8u << 8) | 1u);
-    if (connect(fd, (struct sockaddr *)&a, sizeof(a)) == 0 &&
-        getsockname(fd, (struct sockaddr *)&self, &sl) == 0) {
-        const char *s = inet_ntoa(self.sin_addr);
-        if (s && s[0] && strcmp(s, "0.0.0.0")) {
-            snprintf(self_ip, sizeof(self_ip), "%s", s);
-        }
-    }
-    close(fd);
 }
 
 static int parse_push(const char *s, struct sockaddr_in *out)
@@ -739,11 +720,10 @@ static void handle_req(struct http_cli *c)
 
     if (!strcmp(path, "/") || !strcmp(path, "/index")) {
         snprintf(js, sizeof(js),
-                 "{\"ok\":true,\"v\":\"2.31\",\"api\":\"exg\","
+                 "{\"ok\":true,\"v\":\"2.37\",\"api\":\"exg\","
                  "\"bind\":\"%s\",\"ip\":\"%s\",\"http\":%d,\"udp\":%d,\"tcp\":%d,"
                  "\"hz\":%d,\"token\":%s,\"push\":\"%s\","
-                 "\"get\":[\"/health\",\"/status\",\"/sample\",\"/stream\","
-                 "\"/stream.json\",\"/cfg\"],"
+                 "\"get\":[\"/health\",\"/status\",\"/sample\",\"/stream\",\"/cfg\"],"
                  "\"post\":[\"/connect\",\"/disconnect\",\"/pause\",\"/cfg\"],"
                  "\"frame\":\"EXG1 %d bytes LE cooked uV\"}",
                  cfg.lan ? "lan" : "local", self_ip, cfg.http, cfg.udp, cfg.tcp, cfg.hz,
@@ -753,7 +733,7 @@ static void handle_req(struct http_cli *c)
     }
     if (!strcmp(path, "/health")) {
         snprintf(js, sizeof(js),
-                 "{\"ok\":true,\"v\":\"2.31\",\"on\":true,\"bind\":\"%s\","
+                 "{\"ok\":true,\"v\":\"2.37\",\"on\":true,\"bind\":\"%s\","
                  "\"ip\":\"%s\",\"http\":%d,\"udp\":%d,\"tcp\":%d,\"hz\":%d,"
                  "\"clients\":{\"http\":%d,\"tcp\":%d,\"udp\":%d}}",
                  cfg.lan ? "lan" : "local", self_ip, cfg.http, cfg.udp, cfg.tcp, cfg.hz,
@@ -797,19 +777,6 @@ static void handle_req(struct http_cli *c)
             return;
         }
         c->stream = 1;
-        c->hdr_ok = 1;
-        n_http_stream++;
-        return;
-    }
-    if (!strcmp(path, "/stream.json")) {
-        const char *hdr =
-            "HTTP/1.1 200 OK\r\nContent-Type: application/x-ndjson\r\n"
-            "Access-Control-Allow-Origin: *\r\nCache-Control: no-store\r\n"
-            "Connection: close\r\n\r\n";
-        if (send_all(c->fd, hdr, (int)strlen(hdr)) < 0) {
-            return;
-        }
-        c->stream = 2;
         c->hdr_ok = 1;
         n_http_stream++;
         return;
@@ -996,7 +963,6 @@ static void count_udp(uint32_t now)
 static void emit_frame(const struct np_api_sample *s)
 {
     unsigned char raw[NP_API_FRAME];
-    char line[512];
     int i, n;
     uint32_t now = now_ms();
     n = np_api_pack(raw, sizeof(raw), s);
@@ -1022,25 +988,12 @@ static void emit_frame(const struct np_api_sample *s)
             }
         }
     }
-    sample_json(s, line, sizeof(line));
-    {
-        int ln = (int)strlen(line);
-        if (ln + 2 < (int)sizeof(line)) {
-            line[ln] = '\n';
-            line[ln + 1] = 0;
-            ln++;
+    for (i = 0; i < MAX_HTTP; i++) {
+        if (http_c[i].fd < 0 || http_c[i].stream != 1) {
+            continue;
         }
-        for (i = 0; i < MAX_HTTP; i++) {
-            if (http_c[i].fd < 0 || !http_c[i].stream) {
-                continue;
-            }
-            if (http_c[i].stream == 1) {
-                if (send_nb(http_c[i].fd, raw, n) < 0) {
-                    drop_http(i);
-                }
-            } else if (send_nb(http_c[i].fd, line, ln) < 0) {
-                drop_http(i);
-            }
+        if (send_nb(http_c[i].fd, raw, n) < 0) {
+            drop_http(i);
         }
     }
 }

@@ -392,6 +392,25 @@ int np_smx_ch_ids(const struct np_smx *m, int ids[NP_NCHAN])
     return n;
 }
 
+unsigned int np_smx_fold_ch(const struct np_smx *m)
+{
+    unsigned int f = 0;
+    int ids[NP_NCHAN];
+    int n, i, row;
+    if (!m || m->have < 1) {
+        return 0;
+    }
+    row = (int)((m->wr - 1) % NP_SMX_SEC);
+    n = np_smx_ch_ids(m, ids);
+    for (i = 0; i < n; i++) {
+        int ch = ids[i] - 1;
+        if (ch >= 0 && ch < NP_NCHAN && m->bit[row][i]) {
+            f |= 1u << ch;
+        }
+    }
+    return f;
+}
+
 int np_smx_cubes(const struct np_smx *m, struct np_cube *out, int cap)
 {
     int n = 0, t, c, nch, nsec;

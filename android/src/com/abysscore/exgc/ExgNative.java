@@ -52,6 +52,7 @@ public final class ExgNative {
     public static native boolean calHave();
     public static native boolean calmHave();
     public static native boolean cleanOn();
+    public static native boolean cleanLive();
     public static native void setName(String s);
     public static native String getName();
     public static native void record();
@@ -71,6 +72,7 @@ public final class ExgNative {
     public static native void cycleNotch();
     public static native void cycleHp();
     public static native int notch();
+    public static native int notchEff();
     public static native int hp();
     public static native int lp();
     public static native void cycleLp();

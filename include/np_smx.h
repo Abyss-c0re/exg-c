@@ -56,6 +56,8 @@ void np_smx_push(struct np_smx *m, const uint8_t bits[NP_NCHAN], int nch, uint8_
 int np_smx_pack(const struct np_smx *m, char *out, int cap);
 /* Used-channel ids 1..8 in matrix column order. */
 int np_smx_ch_ids(const struct np_smx *m, int ids[NP_NCHAN]);
+/* Latest second, remapped to ch0..ch7 bits. Packed slots are not channel ids. */
+unsigned int np_smx_fold_ch(const struct np_smx *m);
 /* Crimson BrainCube cells, budget ≤ 40 (core + last seconds). */
 int np_smx_cubes(const struct np_smx *m, struct np_cube *out, int cap);
 

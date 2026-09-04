@@ -65,9 +65,18 @@ public class TraceView extends View {
 
     public void pull() {
         frozen = ExgNative.paused();
-        if (frozen && got[0] > 1) {
-            postInvalidateOnAnimation();
-            return;
+        if (frozen) {
+            boolean have = false;
+            for (int c = 0; c < NCHAN; c++) {
+                if (got[c] > 1) {
+                    have = true;
+                    break;
+                }
+            }
+            if (have) {
+                postInvalidateOnAnimation();
+                return;
+            }
         }
         scaleUv = Math.max(20, ExgNative.scaleUv());
         for (int c = 0; c < NCHAN; c++) {

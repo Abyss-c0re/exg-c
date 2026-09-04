@@ -50,6 +50,7 @@ public class CubeView extends View {
     private int smxSeq;
     private int smxFold;
     private float yaw = 0.55f, pitch = 0.40f, zoom = 1.0f;
+    private float labelMul = 1f;
     private float autoYaw;
     private float t;
     private long lastMs;
@@ -95,7 +96,8 @@ public class CubeView extends View {
         if (f > 2.2f) {
             f = 2.2f;
         }
-        ink.setTextSize(26f * f);
+        labelMul = f;
+        ink.setTextSize(26f * labelMul);
         invalidate();
     }
 
@@ -323,7 +325,7 @@ public class CubeView extends View {
             drawLattice(c, cx, cy, k);
             drawCore(c, cx, cy, k);
             ink.setColor(SPIKE);
-            ink.setTextSize(28f);
+            ink.setTextSize(28f * labelMul);
             String bits = "";
             for (int b = 0; b < 8; b++) {
                 bits += ((smxFold >> b) & 1) != 0 ? "1" : "0";
@@ -337,7 +339,7 @@ public class CubeView extends View {
             drawFocusCell(c, cx, cy, k);
             drawSiteLabels(c, cx, cy, k);
             ink.setColor(0xFFF22647);
-            ink.setTextSize(26f);
+            ink.setTextSize(26f * labelMul);
             c.drawText("map  tap ch, then a 10-10 site", 16, 36, ink);
         }
         drawElecLabels(c, cx, cy, k);
@@ -549,7 +551,7 @@ public class CubeView extends View {
 
     private void drawSiteLabels(Canvas c, float cx, float cy, float k) {
         float[] p = new float[4];
-        ink.setTextSize(22f);
+        ink.setTextSize(22f * labelMul);
         for (int i = 0; i < nsite; i++) {
             project(siteX[i], siteY[i], siteZ[i], cx, cy, k, p);
             siteSx[i] = (int) p[0];
@@ -567,7 +569,7 @@ public class CubeView extends View {
 
     private void drawElecLabels(Canvas c, float cx, float cy, float k) {
         float[] p = new float[4];
-        ink.setTextSize(24f);
+        ink.setTextSize(24f * labelMul);
         for (int ch = 0; ch < NCHAN; ch++) {
             if (!chOn[ch]) {
                 elecSx[ch] = -9999;
@@ -595,7 +597,7 @@ public class CubeView extends View {
         fill.setColor(0xFF08060A);
         c.drawRect(mapL, mapT, mapR, mapB, fill);
         ink.setColor(0xFF8C2832);
-        ink.setTextSize(22f);
+        ink.setTextSize(22f * labelMul);
         c.drawText("10-10  (nose up)   tap a site to assign", mapL + 8, mapT + 24, ink);
         int mw = mapR - mapL, mh = mapB - mapT;
         for (int i = 0; i < nsite; i++) {
@@ -611,7 +613,7 @@ public class CubeView extends View {
             c.drawCircle(sx, sy, r, fill);
             if (i == siteFocus || taken >= 0 || siteCore[i]) {
                 ink.setColor(i == siteFocus ? 0xFFFFE090 : 0xFFC8B4B8);
-                ink.setTextSize(20f);
+                ink.setTextSize(20f * labelMul);
                 c.drawText(siteName[i] != null ? siteName[i] : "?", sx + 8, sy - 4, ink);
             }
         }
@@ -630,7 +632,7 @@ public class CubeView extends View {
         int cell = Math.min(48, Math.max(28, (w - 32) / nOn));
         int y = h - cell - 16;
         ink.setColor(0xFFEEC8CE);
-        ink.setTextSize(22f);
+        ink.setTextSize(22f * labelMul);
         c.drawText("this second", 16, y - 8, ink);
         int col = 0;
         for (int ch = 0; ch < 8; ch++) {
@@ -643,7 +645,7 @@ public class CubeView extends View {
             fill.setColor(on ? SPIKE : 0xFF2A0508);
             c.drawRect(x, y, x + cell, y + cell, fill);
             ink.setColor(0xFFFFFFFF);
-            ink.setTextSize(20f);
+            ink.setTextSize(20f * labelMul);
             c.drawText(String.valueOf(ch + 1), x + 8, y + cell - 8, ink);
         }
     }

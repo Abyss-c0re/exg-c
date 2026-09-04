@@ -312,6 +312,48 @@ static float notch_hz_eff(void)
     return (float)g.notch_hz;
 }
 
+/* Wiener needs NP_FFT_N samples. Default 2 s × 125 SPS is 250 — too short. */
+static int clean_wiener_ready(void)
+{
+    return g.cal_cut && (g.noise_psd_ok || g.noise_psd_ch_ok) &&
+           (int)(g.window_s * design_sps()) >= NP_FFT_N;
+}
+
+static const char *clean_btn(void)
+{
+    if (clean_wiener_ready()) {
+        return "CLN";
+    }
+    if (g.cal_cut) {
+        return "dc";
+    }
+    return "cln";
+}
+
+static const char *clean_tag(void)
+{
+    if (clean_wiener_ready()) {
+        return "  CLEAN";
+    }
+    if (g.cal_cut && g.calm.have) {
+        return "  DC";
+    }
+    return "";
+}
+
+static void clean_set_status(void)
+{
+    if (!g.cal_cut) {
+        set_status(1, "CLEAN off");
+    } else if (clean_wiener_ready()) {
+        set_status(1, "CLEAN on — noise plate");
+    } else if (g.calm.have) {
+        set_status(1, "DC cut — CLEAN needs ≥3s window + noise plate");
+    } else {
+        set_status(1, "CLEAN idle — need noise plate and ≥3s window");
+    }
+}
+
 static uint64_t live_seen;
 static int live_sig = -1;
 static uint32_t live_wr;
@@ -2787,8 +2829,8 @@ static void *enable_thread(void *arg)
     }
     cmd_drain(25000);
     for (c = 0; c < NP_NCHAN && g.connected; c++) {
-        if (g.active[c] && g.rld[c]) {
-            cmd_push(CMD_RLDADD, c + 1, 0);
+        if (g.active[c]) {
+            cmd_push(g.rld[c] ? CMD_RLDADD : CMD_RLDRM, c + 1, 0);
         }
     }
     cmd_drain(25000);
@@ -3408,7 +3450,7 @@ static void calm_capture(void)
         set_status(0, "calm captured but could not write exg-c.cal");
         return;
     }
-    set_status(1, "Still plate  ch1 resid %.0f uV  noise cancel on", g.calm.rms[0]);
+    set_status(1, "Still plate  ch1 resid %.0f uV", g.calm.rms[0]);
 }
 
 static int live_vs_cal(float *ratio_out)
@@ -4942,13 +4984,14 @@ static void draw_learn(int x, int y, int w, int h)
                 g.cal_phase == 4 ? 28 : 36, g.cal_phase >= 1 ? 90 : 38,
                 g.cal_phase == 3 ? 40 : 46);
         }
-        btn(x + 170, y + 46, 48, 32, g.cal_cut ? "CLN" : "cln", g.cal_cut && g.cal.have, 27, 0,
-            g.cal_cut ? 28 : 36, g.cal_cut ? 80 : 38, g.cal_cut ? 70 : 46);
+        btn(x + 170, y + 46, 48, 32, clean_btn(), clean_wiener_ready(), 27, 0,
+            clean_wiener_ready() ? 28 : 36, clean_wiener_ready() ? 80 : 38,
+            clean_wiener_ready() ? 70 : 46);
         if (g.cal_arm) {
             text(x + 222, y + 56, "desk / off, then OK", 230, 190, 90, 1);
         } else if (g.cal.have && g.calm.have) {
             snprintf(lab, sizeof(lab), "noise %.0fHz  calm %.0f uV%s", g.cal_hz, g.calm.rms[0],
-                     g.cal_cut ? "  CLEAN" : "");
+                     clean_tag());
             text(x + 222, y + 56, lab, 140, 180, 150, 1);
         } else if (g.cal.have) {
             text(x + 222, y + 56, "wear headset, sit still, CALM", 100, 120, 110, 1);
@@ -4967,20 +5010,12 @@ static void draw_learn(int x, int y, int w, int h)
             for (i = 0; i < nshow; i++) {
                 int on = (i == g.learn.sel);
                 int hit = (g.learn.match && i == g.learn.best && g.learn.score[i] > 0.55f);
-                int bar, pct;
                 bx = x + 6 + i * bw;
                 fill(bx, y + 84, bw - 5, 40, on ? 42 : 22, hit ? 50 : (on ? 50 : 26),
                      hit ? 42 : 32);
                 text(bx + 4, y + 88, g.learn.s[i].name, 230, 232, 236, 1);
                 if (hit) {
-                    pct = (int)(g.learn.score[i] * 100.f);
-                    snprintf(lab, sizeof(lab), "%d%%", pct);
-                    text(bx + 4, y + 100, lab, 80, 230, 140, 1);
-                    bar = (int)(g.learn.score[i] * (bw - 14));
-                    if (bar < 2) {
-                        bar = 2;
-                    }
-                    fill(bx + 4, y + 114, bar, 6, 60, 190, 90);
+                    text(bx + 4, y + 100, "now", 80, 230, 140, 1);
                 }
                 add_hit(bx, y + 84, bw - 5, 40, 20, i);
             }
@@ -5030,8 +5065,7 @@ static void draw_learn(int x, int y, int w, int h)
         snprintf(lab, sizeof(lab), "saved '%s'  -  again or watch match", g.namebuf);
         text(x + 480, y + 8, lab, 80, 220, 140, 1);
     } else if (g.learn.best >= 0 && g.learn.match && g.learn.n) {
-        int pct = (int)(g.learn.score[g.learn.best] * 100.f);
-        snprintf(lab, sizeof(lab), "now: %s  %d%%", g.learn.s[g.learn.best].name, pct);
+        snprintf(lab, sizeof(lab), "now: %s", g.learn.s[g.learn.best].name);
         text(x + 480, y + 8, lab, 80, 230, 120, 1);
     } else if (!g.namebuf[0]) {
         text(x + 480, y + 8, "name, then Record — blink or clench", 120, 128, 140, 1);
@@ -5065,20 +5099,12 @@ static void draw_learn(int x, int y, int w, int h)
         for (i = 0; i < nshow; i++) {
             int on = (i == g.learn.sel);
             int hit = (g.learn.match && i == g.learn.best && g.learn.score[i] > 0.55f);
-            int bar, pct;
             bx = x + 6 + i * bw;
             fill(bx, y + 28, bw - 5, 36, on ? 42 : 22, hit ? 50 : (on ? 50 : 26),
                  hit ? 42 : 32);
             text(bx + 4, y + 31, g.learn.s[i].name, 230, 232, 236, 1);
             if (hit) {
-                pct = (int)(g.learn.score[i] * 100.f);
-                snprintf(lab, sizeof(lab), "%d%%", pct);
-                text(bx + 4, y + 42, lab, 80, 230, 140, 1);
-                bar = (int)(g.learn.score[i] * (bw - 14));
-                if (bar < 2) {
-                    bar = 2;
-                }
-                fill(bx + 4, y + 54, bar, 6, 60, 190, 90);
+                text(bx + 4, y + 42, "now", 80, 230, 140, 1);
             }
             add_hit(bx, y + 28, bw - 5, 36, 20, i);
         }
@@ -5090,14 +5116,14 @@ static void draw_learn(int x, int y, int w, int h)
         btn(x + 6, y + h - 22, 128, 18, cl, g.cal_phase > 0 || g.cal.have, 25, 0,
             g.cal_phase == 4 ? 28 : 36, g.cal_phase >= 1 ? 90 : 38, 46);
     }
-    btn(x + 138, y + h - 22, 40, 18, g.cal_cut ? "CLN" : "cln",
-        g.cal_cut && g.cal.have, 27, 0, g.cal_cut ? 28 : 36, g.cal_cut ? 80 : 38,
-        g.cal_cut ? 70 : 46);
+    btn(x + 138, y + h - 22, 40, 18, clean_btn(), clean_wiener_ready(), 27, 0,
+        clean_wiener_ready() ? 28 : 36, clean_wiener_ready() ? 80 : 38,
+        clean_wiener_ready() ? 70 : 46);
     if (g.cal_arm) {
         text(x + 186, y + h - 18, "desk / off, then OK", 230, 190, 90, 1);
     } else if (g.cal.have && g.calm.have) {
         snprintf(lab, sizeof(lab), "noise %.0fHz  calm %.0f uV%s", g.cal_hz,
-                 g.calm.rms[0], g.cal_cut ? "  CLEAN" : "");
+                 g.calm.rms[0], clean_tag());
         text(x + 186, y + h - 18, lab, 140, 180, 150, 1);
     } else if (g.cal.have) {
         text(x + 186, y + h - 18, "wear headset, sit still, CALM", 100, 120, 110, 1);
@@ -5377,7 +5403,7 @@ static void click(int x, int y)
         case 27:
             g.cal_cut = !g.cal_cut;
             cfg_save();
-            set_status(1, g.cal_cut ? "Noise cancel on" : "Noise cancel off");
+            clean_set_status();
             break;
         case 28:
             wear_check();
@@ -6041,8 +6067,6 @@ int np_host_start(const char *files_dir)
     if (g.api_http == 8788) {
         g.api_http = 8765;
     }
-    g.api_on = 1;
-    g.api_lan = 1;
     if (!strncmp(g.api_push, "192.", 4)) {
         g.api_push[0] = 0;
     }
@@ -6502,7 +6526,8 @@ static void cal_tick(void)
         calm_capture();
         g.cal_phase = 4;
         cfg_save();
-        set_status(1, "Calibrated — noise cancel on");
+        set_status(1, "Calibrated");
+        clean_set_status();
     }
 }
 
@@ -6630,6 +6655,10 @@ int np_host_clean(void)
 {
     return g.cal_cut;
 }
+int np_host_clean_live(void)
+{
+    return clean_wiener_ready();
+}
 void np_host_set_name(const char *s)
 {
     snprintf(g.namebuf, sizeof(g.namebuf), "%s", s ? s : "");
@@ -6652,12 +6681,14 @@ void np_host_toggle_match(void)
     g.learn.match = !g.learn.match;
     if (!g.learn.match) {
         g.learn.best = -1;
-        set_status(1, "MATCH off — scores frozen");
+        g.atom_id_best = -1;
+        set_status(1, np_host_atom_count() > 0 ? "ID off" : "MATCH off");
+    } else if (np_host_atom_count() > 0) {
+        set_status(1, "ID on — unique winner only");
     } else if (g.learn.n < 1) {
         set_status(0, "MATCH on — Record a pose first");
     } else {
-        set_status(1, "MATCH on — scoring %d pose%s", g.learn.n,
-                   g.learn.n == 1 ? "" : "s");
+        set_status(1, "MATCH on — names a unique pose, no percent");
     }
 }
 int np_host_match(void)
@@ -6801,6 +6832,14 @@ void np_host_copy_cube(unsigned char dst[512])
 int np_host_notch(void)
 {
     return g.notch_hz;
+}
+int np_host_notch_eff(void)
+{
+    float hz = notch_hz_eff();
+    if (hz < 1.f) {
+        return 0;
+    }
+    return (int)(hz + 0.5f);
 }
 int np_host_hp(void)
 {
@@ -7154,18 +7193,7 @@ unsigned int np_host_smx_seq(void)
 
 unsigned int np_host_smx_fold(void)
 {
-    unsigned int f = 0;
-    int c, row;
-    if (g.smx.have < 1) {
-        return 0;
-    }
-    row = (int)((g.smx.wr - 1) % NP_SMX_SEC);
-    for (c = 0; c < NP_NCHAN; c++) {
-        if (g.smx.bit[row][c]) {
-            f |= 1u << c;
-        }
-    }
-    return f;
+    return np_smx_fold_ch(&g.smx);
 }
 
 int np_host_prof_export(const char *path)
@@ -7395,8 +7423,7 @@ void np_host_atom_line(char *out, int n)
             snprintf(out, (size_t)n, "%s vs %s  no RMS — cannot compare",
                      g.atom_a, g.atom_b);
         } else {
-            snprintf(out, (size_t)n, "%s vs %s  %.0f%%", g.atom_a, g.atom_b,
-                     (double)(g.atom_ab * 100.f));
+            snprintf(out, (size_t)n, "%s vs %s  distinct", g.atom_a, g.atom_b);
         }
     } else if (g.atom_a[0]) {
         snprintf(out, (size_t)n, "vs %s — tap another take", g.atom_a);
@@ -7705,7 +7732,7 @@ void np_host_atom_pick(int i)
     } else if (g.atom_ab <= 0.f) {
         set_status(0, "%s vs %s  no RMS — cannot compare", g.atom_a, g.atom_b);
     } else {
-        set_status(1, "%s vs %s  %.0f%%", g.atom_a, g.atom_b, (double)(g.atom_ab * 100.f));
+        set_status(1, "%s vs %s  distinct", g.atom_a, g.atom_b);
     }
 }
 
@@ -7722,8 +7749,7 @@ void np_host_atom_pair(char *out, int n)
             snprintf(out, (size_t)n, "%s vs %s  no RMS — cannot compare",
                      g.atom_a, g.atom_b);
         } else {
-            snprintf(out, (size_t)n, "%s vs %s  %.0f%%", g.atom_a, g.atom_b,
-                     (double)(g.atom_ab * 100.f));
+            snprintf(out, (size_t)n, "%s vs %s  distinct", g.atom_a, g.atom_b);
         }
     } else if (g.atom_a[0]) {
         snprintf(out, (size_t)n, "%s — tap a second take", g.atom_a);
@@ -8084,8 +8110,6 @@ int main(int argc, char **argv)
     if (g.api_http == 8788) {
         g.api_http = 8765;
     }
-    g.api_on = 1;
-    g.api_lan = 1;
     if (!strncmp(g.api_push, "192.", 4)) {
         g.api_push[0] = 0;
     }

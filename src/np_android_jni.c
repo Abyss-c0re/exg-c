@@ -409,6 +409,14 @@ Java_com_abysscore_exgc_ExgNative_cleanOn(JNIEnv *env, jclass cls)
     return np_host_clean() ? JNI_TRUE : JNI_FALSE;
 }
 
+JNIEXPORT jboolean JNICALL
+Java_com_abysscore_exgc_ExgNative_cleanLive(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    return np_host_clean_live() ? JNI_TRUE : JNI_FALSE;
+}
+
 JNIEXPORT void JNICALL
 Java_com_abysscore_exgc_ExgNative_setName(JNIEnv *env, jclass cls, jstring s)
 {
@@ -578,6 +586,14 @@ Java_com_abysscore_exgc_ExgNative_notch(JNIEnv *env, jclass cls)
     (void)env;
     (void)cls;
     return np_host_notch();
+}
+
+JNIEXPORT jint JNICALL
+Java_com_abysscore_exgc_ExgNative_notchEff(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    return np_host_notch_eff();
 }
 
 JNIEXPORT jint JNICALL
@@ -1037,7 +1053,7 @@ Java_com_abysscore_exgc_ExgNative_matchLine(JNIEnv *env, jclass cls)
     }
     {
         char buf[24];
-        int i = np_host_learn_best(), pct;
+        int i = np_host_learn_best();
         if (i < 0) {
             if (np_host_learn_n() > 0) {
                 return jstr_from(env, "now —");
@@ -1045,8 +1061,7 @@ Java_com_abysscore_exgc_ExgNative_matchLine(JNIEnv *env, jclass cls)
             return jstr_from(env, "");
         }
         np_host_learn_name(i, buf, 24);
-        pct = (int)(np_host_learn_score(i) * 100.f);
-        snprintf(line, sizeof(line), "now %s  %d%%", buf, pct);
+        snprintf(line, sizeof(line), "now %s", buf);
         return jstr_from(env, line);
     }
 }

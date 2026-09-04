@@ -522,9 +522,18 @@ public class ExgActivity extends Activity {
                     ph == 4 || (ExgNative.calHave() && ExgNative.calmHave()) ? 0xFF2E8A58
                             : (ph == 1 || ph == 3 || ph == 5 ? 0xFF8A6030 : 0xFF2A3038)));
         }
-        clean.setText(ExgNative.cleanOn() ? "Cancel noise" : "Noise off");
+        if (ExgNative.cleanLive()) {
+            clean.setText("CLEAN on");
+        } else if (ExgNative.cleanOn() && ExgNative.calmHave()) {
+            clean.setText("DC cut");
+        } else if (ExgNative.cleanOn()) {
+            clean.setText("CLEAN idle");
+        } else {
+            clean.setText("CLEAN off");
+        }
         clean.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
-                ExgNative.cleanOn() ? 0xFF2E8A58 : 0xFF2A3038));
+                ExgNative.cleanLive() ? 0xFF2E8A58
+                        : (ExgNative.cleanOn() ? 0xFF5A5040 : 0xFF2A3038)));
         boolean matching = ExgNative.matchOn();
         boolean haveTakes = ExgNative.atomCount() > 0;
         match.setText(haveTakes ? (matching ? "ID on" : "ID off")
@@ -621,8 +630,7 @@ public class ExgActivity extends Activity {
                 imuLine.setTextColor(0xFF8B93A0);
             }
         } else {
-            imuLine.setText("8-ch EXG — tap board for IMU");
-            imuLine.setTextColor(0xFF8B93A0);
+            imuLine.setVisibility(View.GONE);
         }
     }
 
@@ -978,6 +986,36 @@ public class ExgActivity extends Activity {
             row.addView(lab);
             row.addView(del);
             poseList.addView(row);
+        }
+        int ln = ExgNative.learnN();
+        if (ln > 0) {
+            poseList.addView(savedLabel(
+                    "Record poses — named leftover, not ID. Delete to drop.", 0xFF8B93A0));
+            for (int i = 0; i < ln; i++) {
+                final int idx = i;
+                LinearLayout row = new LinearLayout(this);
+                row.setOrientation(LinearLayout.HORIZONTAL);
+                row.setPadding(0, 4, 0, 4);
+                Button lab = new Button(this);
+                lab.setLayoutParams(new LinearLayout.LayoutParams(0,
+                        LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+                lab.setText(ExgNative.learnName(idx));
+                lab.setBackgroundTintList(android.content.res.ColorStateList.valueOf(0xFF2A3038));
+                lab.setOnClickListener(v -> {
+                    ExgNative.learnSelect(idx);
+                    refreshChrome();
+                });
+                Button del = new Button(this);
+                del.setText("Delete");
+                del.setOnClickListener(v -> {
+                    ExgNative.learnDel(idx);
+                    lastLearnN = -1;
+                    refreshChrome();
+                });
+                row.addView(lab);
+                row.addView(del);
+                poseList.addView(row);
+            }
         }
         applyUiScale();
     }

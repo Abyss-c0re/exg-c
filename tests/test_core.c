@@ -381,6 +381,7 @@ static void test_nplearn(void)
         expect(npl_add(&L, "twin", wave, rms, mask) == 1, "npl twin");
         npl_score(&L, wave, rms, mask);
         expect(L.best < 0, "two identical poses do not name a winner");
+        expect(L.score[0] == 0.f && L.score[1] == 0.f, "no winner wipes cosine scores");
     }
 }
 
@@ -511,6 +512,15 @@ static void test_smx(void)
     expect(n == 3 && strcmp(pack, "101") == 0, "smx width = used channels");
     expect(np_smx_ch_ids(&m, ids) == 3 && ids[0] == 1 && ids[2] == 3,
            "smx used-channel ids");
+
+    {
+        uint8_t packed[8] = {1, 0, 1};
+        unsigned int f;
+        np_smx_init(&m);
+        np_smx_push(&m, packed, 3, 0x0D);
+        f = np_smx_fold_ch(&m);
+        expect(f == (1u | (1u << 3)), "smx fold remaps packed slots to channels");
+    }
 }
 
 static void test_elec_view(void)
@@ -1166,6 +1176,8 @@ static void test_api(void)
     ok = http_get("127.0.0.1", 18765, "/", body, sizeof(body)) > 0 &&
          strstr(body, "/stream") && strstr(body, "EXG1");
     expect(ok, "api GET / index lists stream");
+    expect(strstr(body, "stream.json") == NULL, "api index has no NDJSON live path");
+    expect(strstr(body, "\"ip\":\"127.0.0.1\"") != NULL, "api local ip is loopback");
 
     {
         int fd = socket(AF_INET, SOCK_STREAM, 0);

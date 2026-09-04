@@ -178,7 +178,7 @@ void npl_score(struct npl *L, const float wave[NPL_NCHAN][NPL_LEN], const float 
         if (sr < 0.f) {
             sr = 0.f;
         }
-        /* RMS cosine is scale-blind. Do not print this as ID unless one wins. */
+        /* RMS cosine is scale-blind. Never print this as a percent. */
         s = 0.60f * sw + 0.40f * sr;
         L->score[i] = s;
         if (s > bests) {
@@ -193,6 +193,10 @@ void npl_score(struct npl *L, const float wave[NPL_NCHAN][NPL_LEN], const float 
     }
     if (best >= 0 && bests >= 0.55f && (second < 0 || bests - secs >= 0.08f)) {
         L->best = best;
+    } else {
+        for (i = 0; i < L->n; i++) {
+            L->score[i] = 0.f;
+        }
     }
 }
 
