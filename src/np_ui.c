@@ -643,7 +643,7 @@ static void viz_tick(void)
     if (!viz_t0) {
         viz_t0 = now;
     }
-    if (s_cube_drag != 1) {
+    if (g.cube_float && s_cube_drag != 1) {
         viz_auto_yaw += 0.148f * dt;
     }
 }
@@ -651,7 +651,7 @@ static void viz_tick(void)
 static void cam_pt(float x, float y, float z, int *sx, int *sy, float *depth)
 {
     float vx, vy, vz, yaw = g.cube_yaw, yy = y;
-    if (g.cube_view == 0) {
+    if (g.cube_view == 0 && g.cube_float) {
         yaw += viz_auto_yaw;
         yy += 0.06f * sinf(viz_t() * 1.4f);
     }
@@ -1032,18 +1032,37 @@ static void draw_cube(int x, int y, int w, int h)
         for (i = 0; i < NP_1010_N; i++) {
             s_node_sx[i] = s_node_sy[i] = -20000;
         }
-        for (c = 0; c < NP_NCHAN; c++) {
-            float cx, cy, cz;
-            int sx, sy;
-            char nlab[12];
-            np_elec_cube_xyz(&g.elec[c], &cx, &cy, &cz);
-            cam_pt(cx, cy, cz, &sx, &sy, NULL);
-            s_elec_sx[c] = sx;
-            s_elec_sy[c] = sy;
-            snprintf(nlab, sizeof(nlab), "%d %s", c + 1,
-                     g.elec[c].name[0] ? g.elec[c].name : "?");
-            text(sx - (int)strlen(nlab) * 3, sy - 18, nlab, g.chrgb[c][0], g.chrgb[c][1],
-                 g.chrgb[c][2], 1);
+        {
+            float uv[8];
+            float sc = (float)g.scale_uv;
+            if (sc < 25.f) {
+                sc = 25.f;
+            }
+            np_host_leftover_uv(uv);
+            for (c = 0; c < NP_NCHAN; c++) {
+                float cx, cy, cz, rel;
+                int sx, sy, rad;
+                char nlab[12];
+                if (!g.active[c]) {
+                    s_elec_sx[c] = -20000;
+                    s_elec_sy[c] = -20000;
+                    continue;
+                }
+                np_elec_cube_xyz(&g.elec[c], &cx, &cy, &cz);
+                cam_pt(cx, cy, cz, &sx, &sy, NULL);
+                s_elec_sx[c] = sx;
+                s_elec_sy[c] = sy;
+                rel = uv[c] / sc;
+                if (rel > 2.f) {
+                    rel = 2.f;
+                }
+                rad = 4 + (int)(rel * 14.f * g.cube_zoom);
+                fill_disk(sx, sy, rad, g.chrgb[c][0], g.chrgb[c][1], g.chrgb[c][2]);
+                snprintf(nlab, sizeof(nlab), "%d %s", c + 1,
+                         g.elec[c].name[0] ? g.elec[c].name : "?");
+                text(sx - (int)strlen(nlab) * 3, sy - 18, nlab, g.chrgb[c][0], g.chrgb[c][1],
+                     g.chrgb[c][2], 1);
+            }
         }
         goto cube_sot;
     }

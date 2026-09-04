@@ -555,13 +555,25 @@ Java_com_abysscore_exgc_ExgNative_setPortI(JNIEnv *env, jclass cls, jint i)
 JNIEXPORT void JNICALL
 Java_com_abysscore_exgc_ExgNative_copyCube(JNIEnv *env, jclass cls, jbyteArray dst)
 {
-    unsigned char cube[64];
+    unsigned char cube[512];
     (void)cls;
-    if (!dst || (*env)->GetArrayLength(env, dst) < 64) {
+    if (!dst || (*env)->GetArrayLength(env, dst) < 512) {
         return;
     }
     np_host_copy_cube(cube);
-    (*env)->SetByteArrayRegion(env, dst, 0, 64, (jbyte *)cube);
+    (*env)->SetByteArrayRegion(env, dst, 0, 512, (jbyte *)cube);
+}
+
+JNIEXPORT void JNICALL
+Java_com_abysscore_exgc_ExgNative_leftoverUv(JNIEnv *env, jclass cls, jfloatArray dst)
+{
+    float uv[8];
+    (void)cls;
+    if (!dst || (*env)->GetArrayLength(env, dst) < 8) {
+        return;
+    }
+    np_host_leftover_uv(uv);
+    (*env)->SetFloatArrayRegion(env, dst, 0, 8, uv);
 }
 
 JNIEXPORT void JNICALL

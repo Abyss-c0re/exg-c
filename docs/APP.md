@@ -1,4 +1,4 @@
-# App (2.40)
+# App (2.42)
 
 What the host does. The LAN wire is [API.md](API.md).
 
@@ -108,7 +108,7 @@ Profile load keeps the electrode map and **recooks** plates/takes from raw. It d
 
 ## Cube
 
-Viz is the leftover cube: **8 channels × 8 bits**, same leftover µV as the traces. **float on** levitates; **float off** is manual drag-spin and +/− zoom. Map still assigns 10-10 sites.
+Viz is the crimson 8³ lattice. One mapped 10-10 cell per channel tracks leftover µV — same color and millivolt as the traces. **float on** levitates; **float off** is manual drag-spin and +/− zoom. Map still assigns 10-10 sites.
 
 ## Quest / phone
 

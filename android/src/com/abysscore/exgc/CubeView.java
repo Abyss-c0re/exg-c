@@ -11,13 +11,13 @@ import android.view.MotionEvent;
 import android.view.View;
 
 /**
- * viz — leftover cube (8×8 bits, spike #FF141A). Map assigns 10-10.
+ * viz — crimson 8³ Cube Experience (spike #FF141A). Mapped sites track leftover µV.
  * map — 10-10 assign: tap a channel, then a site on the scalp map or cube.
  */
 public class CubeView extends View {
     private static final int NCHAN = 8;
     private static final int N = 8;
-    private static final int NCELL = 64;
+    private static final int NCELL = N * N * N;
     private static final int MAX_CELL = 40;
     private static final int MAX_SITE = 80;
     private static final int SPIKE = 0xFFFF141A;
@@ -45,6 +45,7 @@ public class CubeView extends View {
     private final float[] elecZ = new float[NCHAN];
     private final String[] elecLab = new String[NCHAN];
     private final int[] elecCol = new int[NCHAN];
+    private final float[] leftover = new float[NCHAN];
     private int elecSel;
     private int siteFocus;
     private int smxSeq;
@@ -125,6 +126,7 @@ public class CubeView extends View {
         mode = ExgNative.cubeView();
         ncell = ExgNative.vizCells(cellXyz, cellS, cellRgba);
         ExgNative.copyCube(cubeBits);
+        ExgNative.leftoverUv(leftover);
         onCount = 0;
         for (int i = 0; i < NCELL; i++) {
             boolean on = cubeBits[i] != 0;
@@ -349,6 +351,7 @@ public class CubeView extends View {
             drawGlow(c, w, cubeB);
             drawWire(c, cx, cy, k);
             drawLattice(c, cx, cy, k);
+            drawElecResonance(c, cx, cy, k);
             drawCore(c, cx, cy, k);
             ink.setColor(SPIKE);
             ink.setTextSize(28f * labelMul);
@@ -411,7 +414,7 @@ public class CubeView extends View {
     }
 
     private void drawLattice(Canvas c, float cx, float cy, float k) {
-        /* shell nodes + live ON voxels, far first */
+        /* 8³ shell + live ON voxels. Crimson only — electrode color is one site. */
         int max = 296 + NCELL;
         float[] depth = new float[max];
         float[] px = new float[max];
@@ -419,21 +422,24 @@ public class CubeView extends View {
         float[] pf = new float[max];
         int[] kind = new int[max]; /* 0 lattice 1 on 2 impulse */
         int[] edgeN = new int[max];
-        int[] chOf = new int[max];
         int n = 0;
         float[] p = new float[4];
         float pulse = 0.5f + 0.5f * (float) Math.sin(t * 3.2);
         float glow = 0.15f + Math.min(0.85f, onCount / 28f);
-        for (int iy = 0; iy < N; iy++) {
-            for (int ix = 0; ix < N; ix++) {
-                {
-                    boolean shell = ix == 0 || ix == N - 1 || iy == 0 || iy == N - 1;
-                    int idx = ix + N * iy;
-                    boolean on = idx < NCELL && cubeBits[idx] != 0;
-                    float imp = idx < NCELL ? impulse[idx] : 0f;
+        for (int iz = 0; iz < N; iz++) {
+            for (int iy = 0; iy < N; iy++) {
+                for (int ix = 0; ix < N; ix++) {
+                    boolean shell = ix == 0 || ix == N - 1 || iy == 0 || iy == N - 1
+                            || iz == 0 || iz == N - 1;
+                    int idx = ix + N * iy + N * N * iz;
+                    boolean on = cubeBits[idx] != 0;
+                    float imp = impulse[idx];
+                    if (!shell && !on && imp < 0.08f) {
+                        continue;
+                    }
                     float wx = (ix - 3.5f) / 3.5f;
                     float wy = (iy - 3.5f) / 3.5f;
-                    float wz = 0f;
+                    float wz = (iz - 3.5f) / 3.5f;
                     project(wx, wy, wz, cx, cy, k, p);
                     if (n >= max) {
                         continue;
@@ -443,7 +449,8 @@ public class CubeView extends View {
                     pf[n] = p[3];
                     depth[n] = p[2];
                     edgeN[n] = (ix == 0 || ix == N - 1 ? 1 : 0)
-                            + (iy == 0 || iy == N - 1 ? 1 : 0);
+                            + (iy == 0 || iy == N - 1 ? 1 : 0)
+                            + (iz == 0 || iz == N - 1 ? 1 : 0);
                     if (imp > 0.08f) {
                         kind[n] = 2;
                     } else if (on) {
@@ -451,7 +458,6 @@ public class CubeView extends View {
                     } else {
                         kind[n] = 0;
                     }
-                    chOf[n] = ix;
                     n++;
                 }
             }
@@ -495,9 +501,7 @@ public class CubeView extends View {
                 float flash = kind[i] == 2 ? impulse[i] : 0.35f;
                 float size = (6.5f + 10f * f) * (1.0f + 0.55f * flash);
                 int alpha = kind[i] == 2 ? (int) (220 * flash + 40) : 210;
-                int rgb = (chOf[i] >= 0 && chOf[i] < NCHAN) ? (elecCol[chOf[i]] & 0x00FFFFFF)
-                        : 0x00FF141A;
-                fill.setColor((alpha << 24) | rgb);
+                fill.setColor((alpha << 24) | 0x00FF141A);
                 c.drawCircle(px[i], py[i], size, fill);
                 if (kind[i] == 2) {
                     float jit = 8f + 18f * flash;
@@ -513,6 +517,33 @@ public class CubeView extends View {
                             py[i] + (float) Math.sin(ang * 2.1) * jit * 1.3f, stroke);
                 }
             }
+        }
+    }
+
+    private void drawElecResonance(Canvas c, float cx, float cy, float k) {
+        float[] p = new float[4];
+        float sc = ExgNative.scaleUv();
+        if (sc < 25f) {
+            sc = 25f;
+        }
+        fill.setStyle(Paint.Style.FILL);
+        for (int ch = 0; ch < NCHAN; ch++) {
+            if (!chOn[ch]) {
+                continue;
+            }
+            float rel = leftover[ch] / sc;
+            if (rel > 2f) {
+                rel = 2f;
+            }
+            if (rel < 0.02f) {
+                continue;
+            }
+            project(elecX[ch], elecY[ch], elecZ[ch], cx, cy, k, p);
+            float f = p[3] < 0.15f ? 0.15f : p[3];
+            float size = (7f + 22f * rel) * f;
+            int alpha = (int) (70 + 170 * Math.min(1f, rel));
+            fill.setColor((alpha << 24) | (elecCol[ch] & 0x00FFFFFF));
+            c.drawCircle(p[0], p[1], size, fill);
         }
     }
 

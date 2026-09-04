@@ -138,7 +138,7 @@ struct np_app {
     int cube_ok;
     float cube_yaw, cube_pitch;
     float cube_zoom;
-    int cube_view; /* 0 viz (8×8 leftover bits)  1 map (10-10 assign) */
+    int cube_view; /* 0 viz (crimson 8³)  1 map (10-10 assign) */
     int cube_float; /* 1 = levitate */
     uint8_t cube_bits[64];
     int site_focus; /* 10-10 index */

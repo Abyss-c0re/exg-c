@@ -21,7 +21,7 @@ uint64_t np_atom_pack_rel(const float *planar, int n_ch, int n_samp, int stride,
                           const float base_uv[8]);
 /* One EXG1 sample vs baseline. n=1 is honest but thin; prefer a short window. */
 uint64_t np_atom_from_uv8(const float uv[8], const float base_uv[8]);
-/* Cube is 8×8 leftover bits (channel × feature). */
+/* Pack layout: 8 feature bits × 8 ch. Not the crimson 8³ picture. */
 void np_atom_faces8(uint64_t atom, uint8_t cube[64]);
 
 int np_atom_popcount(uint64_t a);

@@ -84,6 +84,8 @@ void cfg_save(void);
 /* Do not cook filter poles from a lagged measured rate (46 SPS makes
  * a 50 Hz notch sit past Nyquist and a 60 Hz notch is already there). */
 uint32_t view_copy(int ch, float *dst, uint32_t n);
+static float leftover_scale_ch(int c);
+static void leftover_now(float uv[8], float base[8]);
 static void atom_identify(void);
 float design_sps(void)
 {
@@ -2009,6 +2011,51 @@ static uint32_t live_copy(int ch, float *dst, uint32_t n)
     return n;
 }
 
+static float leftover_scale_ch(int c)
+{
+    float sc = 25.f;
+    if (c < 0 || c >= NP_NCHAN) {
+        return sc;
+    }
+    if (id_base_ok && id_base[c] > sc) {
+        sc = id_base[c];
+    } else if (g.calm.have && g.calm.rms[c] > sc) {
+        sc = g.calm.rms[c];
+    }
+    return sc;
+}
+
+static void leftover_now(float uv[8], float base[8])
+{
+    float buf[NP_RING];
+    int c;
+    if (uv) {
+        memset(uv, 0, 8 * sizeof(float));
+    }
+    if (base) {
+        memset(base, 0, 8 * sizeof(float));
+    }
+    for (c = 0; c < NP_NCHAN; c++) {
+        float dc = 0, rms = 0, pk = 0, sc;
+        uint32_t n;
+        sc = leftover_scale_ch(c);
+        if (base) {
+            base[c] = sc;
+        }
+        if (!g.active[c]) {
+            continue;
+        }
+        n = view_copy(c, buf, 32);
+        if (n < 4) {
+            continue;
+        }
+        ch_stats(buf, n, &dc, &rms, &pk);
+        if (uv) {
+            uv[c] = rms;
+        }
+    }
+}
+
 /* CLEAN STFT at ~12 Hz, not 60×8. Plot uses the last cooked window. */
 uint32_t view_copy(int ch, float *dst, uint32_t n)
 {
@@ -2308,12 +2355,7 @@ void smx_tick(void)
                 n = 32;
             }
             ch_stats(buf, n, &dc, &rms, &pk);
-            sc = 25.f;
-            if (id_base_ok && id_base[c] > sc) {
-                sc = id_base[c];
-            } else if (g.calm.have && g.calm.rms[c] > sc) {
-                sc = g.calm.rms[c];
-            }
+            sc = leftover_scale_ch(c);
             if (n >= 8) {
                 uint64_t one = np_atom_pack_rel(buf, 1, (int)n, (int)n, &sc);
                 row = (uint8_t)(one & 0xffu);
@@ -4112,12 +4154,34 @@ void np_host_set_port_i(int i)
     }
     g.port_i = i;
 }
-void np_host_copy_cube(unsigned char dst[64])
+void np_host_copy_cube(unsigned char dst[512])
 {
+    float uv[8];
+    int c;
     if (!dst) {
         return;
     }
-    memcpy(dst, g.cube_bits, 64);
+    memcpy(dst, g.smx.cube, 512);
+    leftover_now(uv, NULL);
+    for (c = 0; c < NP_NCHAN; c++) {
+        int ix, iy, iz, idx;
+        if (!g.active[c] || g.elec[c].site < 0) {
+            continue;
+        }
+        if (uv[c] < 0.5f * leftover_scale_ch(c)) {
+            continue;
+        }
+        np_1010_ijk(g.elec[c].site, &ix, &iy, &iz);
+        idx = np_cube_idx(ix, iy, iz);
+        if (idx >= 0) {
+            dst[idx] = 1;
+        }
+    }
+}
+
+void np_host_leftover_uv(float uv[8])
+{
+    leftover_now(uv, NULL);
 }
 int np_host_notch(void)
 {
@@ -4304,7 +4368,7 @@ void np_host_set_cube_view(int map)
 {
     g.cube_view = map ? 1 : 0;
     cfg_save();
-    set_status(1, g.cube_view ? "map  assign 10-10 sites" : "viz  leftover cube");
+    set_status(1, g.cube_view ? "map  assign 10-10 sites" : "viz  crimson cube");
 }
 int np_host_cube_float(void)
 {
@@ -4449,22 +4513,6 @@ int np_host_viz_cells(float *xyz, float *size, int *rgba, int cap)
         xyz[i * 3 + 2] = cells[i].z;
         size[i] = cells[i].s;
         rgba[i] = (cells[i].a << 24) | (cells[i].r << 16) | (cells[i].g << 8) | cells[i].b;
-    }
-    {
-        int c, b;
-        for (b = 0; b < 8 && n < cap; b++) {
-            for (c = 0; c < 8 && n < cap; c++) {
-                if (!g.cube_bits[c + b * 8]) {
-                    continue;
-                }
-                xyz[n * 3] = ((float)c - 3.5f) / 3.5f;
-                xyz[n * 3 + 1] = ((float)b - 3.5f) / 3.5f;
-                xyz[n * 3 + 2] = 0.f;
-                size[n] = 0.28f;
-                rgba[n] = (230 << 24) | (g.chrgb[c][0] << 16) | (g.chrgb[c][1] << 8) | g.chrgb[c][2];
-                n++;
-            }
-        }
     }
     return n;
 }

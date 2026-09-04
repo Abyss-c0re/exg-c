@@ -77,7 +77,10 @@ void np_host_prof_at(int i, char *out, int n);
 void np_host_ports(char *out, int n);
 void np_host_cycle_port(void);
 void np_host_set_port_i(int i);
-void np_host_copy_cube(unsigned char dst[64]);
+/* 8³ occupancy (SMX + live leftover at mapped 10-10 sites). Not the 64-bit pack. */
+void np_host_copy_cube(unsigned char dst[512]);
+/* Leftover RMS µV, same cook as the traces. Inactive channels are 0. */
+void np_host_leftover_uv(float uv[8]);
 int np_host_notch(void);
 /* Effective notch Hz (AUTO → plate). 0 if idle. */
 int np_host_notch_eff(void);

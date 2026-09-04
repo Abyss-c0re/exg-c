@@ -4,7 +4,7 @@ A C host for a **[Knight](https://www.neuropawn.tech/)** ADS1299 board — or an
 
 Not a medical device. Not affiliated with NeuroPawn.
 
-Shipped app: **2.40** (`com.abysscore.exgc`, versionCode 49). One framework, two skins:
+Shipped app: **2.42** (`com.abysscore.exgc`, versionCode 51). One framework, two skins:
 
 | Piece | Role |
 |-------|------|
@@ -30,7 +30,7 @@ Quest / phone notes: [android/README.md](android/README.md).
 - **Take** — named stretch. ID names a take only if one unique winner (≥70% and 8 pt gap) on the **last 1 s vs that take’s pattern**.
 - **Record** — 1 s named leftover pose. MATCH **names** a unique pose. It does **not** print a cosine percent.
 - **bias ON / bias off** per channel (RLD). Connect applies add **and** remove.
-- **Cube viz** — 8×8 leftover bits, same µV as the traces. **float on/off**, drag to spin, +/− or pinch to zoom. **map** assigns 10-10 sites.
+- **Cube viz** — crimson 8³ lattice. Mapped electrode cells track leftover µV (same color and millivolt as the traces). **float on/off**, drag to spin, +/− or pinch to zoom. **map** assigns 10-10 sites.
 - **API** off by default. When on: HTTP 8765, UDP 8766, TCP 8767, bind lan, 125 Hz. Live path is **EXG1** binary, not JSON.
 
 Default montage: Fp1 Fp2 C3 C4 P3 P4 O1 O2.

@@ -1,4 +1,4 @@
-# API (2.40)
+# API (2.42)
 
 C only (`include/np_api.h`, `src/np_api.c`). No Python in this tree.
 
@@ -16,7 +16,7 @@ Default: **off**. Settings → **API on**. Then:
 
 Cook runs on the **USB reader** thread. The API thread wakes on a pipe and sends. Sockets do not block the cook. There is no fake sample delay.
 
-`/` and `/health` advertise `"v":"2.40"`. Live stream is **EXG1** binary. There is no `/stream.json`.
+`/` and `/health` advertise `"v":"2.42"`. Live stream is **EXG1** binary. There is no `/stream.json`.
 
 ## EXG1 frame (68 bytes, little-endian)
 
