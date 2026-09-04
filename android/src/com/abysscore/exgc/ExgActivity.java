@@ -524,16 +524,13 @@ public class ExgActivity extends Activity {
         }
         if (ExgNative.cleanLive()) {
             clean.setText("CLEAN on");
-        } else if (ExgNative.cleanOn() && ExgNative.calmHave()) {
-            clean.setText("DC cut");
         } else if (ExgNative.cleanOn()) {
-            clean.setText("CLEAN idle");
+            clean.setText("DC on");
         } else {
-            clean.setText("CLEAN off");
+            clean.setText("DC off");
         }
         clean.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
-                ExgNative.cleanLive() ? 0xFF2E8A58
-                        : (ExgNative.cleanOn() ? 0xFF5A5040 : 0xFF2A3038)));
+                ExgNative.cleanOn() ? 0xFF2E8A58 : 0xFF2A3038));
         boolean matching = ExgNative.matchOn();
         boolean haveTakes = ExgNative.atomCount() > 0;
         match.setText(haveTakes ? (matching ? "ID on" : "ID off")

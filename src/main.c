@@ -324,10 +324,7 @@ static const char *clean_btn(void)
     if (clean_wiener_ready()) {
         return "CLN";
     }
-    if (g.cal_cut) {
-        return "dc";
-    }
-    return "cln";
+    return g.cal_cut ? "DC" : "dc";
 }
 
 static const char *clean_tag(void)
@@ -335,7 +332,7 @@ static const char *clean_tag(void)
     if (clean_wiener_ready()) {
         return "  CLEAN";
     }
-    if (g.cal_cut && g.calm.have) {
+    if (g.cal_cut) {
         return "  DC";
     }
     return "";
@@ -344,13 +341,13 @@ static const char *clean_tag(void)
 static void clean_set_status(void)
 {
     if (!g.cal_cut) {
-        set_status(1, "CLEAN off");
+        set_status(1, "DC off");
     } else if (clean_wiener_ready()) {
         set_status(1, "CLEAN on — noise plate");
     } else if (g.calm.have) {
-        set_status(1, "DC cut — CLEAN needs ≥3s window + noise plate");
+        set_status(1, "DC on — still-plate offset");
     } else {
-        set_status(1, "CLEAN idle — need noise plate and ≥3s window");
+        set_status(1, "DC on — take a still plate to cut offset");
     }
 }
 
@@ -4984,9 +4981,8 @@ static void draw_learn(int x, int y, int w, int h)
                 g.cal_phase == 4 ? 28 : 36, g.cal_phase >= 1 ? 90 : 38,
                 g.cal_phase == 3 ? 40 : 46);
         }
-        btn(x + 170, y + 46, 48, 32, clean_btn(), clean_wiener_ready(), 27, 0,
-            clean_wiener_ready() ? 28 : 36, clean_wiener_ready() ? 80 : 38,
-            clean_wiener_ready() ? 70 : 46);
+        btn(x + 170, y + 46, 48, 32, clean_btn(), g.cal_cut, 27, 0,
+            g.cal_cut ? 28 : 36, g.cal_cut ? 80 : 38, g.cal_cut ? 70 : 46);
         if (g.cal_arm) {
             text(x + 222, y + 56, "desk / off, then OK", 230, 190, 90, 1);
         } else if (g.cal.have && g.calm.have) {
@@ -5116,9 +5112,8 @@ static void draw_learn(int x, int y, int w, int h)
         btn(x + 6, y + h - 22, 128, 18, cl, g.cal_phase > 0 || g.cal.have, 25, 0,
             g.cal_phase == 4 ? 28 : 36, g.cal_phase >= 1 ? 90 : 38, 46);
     }
-    btn(x + 138, y + h - 22, 40, 18, clean_btn(), clean_wiener_ready(), 27, 0,
-        clean_wiener_ready() ? 28 : 36, clean_wiener_ready() ? 80 : 38,
-        clean_wiener_ready() ? 70 : 46);
+    btn(x + 138, y + h - 22, 40, 18, clean_btn(), g.cal_cut, 27, 0,
+        g.cal_cut ? 28 : 36, g.cal_cut ? 80 : 38, g.cal_cut ? 70 : 46);
     if (g.cal_arm) {
         text(x + 186, y + h - 18, "desk / off, then OK", 230, 190, 90, 1);
     } else if (g.cal.have && g.calm.have) {
@@ -6642,6 +6637,7 @@ void np_host_toggle_clean(void)
 {
     g.cal_cut = !g.cal_cut;
     cfg_save();
+    clean_set_status();
 }
 int np_host_cal_have(void)
 {

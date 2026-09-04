@@ -601,7 +601,7 @@
                 android:id="@+id/clean"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Cancel noise" />
+                android:text="DC off" />
         </LinearLayout>
 
         <LinearLayout
