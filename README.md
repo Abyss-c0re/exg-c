@@ -4,7 +4,7 @@ A C host for a **[Knight](https://www.neuropawn.tech/)** ADS1299 board — or an
 
 Not a medical device. Not affiliated with NeuroPawn.
 
-Shipped app: **2.50** (`com.abysscore.exgc`, versionCode 59). One framework, two skins:
+Shipped app: **2.51** (`com.abysscore.exgc`, versionCode 60). One framework, two skins:
 
 | Piece | Role |
 |-------|------|
@@ -22,19 +22,19 @@ Quest / phone notes: [android/README.md](android/README.md).
 ## What it does
 
 - 8 channels at **125 SPS** (Knight ADS1299).
-- Default view is **line-kill leftover**: notch AUTO, hp 2 Hz, CAR on, detrend on, envelope off, ±1000 µV, 2 s window.
+- Default view is **line-kill EXG**: notch AUTO, hp 2 Hz, CAR on, detrend on, envelope off, ±1000 µV, 2 s window.
 - **Calibrate** — 5 s to put the headset down, 8 s desk plate, tap when worn, 8 s still plate.
 - **DC on / DC off** — subtracts the still-plate mean. That is not Wiener CLEAN.
 - **CLEAN on** — Wiener vs the desk noise plate. Only if a noise plate exists **and** the window is ≥ 3 s (256 samples). Default 2 s cannot run it.
 - **ID** — event label + ratio (`still 1.1x`, `clench 5.9x`). Not a percent. Needs a worn still plate.
 - **Take** — named stretch. ID names a take only if one unique winner (≥70% and 8 pt gap) on the **last 1 s vs that take’s pattern**.
-- **Record** — 1 s named leftover pose. MATCH **names** a unique pose. It does **not** print a cosine percent.
+- **Record** — 1 s named pose. MATCH **names** a unique pose. It does **not** print a cosine percent.
 - **bias ON / bias off** per channel (RLD). Connect applies add **and** remove.
-- **Cube viz** — crimson 8³ lattice. Mapped electrode cells track leftover µV (same color and millivolt as the traces). **float on/off**, drag to spin, +/− or pinch to zoom. **map** assigns 10-10 sites.
-- **USB / LAN / Bluetooth** — three ways the board reaches the app. USB is the Knight on this device. Bluetooth pairs nearby (Allow/No) and leftover rides that link. LAN uses wifi leftover after a pair that saw wifi.
+- **Cube viz** — crimson 8³ lattice. Mapped electrode cells track EXG µV (same color and millivolt as the traces). **float on/off**, drag to spin, +/− or pinch to zoom. **map** assigns 10-10 sites.
+- **USB / LAN / Bluetooth** — three ways the board reaches the app. USB is the Knight on this device. Bluetooth pairs nearby (Allow/No) and EXG rides that link. LAN uses wifi EXG after a pair that saw wifi.
 - **API server** off by default. When on: HTTP 8765, UDP 8766, TCP 8767, bind lan, 125 Hz. Live path is **EXG1** binary, not JSON. `/cfg` carries colors, map, and filters so a client matches.
 
-Default montage: **FCz–CPz**, **CP4–FC3**, **FC4–CP3**, **C3–C4**. Eight leftover sites; four bipolar leftover traces. Map can still assign any 10-10 name.
+Default montage: **FCz–CPz**, **CP4–FC3**, **FC4–CP3**, **C3–C4**. Eight EXG sites; four bipolar EXG traces. Map can still assign any 10-10 name.
 
 ## Linux
 
@@ -71,7 +71,7 @@ On a phone the Knight is USB-host on the phone. On Quest 3 the Knight is USB-hos
 1. **Connect**. Wait until ~125 sps (below 80 is warming).
 2. **Calibrate**. Put the kit down for 5 s, leave it for the desk plate, wear it, sit still.
 3. Default cut is **DC on** (still-plate offset). Teal means the cut is on.
-4. **ID** should read `still Nx`. Hard blink → `blink`. Jaw clench → `clench`. That is leftover vs a quiet baseline, not a learned take.
+4. **ID** should read `still Nx`. Hard blink → `blink`. Jaw clench → `clench`. That is EXG vs a quiet baseline, not a learned take.
 5. **Take rest**, then **Take** an action. ID names only a unique winner.
 6. Settings → **API on** only if you want the LAN stream.
 

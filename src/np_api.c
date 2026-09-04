@@ -732,7 +732,7 @@ static void handle_req(struct http_cli *c)
 
     if (!strcmp(path, "/") || !strcmp(path, "/index")) {
         snprintf(js, sizeof(js),
-                 "{\"ok\":true,\"v\":\"2.50\",\"api\":\"exg\","
+                 "{\"ok\":true,\"v\":\"2.51\",\"api\":\"exg\","
                  "\"bind\":\"%s\",\"ip\":\"%s\",\"http\":%d,\"udp\":%d,\"tcp\":%d,"
                  "\"hz\":%d,\"token\":%s,\"push\":\"%s\","
                  "\"get\":[\"/health\",\"/status\",\"/sample\",\"/stream\",\"/cfg\",\"/kit\"],"
@@ -745,7 +745,7 @@ static void handle_req(struct http_cli *c)
     }
     if (!strcmp(path, "/health")) {
         snprintf(js, sizeof(js),
-                 "{\"ok\":true,\"v\":\"2.50\",\"on\":true,\"bind\":\"%s\","
+                 "{\"ok\":true,\"v\":\"2.51\",\"on\":true,\"bind\":\"%s\","
                  "\"ip\":\"%s\",\"http\":%d,\"udp\":%d,\"tcp\":%d,\"hz\":%d,"
                  "\"clients\":{\"http\":%d,\"tcp\":%d,\"udp\":%d}}",
                  cfg.lan ? "lan" : "local", self_ip, cfg.http, cfg.udp, cfg.tcp, cfg.hz,
@@ -1277,10 +1277,10 @@ void np_api_line(char *out, int n)
         return;
     }
     if (!cfg.on) {
-        snprintf(out, (size_t)n, "not sharing leftover");
+        snprintf(out, (size_t)n, "not sharing EXG");
         return;
     }
-    snprintf(out, (size_t)n, "sharing leftover  %s  settings :%d  leftover :%d  spare :%d  %d/s",
+    snprintf(out, (size_t)n, "sharing EXG  %s  settings :%d  EXG :%d  spare :%d  %d/s",
              cfg.lan ? "wifi" : "this phone", cfg.http, cfg.udp, cfg.tcp, cfg.hz);
 }
 

@@ -6,7 +6,7 @@
  * One pass over a short window. No heap, no FFT.
  */
 
-#define NP_ALGO_DETECT 0 /* 1 only if leftover vs worn CALM is SIGNAL */
+#define NP_ALGO_DETECT 0 /* 1 only if EXG vs worn CALM is SIGNAL */
 #define NP_ALGO_SIGN 1   /* last sample > 0 */
 #define NP_ALGO_MEAN 2   /* |last| above mean |x| */
 #define NP_ALGO_ENERGY 3 /* rms above mean |x| */

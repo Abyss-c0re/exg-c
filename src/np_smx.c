@@ -627,7 +627,7 @@ static const char *k_pair[NP_PAIR_N][2] = {
 
 void np_elec_default(struct np_elec e[NP_NCHAN])
 {
-    /* Sensorimotor belt: four leftover pairs, not Fp/O. */
+    /* Sensorimotor belt: four EXG pairs, not Fp/O. */
     int i;
     if (!e) {
         return;

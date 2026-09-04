@@ -417,7 +417,7 @@ static void draw_waves(int x, int y, int w, int h)
             float omin = 0.f, omax = 0.f, ospan = 0.f;
             if (g.og && n > 0) {
                 /* Keep the pre-notch span so cutting 60 Hz shrinks the
-                 * strip. Post-filter min-max restretches leftovers to
+                 * strip. Post-filter min-max restretches EXGs to
                  * the same pixels and looks like off. */
                 if (g.notch_hz != 0) {
                     omin = pre_min;
@@ -1039,7 +1039,7 @@ static void draw_cube(int x, int y, int w, int h)
             if (sc < 25.f) {
                 sc = 25.f;
             }
-            np_host_leftover_uv(uv);
+            np_host_cook_uv(uv);
             np_host_pair_uv(puv);
             for (p = 0; p < NP_PAIR_N; p++) {
                 int ca, cb, ax, ay, bx, by;
@@ -1359,9 +1359,9 @@ static void draw_side(int x)
     int c;
     int bh = btnh(), rh = rowh();
     char live[48];
-    const char *port = g.link == 2 ? (g.link_dest[0] ? "on bluetooth" : "nearby leftover…")
-            : (g.link == 1 ? (g.link_dest[0] && strncmp(g.link_dest, "bt:", 3) ? "leftover on LAN"
-                                                                              : "leftover on wifi…")
+    const char *port = g.link == 2 ? (g.link_dest[0] ? "on bluetooth" : "nearby EXG…")
+            : (g.link == 1 ? (g.link_dest[0] && strncmp(g.link_dest, "bt:", 3) ? "EXG on LAN"
+                                                                              : "EXG on wifi…")
                            : port_short());
     const char *bname = g.board == NP_BOARD_KNIGHT_IMU ? "8-ch + IMU" : "8-ch EXG";
 
@@ -1855,11 +1855,11 @@ static void click(int x, int y)
             break;
         case 4:
             if (g.link == 2) {
-                set_status(1, "Bluetooth leftover is nearby, not USB");
+                set_status(1, "Bluetooth EXG is nearby, not USB");
                 break;
             }
             if (g.link == 1) {
-                set_status(1, "LAN leftover is a saved wifi share");
+                set_status(1, "LAN EXG is a saved wifi share");
                 break;
             }
             g.nports = np_list_ports(g.ports, NP_MAX_PORTS);

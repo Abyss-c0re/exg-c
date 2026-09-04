@@ -1,4 +1,4 @@
-# App (2.50)
+# App (2.51)
 
 What the host does. The LAN wire is [API.md](API.md).
 
@@ -22,21 +22,21 @@ Android does **not** compile `np_ui.c`. Java talks to `include/np_host.h` via `s
 
 | Setting | Value | Why |
 |---------|--------|-----|
-| band | line-kill | leftover after common mode |
+| band | line-kill | EXG after common mode |
 | notch | AUTO (−1) | idle until a desk plate locks a line |
 | hp | 2 Hz | drops DC/slow rail |
-| lp | off | does not squash leftover |
+| lp | off | does not squash EXG |
 | CAR | on | worn raw is lockstep millivolt |
-| envelope | off | envelope hid leftover |
-| detrend | on | plot is leftover, not the floor |
+| envelope | off | envelope hid EXG |
+| detrend | on | plot is EXG, not the floor |
 | DC cut (`cal_cut`) | on | still-plate mean |
-| scale | ±1000 µV | leftover hundreds of µV, clench ~mV |
+| scale | ±1000 µV | EXG hundreds of µV, clench ~mV |
 | window | 2 s | 250 samples — **below** Wiener’s 256 |
 | API | **off** | turn on in Settings if you want LAN |
 
 After `set_gen=4`, saved ini wins. API is not forced on at boot. `set_gen=3` remounts the pair belt once. `set_gen=4` applies pair colors (white / yellow / cyan / red).
 
-Worn raw on this head is typically **200–300 µV**. Off-head / open inputs spike toward **1 mV**. That is contact vs antenna, not a stronger brain signal. After CAR+hp+notch, rest leftover is tens–hundreds of µV; a jaw clench is several times that.
+Worn raw on this head is typically **200–300 µV**. Off-head / open inputs spike toward **1 mV**. That is contact vs antenna, not a stronger brain signal. After CAR+hp+notch, rest EXG is tens–hundreds of µV; a jaw clench is several times that.
 
 ## DC vs CLEAN
 
@@ -62,7 +62,7 @@ Do not treat the countdown as “tap to cancel.” A second tap during 1/3/5 is 
 
 Cooked independently of the plot: hp 2 + notch + CAR + detrend. **No envelope, no LP.**
 
-Last ~0.5 s leftover vs a rolling quiet baseline (`id_base` EMA while still).
+Last ~0.5 s EXG vs a rolling quiet baseline (`id_base` EMA while still).
 
 | Label | Rule |
 |-------|------|
@@ -81,7 +81,7 @@ Last ~0.5 s leftover vs a rolling quiet baseline (`id_base` EMA while still).
 - **Take** — bookmark a named stretch (`atoms/<name>.npat`, raw next to it).
 - Live take ID: **last 1 s** vs each take’s **pattern** of seconds unlike rest/CALM. Fail-closed: unique winner ≥ **70%** and ≥ **8 pt** gap, or no percent.
 - Compare two takes: `same head — not distinct`, `distinct`, or `no RMS`. No whole-file percent.
-- **Record** — 1 s leftover pose in `exg-c.learn`. MATCH **names** a unique pose. Cosine is not printed as `%`.
+- **Record** — 1 s pose in `exg-c.learn`. MATCH **names** a unique pose. Cosine is not printed as `%`.
 - Chips on Android are **takes**. Record poses are listed separately and can be deleted.
 
 ## Bias (RLD)
@@ -108,13 +108,13 @@ Profile load keeps the electrode map and **recooks** plates/takes from raw. It d
 
 ## Cube
 
-Viz is the crimson 8³ lattice. One mapped 10-10 cell per channel tracks leftover µV — same color and millivolt as the traces. Pair leftover `A−B` draws a crimson link between the two sites. **float on** levitates; **float off** is manual drag-spin and +/− zoom. Map still assigns 10-10 sites.
+Viz is the crimson 8³ lattice. One mapped 10-10 cell per channel tracks EXG µV — same color and millivolt as the traces. Pair EXG `A−B` draws a crimson link between the two sites. **float on** levitates; **float off** is manual drag-spin and +/− zoom. Map still assigns 10-10 sites.
 
 ## Quest / phone
 
 - Package `com.abysscore.exgc`. Quest uses `com.oculus.intent.category.2D`.
 - Stream service is `startService` from a visible activity, then `startForeground` (`dataSync`). Not `startForegroundService`.
 - Service stays up while the API **server** is on **or** the app is connected (USB or API client).
-- **USB / LAN / Bluetooth** next to Connect. USB is the Knight here. Bluetooth picks a nearby name (Allow/No) and leftover rides that link. LAN is leftover on wifi after a pair that saw wifi. Share leftover is how this device offers the board out.
-- **Send mine / Take theirs / Both ways** copies map, colors, filters, and named profiles over leftover. Saved here so you can unplug and plug the board on the other device.
+- **USB / LAN / Bluetooth** next to Connect. USB is the Knight here. Bluetooth picks a nearby name (Allow/No) and EXG rides that link. LAN is EXG on wifi after a pair that saw wifi. Share EXG is how this device offers the board out.
+- **Send mine / Take theirs / Both ways** copies map, colors, filters, and named profiles over EXG. Saved here so you can unplug and plug the board on the other device.
 - Files live under the app directory (see android README). `run-as` cannot read them unless the package is debuggable.

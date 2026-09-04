@@ -1,4 +1,4 @@
-# API (2.50)
+# API (2.51)
 
 C only (`include/np_api.h`, `src/np_api.c`). No Python in this tree.
 
@@ -16,9 +16,9 @@ Default: **off**. Settings → **API on**. Then:
 
 Cook runs on the **USB reader** thread. The API thread wakes on a pipe and sends. Sockets do not block the cook. There is no fake sample delay.
 
-`/` and `/health` advertise `"v":"2.50"`. GET/POST `/kit` is map+settings text (no bind secrets). Live stream is **EXG1** binary. There is no `/stream.json`.
+`/` and `/health` advertise `"v":"2.51"`. GET/POST `/kit` is map+settings text (no bind secrets). Live stream is **EXG1** binary. There is no `/stream.json`.
 
-`GET /cfg` is the settings mirror: API bind plus leftover filters, 8 colors, 8 10-10 names, active mask, and the ID line. Token value is never returned (only `true`/`false`). Dest and token are typed on the client. A client sends any non-PING UDP to subscribe, then EXG1 at the server rate.
+`GET /cfg` is the settings mirror: API bind plus EXG filters, 8 colors, 8 10-10 names, active mask, and the ID line. Token value is never returned (only `true`/`false`). Dest and token are typed on the client. A client sends any non-PING UDP to subscribe, then EXG1 at the server rate.
 
 ## EXG1 frame (68 bytes, little-endian)
 
@@ -38,7 +38,7 @@ Cook runs on the **USB reader** thread. The API thread wakes on a pipe and sends
 | 64 | i8 | take-ID best index, or −1 |
 | 65–67 | 0 | pad |
 
-Cooked = the **display** cook (notch / hp / lp / CAR / envelope as set). Event ID cooks leftover separately and is not this frame.
+Cooked = the **display** cook (notch / hp / lp / CAR / envelope as set). Event ID cooks EXG separately and is not this frame.
 
 `t_us` is wall-clock. Two machines’ clocks are not a latency number. UDP **PING/PONG** is the honest RTT.
 

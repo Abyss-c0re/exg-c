@@ -2,7 +2,7 @@
 
 Same C host as `./np-exg`. Serial is USB Host. UI is Java. Native library is `libexg.so` from `src/np_core.c` — not the desktop SDL file.
 
-App: **2.50**, package `com.abysscore.exgc`, min SDK 28, ABI `arm64-v8a`.
+App: **2.51**, package `com.abysscore.exgc`, min SDK 28, ABI `arm64-v8a`.
 Quest 3: `com.oculus.intent.category.2D` so it runs as a 2D panel.
 
 How the app behaves: [../docs/APP.md](../docs/APP.md).  
@@ -31,7 +31,7 @@ Or `make android`. Output is `android/exg-c.apk` (debug-signed).
 3. Wait for ~125 sps. Below 80 is warming — ID / Record stay idle.
 4. **Calibrate**: 5 s to set the kit down, desk plate, wear, sit still.
 5. Cut button: teal **DC on** is the still-plate offset. **CLEAN on** only if the window is ≥ 3 s and a noise plate exists.
-6. **ID** should say `still Nx`. Blink / clench change the class. That is leftover vs baseline, not a take.
+6. **ID** should say `still Nx`. Blink / clench change the class. That is EXG vs baseline, not a take.
 7. **Take rest**, then an action. ID names only a unique winner. **Record** poses are listed separately; they are not take chips.
 
 Do not hammer Disconnect / Connect. Each DTR pulse resets the Nano.
@@ -69,7 +69,7 @@ Tap a name to switch band/filters. Long-press to rename or delete. Electrode map
 - `exg-c/profiles/<name>.ini`
 - `exg-c/atoms/<name>.npat` — takes
 - `exg-c/raw/` — raw plates / takes for recook
-- `live-snap.txt` — last leftover snapshot (debug)
+- `live-snap.txt` — last EXG snapshot (debug)
 - CSV from the **CSV** button
 
 The package is not debuggable. `run-as` cannot read these files.

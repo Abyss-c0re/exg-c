@@ -16,7 +16,7 @@
 
 /* planar[ch * stride + sample]. n_ch ≤ 8. */
 uint64_t np_atom_pack(const float *planar, int n_ch, int n_samp, int stride, float scale_uv);
-/* Per-channel scale from leftover baseline (CALM / id_base). Not 50 µV. */
+/* Per-channel scale from baseline (CALM / id_base). Not 50 µV. */
 uint64_t np_atom_pack_rel(const float *planar, int n_ch, int n_samp, int stride,
                           const float base_uv[8]);
 /* One EXG1 sample vs baseline. n=1 is honest but thin; prefer a short window. */

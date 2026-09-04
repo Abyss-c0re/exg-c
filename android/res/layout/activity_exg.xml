@@ -399,7 +399,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:paddingTop="12dp"
-                    android:text="Process — line-kill + CAR is the readable leftover. Raw is the open-input check. Bias (RLD) is per channel: tap bias ON / bias off."
+                    android:text="Process — line-kill + CAR is the readable EXG. Raw is the open-input check. Bias (RLD) is per channel: tap bias ON / bias off."
                     android:textColor="@color/muted" />
 
                 <LinearLayout
@@ -482,7 +482,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:paddingTop="12dp"
-                    android:text="Board reaches this app three ways. USB: Knight on this device. Bluetooth: pick a nearby name, Allow/No, leftover rides that link. LAN: leftover on wifi after a pair that saw wifi. Share leftover is how this device offers the board out."
+                    android:text="Board reaches this app three ways. USB: Knight on this device. Bluetooth: pick a nearby name, Allow/No, EXG rides that link. LAN: EXG on wifi after a pair that saw wifi. Share EXG is how this device offers the board out."
                     android:textColor="@color/muted" />
 
                 <TextView
@@ -536,7 +536,7 @@
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="leftover 8766" />
+                        android:text="EXG 8766" />
 
                     <Button
                         android:id="@+id/apiTcp"
@@ -569,7 +569,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:paddingTop="10dp"
-                    android:text="Map &amp; settings — copy while leftover is connected. Unplug one device, plug the other, keep the same map."
+                    android:text="Map &amp; settings — copy while EXG is connected. Unplug one device, plug the other, keep the same map."
                     android:textColor="@color/muted" />
 
                 <LinearLayout

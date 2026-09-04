@@ -266,7 +266,7 @@ for ln in core_c.splitlines(keepends=True):
         "SDL_SetWindowSize(Win, g.pref_w, g.pref_h)",
         "np_ui_apply_window_size(g.pref_w, g.pref_h)",
     )
-    # drop leftover static CHCOL/PALETTE/SCALE if they appear in core_head
+    # drop unused static CHCOL/PALETTE/SCALE if they appear in core_head
     if re.match(r"^static const int (CHCOL|PALETTE|SCALE_UV|WIN_S|WINPREF)", ln):
         continue
     if ln.strip() in ("#define NSCALE 6", "#define NWINS 4", "#define NWINPREF 4", "#define NPAL 12"):

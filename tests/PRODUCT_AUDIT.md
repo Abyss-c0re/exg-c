@@ -70,7 +70,7 @@ This is **50 Hz mains on open inputs**, not brain signal. AUTO tracked the plate
 | 3 | **CLEAN** | ~8 s window. Welch noise plate → destroy matching bins (Wiener) + line lock + calm DC. |
 | 4 | **Detect** | `noise` / `calm` / **SIGNAL** if residual > 1.5× calm |
 
-Proof in `make test` is **synthetic**: an 8 Hz burst above a fake calm plate is **SIGNAL**. Desk-like tone matches **noise**. A still synthetic worn plate matches **calm**. No worn-on-a-person CALM has been collected. Without a CALM plate, detect stays **NONE** — leftover rail is not SIGNAL.
+Proof in `make test` is **synthetic**: an 8 Hz burst above a fake calm plate is **SIGNAL**. Desk-like tone matches **noise**. A still synthetic worn plate matches **calm**. No worn-on-a-person CALM has been collected. Without a CALM plate, detect stays **NONE** — EXG rail is not SIGNAL.
 
 Learn/Record uses the cleaned window. This is the front-end for on-device templates (`nplearn`), not a cloud model.
 

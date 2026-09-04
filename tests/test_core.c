@@ -560,7 +560,7 @@ static void test_elec_view(void)
     expect(strcmp(e[6].name, "C3") == 0 && strcmp(e[7].name, "C4") == 0, "default C3 C4");
     {
         int p, ca, cb, ok = 1;
-        expect(np_pair_count() == 4, "four leftover pairs");
+        expect(np_pair_count() == 4, "four EXG pairs");
         expect(strcmp(np_pair_site_a(0), "FCz") == 0 && strcmp(np_pair_site_b(0), "CPz") == 0,
                "pair 0 FCz-CPz");
         expect(strcmp(np_pair_site_a(1), "CP4") == 0 && strcmp(np_pair_site_b(1), "FC3") == 0,
@@ -1007,7 +1007,7 @@ static void test_atom(void)
                 }
                 rr = np_atom_pack_rel(restw, 8, 125, 125, base);
                 aa = np_atom_pack_rel(actw, 8, 125, 125, base);
-                expect(np_atom_hamming(rr, aa) >= 16, "pack_rel leftover baseline sees 4x");
+                expect(np_atom_hamming(rr, aa) >= 16, "pack_rel baseline sees 4x");
                 expect(np_atom_from_uv8(restw, base) != 0 || restw[0] != 0.f,
                        "from_uv8 runs");
                 np_atom_faces8(aa, cube);
@@ -1016,7 +1016,7 @@ static void test_atom(void)
                         on++;
                     }
                 }
-                expect(on == np_atom_popcount(aa), "cube is 64 leftover bits");
+                expect(on == np_atom_popcount(aa), "cube is 64 EXG bits");
             }
             {
                 float rr[8], ar[8];
@@ -1237,7 +1237,7 @@ static void test_api(void)
          strstr(body, "/stream") && strstr(body, "EXG1");
     expect(ok, "api GET / index lists stream");
     expect(strstr(body, "stream.json") == NULL, "api index has no NDJSON live path");
-    expect(strstr(body, "\"v\":\"2.50\"") != NULL, "api index version 2.50");
+    expect(strstr(body, "\"v\":\"2.51\"") != NULL, "api index version 2.51");
     expect(strstr(body, "\"ip\":\"127.0.0.1\"") != NULL, "api local ip is loopback");
     {
         int k = http_get("127.0.0.1", 18765, "/kit", body, sizeof(body));

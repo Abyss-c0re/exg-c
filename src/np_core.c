@@ -86,8 +86,8 @@ void cfg_save(void);
 /* Do not cook filter poles from a lagged measured rate (46 SPS makes
  * a 50 Hz notch sit past Nyquist and a 60 Hz notch is already there). */
 uint32_t view_copy(int ch, float *dst, uint32_t n);
-static float leftover_scale_ch(int c);
-static void leftover_now(float uv[8], float base[8]);
+static float cook_scale_ch(int c);
+static void cook_now(float uv[8], float base[8]);
 static void atom_identify(void);
 float design_sps(void)
 {
@@ -678,7 +678,7 @@ static int site_is_fp(int ch)
     return n && n[0] == 'F' && n[1] == 'p';
 }
 
-/* Last ~0.5 s leftover vs a rolling quiet floor. Shared 2 mV is not a pose. */
+/* Last ~0.5 s EXG vs a rolling quiet floor. Shared 2 mV is not a pose. */
 static int stream_id(float *ratio)
 {
     float rms[NP_NCHAN], base[NP_NCHAN];
@@ -757,7 +757,7 @@ static int stream_id(float *ratio)
             med = tmp[n / 2];
         }
     }
-    /* Lockstep millivolt floor: turn display CAR on so the plot is leftover. */
+    /* Lockstep millivolt floor: turn display CAR on so the plot is EXG. */
     if (!g.car && nlive >= 4 && mx > 800.f && med > 400.f && mx < med * 1.25f) {
         g.car = 1;
         if (g.hp_hz < 1) {
@@ -767,7 +767,7 @@ static int stream_id(float *ratio)
         g.detrend = 1;
         filt_reset();
         cfg_save();
-        set_status(1, "shared floor — CAR on, ID on leftover");
+        set_status(1, "shared floor — CAR on, ID on EXG");
     }
     if (!id_base_ok) {
         for (c = 0; c < NP_NCHAN; c++) {
@@ -816,7 +816,7 @@ void id_label(char *out, int n)
 }
 
 /* One second around the gesture — not the plot window. Packing 8 s of
- * mixed still+noise is why MATCH could not tell a blink from leftover. */
+ * mixed still+noise is why MATCH could not tell a blink from EXG. */
 static int learn_capture(float wave[NPL_NCHAN][NPL_LEN], float rms[NPL_NCHAN], uint8_t *mask)
 {
     int c, have = 0, clip = 0;
@@ -1064,7 +1064,7 @@ static void learn_hold_tick(void)
         g.rec_t0 = 0;
         learn_save_named();
         if (id == NP_ID_STILL || id == NP_ID_NEED) {
-            set_status(0, "saved leftover — no burst. Blink hard or clench.");
+            set_status(0, "saved — no burst. Blink hard or clench.");
         }
     }
 }
@@ -1412,7 +1412,7 @@ void cfg_save(void)
 void apply_readable_defaults(void)
 {
     /* Worn head is 200–300 µV raw; off-head ~1 mV; lockstep floor hides
-     * actions. Line-kill leftover is what ID can name. */
+     * actions. Line-kill EXG is what ID can name. */
     g.band = 1;
     g.notch_hz = -1;
     g.hp_hz = 2;
@@ -1715,7 +1715,7 @@ static void cook_all(float buf[NP_NCHAN][NP_RING], uint32_t nn[NP_NCHAN], uint32
     }
 }
 
-/* ID cook: leftover after shared floor. Not the display envelope. */
+/* ID cook: EXG after shared floor. Not the display envelope. */
 static void cook_id(float buf[NP_NCHAN][NP_RING], uint32_t nn[NP_NCHAN])
 {
     int c, t;
@@ -2066,7 +2066,7 @@ static void link_on_sample(const struct np_api_sample *s)
     g.sps = s->sps;
     g.paused = (s->flags & 2) ? 1 : 0;
     if (!g.status_ok) {
-        set_status(1, "following leftover");
+        set_status(1, "following EXG");
     }
 }
 
@@ -2291,7 +2291,7 @@ static uint32_t live_copy(int ch, float *dst, uint32_t n)
     return n;
 }
 
-static float leftover_scale_ch(int c)
+static float cook_scale_ch(int c)
 {
     float sc = 25.f;
     if (c < 0 || c >= NP_NCHAN) {
@@ -2305,7 +2305,7 @@ static float leftover_scale_ch(int c)
     return sc;
 }
 
-static void leftover_now(float uv[8], float base[8])
+static void cook_now(float uv[8], float base[8])
 {
     float buf[NP_RING];
     int c;
@@ -2318,7 +2318,7 @@ static void leftover_now(float uv[8], float base[8])
     for (c = 0; c < NP_NCHAN; c++) {
         float dc = 0, rms = 0, pk = 0, sc;
         uint32_t n;
-        sc = leftover_scale_ch(c);
+        sc = cook_scale_ch(c);
         if (base) {
             base[c] = sc;
         }
@@ -2635,7 +2635,7 @@ void smx_tick(void)
                 n = 32;
             }
             ch_stats(buf, n, &dc, &rms, &pk);
-            sc = leftover_scale_ch(c);
+            sc = cook_scale_ch(c);
             if (n >= 8) {
                 uint64_t one = np_atom_pack_rel(buf, 1, (int)n, (int)n, &sc);
                 row = (uint8_t)(one & 0xffu);
@@ -3019,22 +3019,22 @@ void do_connect(void)
         return;
     }
     if (g.link == 2) {
-        set_status(0, "pick leftover nearby");
+        set_status(0, "pick EXG nearby");
         return;
     }
     if (g.link == 1) {
         if (!g.link_dest[0] || !strncmp(g.link_dest, "bt:", 3)) {
-            set_status(0, "no leftover on LAN — pair first or pick a saved share");
+            set_status(0, "no EXG on LAN — pair first or pick a saved share");
             return;
         }
         np_link_set_hooks(link_on_sample, apply_link_cfg);
         if (np_link_start(g.link_dest, g.link_token) != 0) {
-            set_status(0, "could not reach leftover on LAN");
+            set_status(0, "could not reach EXG on LAN");
             return;
         }
         g.connected = 1;
         g.stall_t = SDL_GetTicks();
-        set_status(1, "following leftover on LAN — waiting");
+        set_status(1, "following EXG on LAN — waiting");
         return;
     }
     g.nports = np_list_ports(g.ports, NP_MAX_PORTS);
@@ -3818,7 +3818,7 @@ static void live_snap(void)
         uint32_t nn[NP_NCHAN];
         float left[NP_NCHAN][NP_RING];
         int k;
-        fprintf(f, "leftover_after_car\n");
+        fprintf(f, "after_car\n");
         fprintf(f, "ch,resid_rms,resid_pk\n");
         for (k = 0; k < NP_NCHAN; k++) {
             nn[k] = n0;
@@ -4497,13 +4497,13 @@ void np_host_copy_cube(unsigned char dst[512])
         return;
     }
     memcpy(dst, g.smx.cube, 512);
-    leftover_now(uv, NULL);
+    cook_now(uv, NULL);
     for (c = 0; c < NP_NCHAN; c++) {
         int ix, iy, iz, idx;
         if (!g.active[c] || g.elec[c].site < 0) {
             continue;
         }
-        if (uv[c] < 0.5f * leftover_scale_ch(c)) {
+        if (uv[c] < 0.5f * cook_scale_ch(c)) {
             continue;
         }
         np_1010_ijk(g.elec[c].site, &ix, &iy, &iz);
@@ -4514,9 +4514,9 @@ void np_host_copy_cube(unsigned char dst[512])
     }
 }
 
-void np_host_leftover_uv(float uv[8])
+void np_host_cook_uv(float uv[8])
 {
-    leftover_now(uv, NULL);
+    cook_now(uv, NULL);
 }
 
 int np_host_pair_n(void)
@@ -5888,9 +5888,9 @@ void np_host_set_link(int path)
     if (g.link == 0) {
         set_status(1, "USB — Knight on this device");
     } else if (g.link == 1) {
-        set_status(1, "LAN — leftover on wifi");
+        set_status(1, "LAN — EXG on wifi");
     } else {
-        set_status(1, "Bluetooth — leftover nearby");
+        set_status(1, "Bluetooth — EXG nearby");
     }
 }
 
@@ -6044,11 +6044,11 @@ int np_host_pair_begin(const char *name)
             }
         }
     }
-    snprintf(pair_name, sizeof(pair_name), "%s", name ? name : "leftover");
+    snprintf(pair_name, sizeof(pair_name), "%s", name ? name : "exg");
     pair_grant[0] = 0;
     pair_dec = 1;
     pthread_mutex_unlock(&pair_mu);
-    set_status(1, "%s wants leftover", pair_name);
+    set_status(1, "%s wants EXG", pair_name);
     return 1;
 }
 
@@ -6081,7 +6081,7 @@ void np_host_pair_accept(void)
         pair_dec = 2;
     }
     pthread_mutex_unlock(&pair_mu);
-    set_status(1, "leftover allowed");
+    set_status(1, "EXG allowed");
 }
 
 void np_host_pair_reject(void)
@@ -6092,7 +6092,7 @@ void np_host_pair_reject(void)
         pair_grant[0] = 0;
     }
     pthread_mutex_unlock(&pair_mu);
-    set_status(0, "leftover refused");
+    set_status(0, "EXG refused");
 }
 
 void np_host_pair_grant(char *out, int n)
@@ -6140,7 +6140,7 @@ void np_host_link_wire(int on)
         g.link = 1;
         g.connected = 1;
         np_link_set_hooks(link_on_sample, apply_link_cfg);
-        set_status(1, "following leftover on bluetooth");
+        set_status(1, "following EXG on bluetooth");
     } else if (g.link) {
         g.connected = 0;
         set_status(1, "disconnected");

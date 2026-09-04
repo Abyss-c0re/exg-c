@@ -22,7 +22,7 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * Bluetooth handshake, then leftover on the same link.
+ * Bluetooth handshake, then EXG on the same link.
  * Wifi address is optional spare. Names are device names.
  */
 public final class BtPair {
@@ -54,7 +54,7 @@ public final class BtPair {
     static String selfName() {
         String m = Build.MODEL;
         if (m == null || m.length() < 1) {
-            return "leftover";
+            return "exg";
         }
         return m.replace(' ', '_');
     }
@@ -87,7 +87,7 @@ public final class BtPair {
         listen = true;
         listenThr = new Thread(() -> {
             try {
-                server = ad.listenUsingInsecureRfcommWithServiceRecord("leftover", SVC);
+                server = ad.listenUsingInsecureRfcommWithServiceRecord("exg", SVC);
             } catch (Exception e) {
                 listen = false;
                 return;
@@ -105,11 +105,11 @@ public final class BtPair {
                             } catch (Exception ignored) {
                             }
                         }
-                    }, "leftover-out").start();
+                    }, "exg-out").start();
                 } catch (Exception ignored) {
                 }
             }
-        }, "leftover-share");
+        }, "exg-share");
         listenThr.setDaemon(true);
         listenThr.start();
     }
@@ -128,7 +128,7 @@ public final class BtPair {
     private static void handleIn(BluetoothSocket s) throws Exception {
         BufferedReader in = new BufferedReader(new InputStreamReader(s.getInputStream(), UTF8));
         OutputStream out = s.getOutputStream();
-        String name = "leftover";
+        String name = "exg";
         String grantIn = "";
         String line;
         while ((line = in.readLine()) != null) {
@@ -147,7 +147,7 @@ public final class BtPair {
                     readPeer(s.getInputStream(), out);
                 } catch (Exception ignored) {
                 }
-            }, "leftover-in").start();
+            }, "exg-in").start();
             pumpOut(out);
             return;
         }
@@ -167,7 +167,7 @@ public final class BtPair {
                     readPeer(s.getInputStream(), out);
                 } catch (Exception ignored) {
                 }
-            }, "leftover-in").start();
+            }, "exg-in").start();
             pumpOut(out);
         } else {
             out.write("NO\n".getBytes(UTF8));
@@ -405,7 +405,7 @@ public final class BtPair {
                     }
                 }
                 if (!ok || g.length() < 1) {
-                    sink.no("leftover refused");
+                    sink.no("EXG refused");
                     return;
                 }
                 String dest = host.length() > 0 ? (host + ":" + port + "/" + udp)
@@ -418,7 +418,7 @@ public final class BtPair {
                 sink.ok(shown);
                 pumpIn(s);
             } catch (Exception e) {
-                sink.no("could not reach leftover");
+                sink.no("could not reach EXG");
             } finally {
                 followLive = false;
                 followSock = null;
@@ -430,7 +430,7 @@ public final class BtPair {
                     }
                 }
             }
-        }, "leftover-follow").start();
+        }, "exg-follow").start();
     }
 
     private static String readLine(java.io.InputStream in) throws Exception {

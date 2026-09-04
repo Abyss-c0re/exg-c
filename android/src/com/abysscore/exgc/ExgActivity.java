@@ -428,7 +428,7 @@ public class ExgActivity extends Activity {
             ExgNative.setApiLan(!ExgNative.apiLan());
             refreshChrome();
         });
-        apiHz.setOnClickListener(v -> askPort("Leftover samples per second", ExgNative.apiHz(), p -> {
+        apiHz.setOnClickListener(v -> askPort("EXG samples per second", ExgNative.apiHz(), p -> {
             ExgNative.setApiHz(p < 1 ? 1 : p);
             refreshChrome();
         }));
@@ -436,7 +436,7 @@ public class ExgActivity extends Activity {
             ExgNative.setApiHttp(p);
             refreshChrome();
         }));
-        apiUdp.setOnClickListener(v -> askPort("Leftover port — live traces. Default is settings+1. 0 = off", ExgNative.apiUdp(), p -> {
+        apiUdp.setOnClickListener(v -> askPort("EXG port — live traces. Default is settings+1. 0 = off", ExgNative.apiUdp(), p -> {
             ExgNative.setApiUdp(p);
             refreshChrome();
         }));
@@ -449,7 +449,7 @@ public class ExgActivity extends Activity {
                     ExgNative.setApiToken(s);
                     refreshChrome();
                 }));
-        apiPush.setOnClickListener(v -> askName("Extra leftover send  name:port  (empty = off)",
+        apiPush.setOnClickListener(v -> askName("Extra EXG send  name:port  (empty = off)",
                 ExgNative.apiPush(), s -> {
                     ExgNative.setApiPush(s);
                     refreshChrome();
@@ -589,11 +589,11 @@ public class ExgActivity extends Activity {
                 path == 0 ? 0xFF2A3038 : 0xFF2E6A8A));
         String ports = ExgNative.ports();
         if (path == 2) {
-            port.setText(BtPair.followLive() ? "on bluetooth" : "nearby leftover…");
+            port.setText(BtPair.followLive() ? "on bluetooth" : "nearby EXG…");
         } else if (path == 1) {
             String d = ExgNative.linkDest();
             port.setText(d == null || d.length() == 0 || d.startsWith("bt:")
-                    ? "leftover on wifi…" : "leftover on LAN");
+                    ? "EXG on wifi…" : "EXG on LAN");
         } else {
             port.setText(ports == null || ports.length() == 0 ? "no Knight" : ports.split("\n")[0]);
         }
@@ -698,13 +698,13 @@ public class ExgActivity extends Activity {
         uiScale.setText("UI " + (us == 10 ? "1.0x" : (us == 20 ? "2.0x" : "1.5x")));
         board.setText(ExgNative.boardImu() ? "8-ch + IMU" : "8-ch EXG");
         boolean apion = ExgNative.apiOn();
-        apiOn.setText(apion ? "share leftover" : "share off");
+        apiOn.setText(apion ? "share EXG" : "share off");
         apiOn.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
                 apion ? 0xFF2E8A58 : 0xFF2A3038));
         apiBind.setText(ExgNative.apiLan() ? "wifi" : "this phone");
         apiHz.setText(ExgNative.apiHz() + " /s");
         apiHttp.setText(ExgNative.apiHttp() == 0 ? "settings off" : ("settings " + ExgNative.apiHttp()));
-        apiUdp.setText(ExgNative.apiUdp() == 0 ? "leftover off" : ("leftover " + ExgNative.apiUdp()));
+        apiUdp.setText(ExgNative.apiUdp() == 0 ? "EXG off" : ("EXG " + ExgNative.apiUdp()));
         apiTcp.setText(ExgNative.apiTcp() == 0 ? "spare off" : ("spare " + ExgNative.apiTcp()));
         {
             String tok = ExgNative.apiToken();
@@ -1087,7 +1087,7 @@ public class ExgActivity extends Activity {
         int ln = ExgNative.learnN();
         if (ln > 0) {
             poseList.addView(savedLabel(
-                    "Record poses — named leftover, not ID. Delete to drop.", 0xFF8B93A0));
+                    "Record poses — named pose, not ID. Delete to drop.", 0xFF8B93A0));
             for (int i = 0; i < ln; i++) {
                 final int idx = i;
                 LinearLayout row = new LinearLayout(this);
@@ -1271,14 +1271,14 @@ public class ExgActivity extends Activity {
         if (names.isEmpty()) {
             new AlertDialog.Builder(this)
                     .setTitle("LAN")
-                    .setMessage("No leftover on wifi yet. Pair on Bluetooth while the share has wifi, then LAN can use that path.")
+                    .setMessage("No EXG on wifi yet. Pair on Bluetooth while the share has wifi, then LAN can use that path.")
                     .setPositiveButton("OK", null)
                     .show();
             return;
         }
         String[] items = names.toArray(new String[0]);
         new AlertDialog.Builder(this)
-                .setTitle("Leftover on LAN")
+                .setTitle("EXG on LAN")
                 .setItems(items, (d, which) -> {
                     ExgNative.followUse(idx.get(which));
                     ExgNative.setLinkPath(1);
@@ -1314,7 +1314,7 @@ public class ExgActivity extends Activity {
         ensureNear();
         final java.util.ArrayList<String> names = new java.util.ArrayList<String>();
         final AlertDialog wait = new AlertDialog.Builder(this)
-                .setTitle("Nearby leftover")
+                .setTitle("Nearby EXG")
                 .setMessage("Looking… Allow the ask on the other side.")
                 .setNegativeButton("Cancel", null)
                 .show();
@@ -1334,15 +1334,15 @@ public class ExgActivity extends Activity {
                     }
                     if (names.isEmpty()) {
                         new AlertDialog.Builder(ExgActivity.this)
-                                .setTitle("Nearby leftover")
-                                .setMessage("None nearby. The other side must have share leftover on, and Bluetooth on.")
+                                .setTitle("Nearby EXG")
+                                .setMessage("None nearby. The other side must have share EXG on, and Bluetooth on.")
                                 .setPositiveButton("OK", null)
                                 .show();
                         return;
                     }
                     String[] items = names.toArray(new String[0]);
                     new AlertDialog.Builder(ExgActivity.this)
-                            .setTitle("Nearby leftover")
+                            .setTitle("Nearby EXG")
                             .setItems(items, (d, which) -> {
                                 BluetoothDevice dv = BtPair.device(items[which]);
                                 if (dv == null) {
@@ -1427,7 +1427,7 @@ public class ExgActivity extends Activity {
         if (items.length == 0) {
             new AlertDialog.Builder(this)
                     .setTitle("This board")
-                    .setMessage("No Knight on USB. Switch to LAN or Bluetooth to take leftover from a share.")
+                    .setMessage("No Knight on USB. Switch to LAN or Bluetooth to take EXG from a share.")
                     .setPositiveButton("OK", null)
                     .show();
             return;

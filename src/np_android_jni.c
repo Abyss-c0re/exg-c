@@ -566,14 +566,14 @@ Java_com_abysscore_exgc_ExgNative_copyCube(JNIEnv *env, jclass cls, jbyteArray d
 }
 
 JNIEXPORT void JNICALL
-Java_com_abysscore_exgc_ExgNative_leftoverUv(JNIEnv *env, jclass cls, jfloatArray dst)
+Java_com_abysscore_exgc_ExgNative_cookUv(JNIEnv *env, jclass cls, jfloatArray dst)
 {
     float uv[8];
     (void)cls;
     if (!dst || (*env)->GetArrayLength(env, dst) < 8) {
         return;
     }
-    np_host_leftover_uv(uv);
+    np_host_cook_uv(uv);
     (*env)->SetFloatArrayRegion(env, dst, 0, 8, uv);
 }
 

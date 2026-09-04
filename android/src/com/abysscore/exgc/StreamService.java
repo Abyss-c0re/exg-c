@@ -41,13 +41,13 @@ public class StreamService extends Service {
     public void onCreate() {
         super.onCreate();
         if (Build.VERSION.SDK_INT >= 26) {
-            NotificationChannel ch = new NotificationChannel(CH, "Leftover share",
+            NotificationChannel ch = new NotificationChannel(CH, "EXG share",
                     NotificationManager.IMPORTANCE_LOW);
-            ch.setDescription("Sharing leftover");
+            ch.setDescription("Sharing EXG");
             ch.setShowBadge(false);
-            NotificationChannel pair = new NotificationChannel(PAIR_CH, "Leftover ask",
+            NotificationChannel pair = new NotificationChannel(PAIR_CH, "EXG ask",
                     NotificationManager.IMPORTANCE_HIGH);
-            pair.setDescription("Someone wants leftover");
+            pair.setDescription("Someone wants EXG");
             pair.setShowBadge(true);
             NotificationManager nm = getSystemService(NotificationManager.class);
             if (nm != null) {
@@ -138,7 +138,7 @@ public class StreamService extends Service {
 
     private Notification note() {
         String line = ExgNative.apiLine();
-        String title = ExgNative.connected() ? "Leftover on" : "Sharing leftover";
+        String title = ExgNative.connected() ? "EXG on" : "Sharing EXG";
         return buildNote(title, line);
     }
 
@@ -161,8 +161,8 @@ public class StreamService extends Service {
         } else {
             b = new Notification.Builder(this);
         }
-        b.setContentTitle("Leftover")
-                .setContentText(who.replace('_', ' ') + " wants leftover")
+        b.setContentTitle("EXG")
+                .setContentText(who.replace('_', ' ') + " wants EXG")
                 .setSmallIcon(android.R.drawable.ic_dialog_info)
                 .setOngoing(true)
                 .addAction(0, "Allow", py)

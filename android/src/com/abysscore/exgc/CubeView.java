@@ -11,7 +11,7 @@ import android.view.MotionEvent;
 import android.view.View;
 
 /**
- * viz — crimson 8³ Cube Experience (spike #FF141A). Mapped sites track leftover µV.
+ * viz — crimson 8³ Cube Experience (spike #FF141A). Mapped sites track EXG µV.
  * map — 10-10 assign: tap a channel, then a site on the scalp map or cube.
  */
 public class CubeView extends View {
@@ -45,7 +45,7 @@ public class CubeView extends View {
     private final float[] elecZ = new float[NCHAN];
     private final String[] elecLab = new String[NCHAN];
     private final int[] elecCol = new int[NCHAN];
-    private final float[] leftover = new float[NCHAN];
+    private final float[] cook = new float[NCHAN];
     private final float[] pairUv = new float[4];
     private final int[][] pairCh = new int[4][2];
     private int npair;
@@ -129,7 +129,7 @@ public class CubeView extends View {
         mode = ExgNative.cubeView();
         ncell = ExgNative.vizCells(cellXyz, cellS, cellRgba);
         ExgNative.copyCube(cubeBits);
-        ExgNative.leftoverUv(leftover);
+        ExgNative.cookUv(cook);
         npair = Math.min(4, ExgNative.pairN());
         ExgNative.pairUv(pairUv);
         {
@@ -572,7 +572,7 @@ public class CubeView extends View {
             if (!chOn[ch]) {
                 continue;
             }
-            float rel = leftover[ch] / sc;
+            float rel = cook[ch] / sc;
             if (rel > 2f) {
                 rel = 2f;
             }

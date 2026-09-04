@@ -77,14 +77,14 @@ void np_host_prof_at(int i, char *out, int n);
 void np_host_ports(char *out, int n);
 void np_host_cycle_port(void);
 void np_host_set_port_i(int i);
-/* 8³ occupancy (SMX + live leftover at mapped 10-10 sites). Not the 64-bit pack. */
+/* 8³ occupancy (SMX + live EXG at mapped 10-10 sites). Not the 64-bit pack. */
 void np_host_copy_cube(unsigned char dst[512]);
-/* Leftover RMS µV, same cook as the traces. Inactive channels are 0. */
-void np_host_leftover_uv(float uv[8]);
+/* EXG RMS µV, same cook as the traces. Inactive channels are 0. */
+void np_host_cook_uv(float uv[8]);
 int np_host_pair_n(void);
 void np_host_pair_label(int i, char *out, int n);
 int np_host_pair_chs(int i, int *a, int *b);
-/* Leftover RMS of A−B, same cook as the traces. 0 if a site is off. */
+/* EXG RMS of A−B, same cook as the traces. 0 if a site is off. */
 void np_host_pair_uv(float uv[4]);
 int np_host_notch(void);
 /* Effective notch Hz (AUTO → plate). 0 if idle. */
@@ -224,7 +224,7 @@ void np_host_follow_remember(const char *name, const char *dest, const char *gra
 void np_host_follow_grant(const char *name, char *out, int n);
 int np_host_grant_ok(const char *grant);
 
-/* Incoming leftover request. 0 idle, 1 waiting, 2 allow, 3 no. */
+/* Incoming EXG request. 0 idle, 1 waiting, 2 allow, 3 no. */
 int np_host_pair_begin(const char *name);
 int np_host_pair_state(void);
 void np_host_pair_name(char *out, int n);
@@ -232,7 +232,7 @@ void np_host_pair_accept(void);
 void np_host_pair_reject(void);
 void np_host_pair_grant(char *out, int n);
 
-/* Bluetooth leftover wire. Same EXG1 as wifi. */
+/* Bluetooth EXG wire. Same EXG1 as wifi. */
 int np_host_copy_exg1(unsigned char *dst, int cap);
 int np_host_feed_exg1(const unsigned char *raw, int n);
 void np_host_apply_cfg_json(const char *js);

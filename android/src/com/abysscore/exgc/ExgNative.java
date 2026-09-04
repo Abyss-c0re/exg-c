@@ -69,7 +69,7 @@ public final class ExgNative {
     public static native void cyclePort();
     public static native void setPortI(int i);
     public static native void copyCube(byte[] dst);
-    public static native void leftoverUv(float[] dst);
+    public static native void cookUv(float[] dst);
     public static native int pairN();
     public static native String pairLabel(int i);
     public static native void pairChs(int i, int[] dst);
