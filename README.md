@@ -1,29 +1,36 @@
 # exg-c
 
-A host app for a **[Knight](https://www.neuropawn.tech/)** ADS1299 board — or any USB-serial dongle that speaks the same 8-channel stream (FTDI, CH340, CP210x, CDC ACM).
-
-Plug the board in, watch eight traces, clean line noise, map sites on a cube, save a profile. One C host. Linux window or Android APK.
-
-**C stack:** `src/np_core.c` is the framework (USB, cook, plates, ID, API, `np_host_*`). `src/np_ui.c` is the desktop SDL window. Android Java talks to the same host through JNI. The product API is `include/np_host.h`.
-
-![Android host on a Knight FTDI board (`usb:0403:6001`)](docs/android.png)
+A C host for a **[Knight](https://www.neuropawn.tech/)** ADS1299 board — or any USB-serial dongle that speaks the same 8-channel stream (FTDI, CH340, CP210x, CDC ACM).
 
 Not a medical device. Not affiliated with NeuroPawn.
 
-## What you get
+Shipped app: **2.40** (`com.abysscore.exgc`, versionCode 49). One framework, two skins:
 
-- Live 8-channel plot at 125 SPS
-- **NOISE** / **CALM** / **CLEAN** so the leftover is usable
-- **Cube** — **viz** is the crimson N=8 lattice (Cube Experience / levitate). **map** assigns 10-10 sites. **algo** picks the 0/1 fold (`detect` … `proton`).
-- Named **profiles** for band/filters (tap to switch, long-press to rename/delete). Electrode map stays. Plates and takes recook from raw.
-- Settings: time window, µV scale, **UI 1 / 1.5 / 2×**, notch, high-pass, **CAR**, **low-pass**, **detrend**, **envelope**
-- IMU acc / gyr / mag on 57-byte Knight boards (`8-ch + IMU`)
-- Band presets: `raw` / `line-kill` / `EEG` / `EMG`
-- CLIP on the plot is a rail warning. A loud millivolt head is not refused.
-- Learn: **Record** a named 1 s snap (gated at 80 sps). MATCH prints a percent only if one pose wins by ≥ 8 points. Cube Jaccard is not a score.
-- **CSV** dump, **Pause**, site names + RMS on the plot, FFT strip with a 50/60 Hz marker
-- **Take** a named stretch. **ID** names it only if one take wins. Two similar files say `same head — not distinct`, not a split percent.
-- **API** — local HTTP plus LAN stream. Cooked µV at up to 125 Hz. UDP is the live path. Async, configurable.
+| Piece | Role |
+|-------|------|
+| `src/np_core.c` + `include/np_host.h` | USB, cook, plates, ID, takes, API |
+| `src/np_ui.c` | Linux SDL window. `main` only calls `np_host_start`. |
+| Android Java + JNI | Same host. CMake builds **core only** (`libexg.so`, no SDL). |
+| `include/np_api.h` / `src/np_api.c` | Optional LAN/HTTP API. **Off** until you turn it on. |
+
+How the app actually behaves: [docs/APP.md](docs/APP.md).  
+Wire format and endpoints: [docs/API.md](docs/API.md).  
+Quest / phone notes: [android/README.md](android/README.md).
+
+![Android host on a Knight FTDI board (`usb:0403:6001`)](docs/android.png)
+
+## What it does
+
+- 8 channels at **125 SPS** (Knight ADS1299).
+- Default view is **line-kill leftover**: notch AUTO, hp 2 Hz, CAR on, detrend on, envelope off, ±1000 µV, 2 s window.
+- **Calibrate** — 5 s to put the headset down, 8 s desk plate, tap when worn, 8 s still plate.
+- **DC on / DC off** — subtracts the still-plate mean. That is not Wiener CLEAN.
+- **CLEAN on** — Wiener vs the desk noise plate. Only if a noise plate exists **and** the window is ≥ 3 s (256 samples). Default 2 s cannot run it.
+- **ID** — event label + ratio (`still 1.1x`, `clench 5.9x`). Not a percent. Needs a worn still plate.
+- **Take** — named stretch. ID names a take only if one unique winner (≥70% and 8 pt gap) on the **last 1 s vs that take’s pattern**.
+- **Record** — 1 s named leftover pose. MATCH **names** a unique pose. It does **not** print a cosine percent.
+- **bias ON / bias off** per channel (RLD). Connect applies add **and** remove.
+- **API** off by default. When on: HTTP 8765, UDP 8766, TCP 8767, bind lan, 125 Hz. Live path is **EXG1** binary, not JSON.
 
 Default montage: Fp1 Fp2 C3 C4 P3 P4 O1 O2.
 
@@ -36,7 +43,7 @@ make
 ./np-exg
 ```
 
-Headless smoke test:
+Headless smoke:
 
 ```bash
 ./np-exg --cli --port /dev/ttyUSB0 --seconds 8
@@ -44,60 +51,29 @@ Headless smoke test:
 
 `make test` is the mock suite. `make test-live` reads 5 s from `/dev/ttyUSB1` (desk, not cortex).
 
-Config lives in `~/.config/exg-c.ini`, named profiles in `~/.config/exg-c/profiles/`.
+Config: `~/.config/exg-c.ini`. Profiles: `~/.config/exg-c/profiles/`.
 
-## API
-
-Default: **off**. When you turn it on: bind **lan**, HTTP **8765**, UDP **8766**, TCP **8767**, **125 Hz**.
-Push dest is empty until you type `host:port` in Settings. Ports are numbers, not a list.
-
-Cooked samples (after notch/hp/lp/CAR/envelope). One **EXG1** little-endian frame, 68 bytes. `t_us` is wall-clock. Cook runs on the USB reader thread. The API thread wakes on a pipe; it does not poll-wait the samples.
-
-```bash
-curl -s http://127.0.0.1:8765/health
-curl -s http://127.0.0.1:8765/sample
-make recv
-./tools/exg-recv --port 8766 --seconds 8
-```
-
-Loopback GET needs no token. LAN writes and streams need `X-EXG-Token` if you set one. POST connect/disconnect/pause/cfg run on the host tick, not on the socket thread.
-
-## Android
-
-Needs the Android SDK + NDK + cmake + build-tools, and `javac` 17+.
-`$ANDROID_HOME` (or `~/Android/Sdk`) is enough for `build.sh` to find the rest.
+## Android / Quest
 
 ```bash
 ./android/build.sh
 adb install -r android/exg-c.apk
 ```
 
-Same thing as `make android`. Output is `android/exg-c.apk` (debug-signed).
-Package `com.abysscore.exgc`, min SDK 28, ABI `arm64-v8a`.
+Package `com.abysscore.exgc`, min SDK 28, ABI `arm64-v8a`, Quest 2D panel. Cube is the build SoT in this lab.
 
-On the phone:
-
-1. Type-C in **USB host / OTG** mode (gadget / MTP will not see the board).
-2. Plug the Knight. Grant the USB permission dialog.
-3. Open **exg-c**. It lists `usb:0403:6001` — tap **Connect**.
-
-Do not hammer Disconnect / Connect. Each DTR pulse resets the Nano; wait for frames.
-
-Cal plates, profiles, and recordings stay in the **app files directory**. No storage permission. Use **Export…** / **Import…** in Settings to share a profile through the system document picker.
-
-More phone notes: [android/README.md](android/README.md).
+On a phone the Knight is USB-host on the phone. On Quest 3 the Knight is USB-host on the headset.
 
 ## First session
 
-1. **Connect** (Linux also tries the first USB port on start).
-2. Headset **off** the head. **NOISE**, then **OK**. That is the desk / open-input plate, not EEG.
-3. Wear the headset. Sit still. **CALM**.
-4. Leave **CLN** on. The plot is leftover after that plate + calm DC.
-5. The **ID** line should say `still`. Hard **blink** → `blink`. Jaw **clench** → `clench`.
-   That is the proof the stream is on a head, not rail. Do not use Record until ID flips.
-6. Type `blink` or `clench` → **Record** → do that gesture. It snaps 1 s at the burst.
-7. **Cube** → **viz** for the live 8³ sample, **map** to assign 10-10 sites.
-8. **Settings** — type a name (`motor`) and **Save**. On Android, **Export…** writes that profile as a file you can keep.
+1. **Connect**. Wait until ~125 sps (below 80 is warming).
+2. **Calibrate**. Put the kit down for 5 s, leave it for the desk plate, wear it, sit still.
+3. Default cut is **DC on** (still-plate offset). Teal means the cut is on.
+4. **ID** should read `still Nx`. Hard blink → `blink`. Jaw clench → `clench`. That is leftover vs a quiet baseline, not a learned take.
+5. **Take rest**, then **Take** an action. ID names only a unique winner.
+6. Settings → **API on** only if you want the LAN stream.
+
+Do not hammer Disconnect / Connect. Each DTR pulse resets the Nano.
 
 ## Compatible boards
 
@@ -117,7 +93,7 @@ The firmware has to emit Knight frames. A bare UART with no ADS1299 stream will 
 `m` Main · `s` Settings · `b` Cube · `v` viz/map · arrows step 10-10 ·
 `+` `-` zoom · Enter assign · `q` quit
 
-On Android those are on-screen buttons. Drag the cube to spin it.
+Android / Quest: on-screen buttons. Drag the cube to spin it.
 
 ## Embedded
 

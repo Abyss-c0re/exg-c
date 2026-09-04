@@ -1,130 +1,90 @@
-# Android
+# Android / Quest
 
-Native Android UI on the same C host as `./np-exg`. Serial is USB Host.
-Cal plates and profiles write into the **app files directory** — no
-storage permission is required.
+Same C host as `./np-exg`. Serial is USB Host. UI is Java. Native library is `libexg.so` from `src/np_core.c` — not the desktop SDL file.
 
-## What you need
+App: **2.40**, package `com.abysscore.exgc`, min SDK 28, ABI `arm64-v8a`.
+Quest 3: `com.oculus.intent.category.2D` so it runs as a 2D panel.
 
-- Android SDK (`$ANDROID_HOME` or `~/Android/Sdk`)
-- NDK, cmake, and build-tools inside that SDK
-- `javac` 17+
-- `adb` to install
-
-Package: `com.abysscore.exgc`. Min SDK 28. Default ABI `arm64-v8a`.
+How the app behaves: [../docs/APP.md](../docs/APP.md).  
+LAN API: [../docs/API.md](../docs/API.md).
 
 ## Build
 
-From the repo root:
+Needs Android SDK + NDK + cmake + build-tools, and `javac` 17+.
+`$ANDROID_HOME` or `~/Android/Sdk` is enough for `build.sh`.
 
 ```bash
 ./android/build.sh
 adb install -r android/exg-c.apk
 ```
 
-Or `make android`. Output is `android/exg-c.apk`, signed with a local
-debug keystore. The native library is `libexg.so` (no SDL2).
+Or `make android`. Output is `android/exg-c.apk` (debug-signed).
 
-## Phone
+## First run
 
-1. Type-C in **USB host / OTG** mode (gadget / MTP will not see the board).
-2. Plug the Knight (FTDI `0403:6001`) — or CH340 / CP210x / CDC ACM.
-3. Grant the USB permission dialog.
-4. Open **exg-c**. It lists the device. Tap **Connect**.
-5. First session: **NOISE** (desk) → **OK** → wear headset → **CALM** → leave **CLN** on.
-6. Wait until the strip shows ~125 sps. **ID** / **Record** / **MATCH** stay
-   off while the board is still enabling (below 80 sps).
-7. **ID** (CALM-relative event) should read `still`. Hard blink → `blink`.
-   Jaw clench → `clench`. That is an event label, not a learned take.
-   **Record** snaps 1 s. MATCH prints a percent only if one pose wins.
+**Phone:** Type-C in USB **host / OTG**. Gadget / MTP will not see the board.
 
-Do not hammer Disconnect / Connect. Each DTR pulse resets the Nano; wait
-for frames instead.
+**Quest 3:** the Knight is USB-host on the headset, not on a PC.
 
-If the plot is empty but the port is listed: unplug/replug once, grant
-USB again, tap **Connect** once.
+1. Plug the Knight (FTDI `0403:6001`) or CH340 / CP210x / CDC ACM.
+2. Grant USB. Open **exg-c**. Tap **Connect**.
+3. Wait for ~125 sps. Below 80 is warming — ID / Record stay idle.
+4. **Calibrate**: 5 s to set the kit down, desk plate, wear, sit still.
+5. Cut button: teal **DC on** is the still-plate offset. **CLEAN on** only if the window is ≥ 3 s and a noise plate exists.
+6. **ID** should say `still Nx`. Blink / clench change the class. That is leftover vs baseline, not a take.
+7. **Take rest**, then an action. ID names only a unique winner. **Record** poses are listed separately; they are not take chips.
 
-**CSV** writes `knight-YYYYMMDD-HHMMSS.csv` into the app files directory
-(debug only). **ATOM** folds each second into an 8-byte CubalC atom
-(same 8×8 feature bits as `cubalc_eeg_pack_matrix`). Tap **name (tap)** and type in the dialog — the in-plot keyboard is a
-black overlay on the 1440² face. **SaveA** writes
-`exg-c/atoms/<name>.npat`. Tap two takes to compare. Near-identical
-files say `same head — not distinct`. Hamming unity is not a score.
-**Pause** freezes the plot (FROZEN). The strip under the traces is a
-128-pt FFT with a marker at 50/60 Hz.
+Do not hammer Disconnect / Connect. Each DTR pulse resets the Nano.
+
+**API** is **off** until Settings → **API on**. A persistent notification stays up while the stream is on so Quest can close the 2D panel. The service is started with `startService` from a visible activity (`dataSync`). If API is off, the service stops.
+
+## Controls that used to lie
+
+| Chrome | Machine |
+|--------|---------|
+| **DC on / DC off** | still-plate mean. Teal = on. |
+| **bias ON / bias off** | RLD. Connect applies add and remove. |
+| **ID on** | take ID when takes exist |
+| **MATCH on** | names a unique Record pose, no cosine `%` |
+| FFT red mark | effective notch only (none if AUTO and no plate) |
+| Pause | freezes any channel that already has samples |
+
+Off channels are hidden on traces, map, and the channel row.
 
 ## Profiles
 
-**Profiles** (Settings): tap a name to switch filters/band. Long-press to
-rename or delete. **Save current as…** snapshots what you have now.
-Electrode map does not change. NOISE / CALM / takes recook from stored
-raw — you do not re-record. **Share file** / **Open file** for a copy.
+Tap a name to switch band/filters. Long-press to rename or delete. Electrode map stays. Plates and takes **recook** from raw.
 
-**Export…** / **Import…** use the system document picker so you can put a
-profile on Downloads, Drive, or a USB stick — still no storage permission.
+**Export… / Import…** use the system document picker. No storage permission.
 
-**win** picks the plot window (1 / 2 / 4 / 8 s). **UI** is 1.0 / 1.5 / 2.0×
-text. **board** is `8-ch + IMU` (57-byte frames, acc/gyr/mag on the strip)
-or `8-ch EXG`. Disconnect before switching board.
+**win** 1 / 2 / 4 / 8 s. **UI** 1.0 / 1.5 / 2.0× (including the cube). **board** `8-ch EXG` or `8-ch + IMU` — disconnect first.
 
-**band** picks `raw` / `line-kill` (notch+CAR+hp1) / `EEG` (+lp 40) /
-`EMG` (hp 20 + envelope). **CAR** subtracts the mean of non-clip
-channels. **envelope** plots 150 ms RMS. **detrend** hides DC.
-A take that is loud is saved with a warning, not refused.
+**band:** `raw` / `line-kill` (hp 2, CAR, ±1000) / `EEG` (hp 2, lp 40, ±200) / `EMG` (hp 20, envelope, CAR, ±2000).
 
-Tap the site name (Fp1…) in Settings for an RGB color picker. Other
-Settings buttons open a list — they do not cycle on each tap.
+## Storage (`getFilesDir()`)
 
-**algo** (Cube tab and Settings) picks how each headset cell becomes 0 or 1:
-`detect` `sign` `mean` `energy` `delta` `fold` `proton`. Same as Linux.
-
-**MATCH** / **ID** name a unique winner only (gap ≥ 8 points). A split
-is `now —`, not two high percents. Cube Jaccard is not printed.
-
-**Take** on Main starts a timed fold. **Stop** asks for a name. **Takes**
-lists them — tap two to compare. Delete to drop one.
-
-Names: letters, digits, `-`, `_`.
-
-## API
-
-Settings → **API**. Default is **off**. When you turn it on: **lan**, HTTP `8765`, UDP `8766`, TCP `8767`, 125 Hz.
-Type the port numbers. A persistent notification stays up while the stream is on so Quest can close the panel.
-
-`GET /health` `/status` `/sample` `/stream` `/cfg`. Live stream is EXG1 binary, not JSON.
-`POST /connect` `/disconnect` `/pause` `/cfg`.
-UDP: send any packet to `:8766` to subscribe. TCP: connect `:8767` and read EXG1 frames.
-Token (optional) is required for LAN, not for `127.0.0.1`. Push dest is `host:port` for a fixed UDP sink.
-
-## Storage
-
-All of this is under `getFilesDir()`:
-
-- `exg-c.cal` — NOISE + CALM plates
 - `exg-c.ini` — last session
-- `exg-c.learn` — learn templates
+- `exg-c.cal` — NOISE + CALM plates
+- `exg-c.learn` — Record poses
 - `exg-c/profiles/<name>.ini`
-- CSV recordings (`knight-YYYYMMDD-HHMMSS.csv`) from the **CSV** button
-- `exg-c/atoms/<name>.npat` — CubalC atom chains (8 bytes / second)
+- `exg-c/atoms/<name>.npat` — takes
+- `exg-c/raw/` — raw plates / takes for recook
+- `live-snap.txt` — last leftover snapshot (debug)
+- CSV from the **CSV** button
+
+The package is not debuggable. `run-as` cannot read these files.
 
 ## USB IDs
 
-`res/xml/usb_device_filter.xml` matches:
-
-- FTDI `0403:*` (Knight FT232R `0403:6001`)
-- CH340 `1a86:*`
-- CP210x `10c4:*`
-- CDC ACM (class 2)
+`res/xml/usb_device_filter.xml`: FTDI `0403:*` (Knight `0403:6001`), CH340 `1a86:*`, CP210x `10c4:*`, CDC ACM class 2.
 
 ## Layout
 
 | Path | Role |
 |------|------|
-| `CMakeLists.txt` | NDK: same `src/*.c` + `nplearn` + `np_serial_android.c` |
-| `src/com/abysscore/exgc/ExgActivity.java` | Native Android UI |
-| `src/com/abysscore/exgc/TraceView.java` | 8-channel plot (site names + RMS) |
-| `src/com/abysscore/exgc/FftView.java` | 128-pt strip FFT |
-| `src/com/abysscore/exgc/CubeView.java` | 8³ cube (viz + map) |
-| `src/com/abysscore/exgc/ExgNative.java` | JNI to the C host |
-| `src/com/abysscore/exgc/UsbSerial.java` | USB Host serial |
-| `../src/np_android_jni.c` / `np_host.h` | Host API |
+| `CMakeLists.txt` | NDK: `np_core.c` + cook + `np_serial_android.c` + JNI. No `np_ui.c`. |
+| `src/com/abysscore/exgc/ExgActivity.java` | 2D UI |
+| `TraceView.java` / `FftView.java` / `CubeView.java` | plot / FFT / cube |
+| `StreamService.java` | FGS while API is on |
+| `ExgNative.java` / `../src/np_android_jni.c` | JNI → `np_host.h` |
+| `UsbSerial.java` | USB Host serial |
