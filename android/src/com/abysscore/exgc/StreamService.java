@@ -18,6 +18,7 @@ import android.os.PowerManager;
 /** Keeps the API alive when the 2D panel is closed. */
 public class StreamService extends Service {
     private static final String CH = "exg-stream";
+    private static final String PAIR_CH = "exg-pair";
     private static final int NOTE = 31;
     private final Handler h = new Handler(Looper.getMainLooper());
     private PowerManager.WakeLock wake;
@@ -40,13 +41,18 @@ public class StreamService extends Service {
     public void onCreate() {
         super.onCreate();
         if (Build.VERSION.SDK_INT >= 26) {
-            NotificationChannel ch = new NotificationChannel(CH, "EXG stream",
+            NotificationChannel ch = new NotificationChannel(CH, "Leftover share",
                     NotificationManager.IMPORTANCE_LOW);
-            ch.setDescription("Live EXG over the LAN");
+            ch.setDescription("Sharing leftover");
             ch.setShowBadge(false);
+            NotificationChannel pair = new NotificationChannel(PAIR_CH, "Leftover ask",
+                    NotificationManager.IMPORTANCE_HIGH);
+            pair.setDescription("Someone wants leftover");
+            pair.setShowBadge(true);
             NotificationManager nm = getSystemService(NotificationManager.class);
             if (nm != null) {
                 nm.createNotificationChannel(ch);
+                nm.createNotificationChannel(pair);
             }
         }
         if (!goForeground(bootNote())) {
@@ -94,6 +100,14 @@ public class StreamService extends Service {
                 NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
                 if (nm != null) {
                     nm.notify(NOTE, note());
+                    if (ExgNative.apiOn()) {
+                        BtPair.shareStart();
+                    }
+                    if (ExgNative.pairState() == 1) {
+                        nm.notify(PairReceiver.NOTE, pairNote());
+                    } else {
+                        nm.cancel(PairReceiver.NOTE);
+                    }
                 }
             }
             if (!ExgNative.apiOn() && !ExgNative.connected()) {
@@ -124,8 +138,40 @@ public class StreamService extends Service {
 
     private Notification note() {
         String line = ExgNative.apiLine();
-        String title = ExgNative.connected() ? "EXG stream on" : "EXG API on";
+        String title = ExgNative.connected() ? "Leftover on" : "Sharing leftover";
         return buildNote(title, line);
+    }
+
+    private Notification pairNote() {
+        String who = ExgNative.pairName();
+        if (who == null || who.length() < 1) {
+            who = "Someone";
+        }
+        Intent yes = new Intent(this, PairReceiver.class).setAction(PairReceiver.ALLOW);
+        Intent no = new Intent(this, PairReceiver.class).setAction(PairReceiver.NO);
+        int fl = PendingIntent.FLAG_UPDATE_CURRENT;
+        if (Build.VERSION.SDK_INT >= 23) {
+            fl |= PendingIntent.FLAG_IMMUTABLE;
+        }
+        PendingIntent py = PendingIntent.getBroadcast(this, 2, yes, fl);
+        PendingIntent pn = PendingIntent.getBroadcast(this, 3, no, fl);
+        Notification.Builder b;
+        if (Build.VERSION.SDK_INT >= 26) {
+            b = new Notification.Builder(this, PAIR_CH);
+        } else {
+            b = new Notification.Builder(this);
+        }
+        b.setContentTitle("Leftover")
+                .setContentText(who.replace('_', ' ') + " wants leftover")
+                .setSmallIcon(android.R.drawable.ic_dialog_info)
+                .setOngoing(true)
+                .addAction(0, "Allow", py)
+                .addAction(0, "No", pn);
+        if (Build.VERSION.SDK_INT >= 21) {
+            b.setVisibility(Notification.VISIBILITY_PUBLIC);
+            b.setPriority(Notification.PRIORITY_HIGH);
+        }
+        return b.build();
     }
 
     private Notification buildNote(String title, String line) {

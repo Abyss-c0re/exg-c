@@ -168,7 +168,13 @@ static void *link_thread(void *arg)
         uint64_t now = now_ms();
         int n;
         if (now - last_sub >= 2000ull) {
-            sendto(sock, "SUB1", 4, 0, (struct sockaddr *)&peer, sizeof(peer));
+            char sub[40];
+            int slen;
+            slen = snprintf(sub, sizeof(sub), "SUB1%s", token);
+            if (slen < 4) {
+                slen = 4;
+            }
+            sendto(sock, sub, (size_t)slen, 0, (struct sockaddr *)&peer, sizeof(peer));
             last_sub = now;
         }
         if (now - last_cfg >= 250ull) {

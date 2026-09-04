@@ -77,5 +77,8 @@ void np_api_set_status_fn(np_api_status_fn fn);
 /* Extra /cfg fields (no braces). Host leftover, colors, map. */
 typedef void (*np_api_view_fn)(char *out, int n);
 void np_api_set_view_fn(np_api_view_fn fn);
+/* 1 if leftover may go to this grant. NULL = open (tests). */
+typedef int (*np_api_grant_fn)(const char *grant);
+void np_api_set_grant_fn(np_api_grant_fn fn);
 
 #endif

@@ -1,9 +1,14 @@
 package com.abysscore.exgc;
 
+import android.Manifest;
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.bluetooth.BluetoothAdapter;
+import android.bluetooth.BluetoothDevice;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -47,9 +52,9 @@ public class ExgActivity extends Activity {
     private TextView atomVs;
     private Button connect;
     private Button link;
-    private Button linkDest;
-    private Button linkToken;
     private Button port;
+    private LinearLayout followList;
+    private LinearLayout allowList;
     private Button tabMain, tabCube, tabPoses, tabSet;
     private View posesPane;
     private LinearLayout poseList;
@@ -140,9 +145,10 @@ public class ExgActivity extends Activity {
         atomVs = findViewById(R.id.atomVs);
         connect = findViewById(R.id.connect);
         link = findViewById(R.id.link);
-        linkDest = findViewById(R.id.linkDest);
-        linkToken = findViewById(R.id.linkToken);
         port = findViewById(R.id.port);
+        followList = findViewById(R.id.followList);
+        allowList = findViewById(R.id.allowList);
+        ExgNativeApp.ctx = getApplicationContext();
         tabMain = findViewById(R.id.tabMain);
         tabCube = findViewById(R.id.tabCube);
         tabPoses = findViewById(R.id.tabPoses);
@@ -189,7 +195,7 @@ public class ExgActivity extends Activity {
             if (ExgNative.linkApi()) {
                 String d = ExgNative.linkDest();
                 if (d == null || d.length() < 1) {
-                    askDest();
+                    pickNearby();
                     return;
                 }
             }
@@ -201,12 +207,7 @@ public class ExgActivity extends Activity {
             ExgNative.setLinkApi(!ExgNative.linkApi());
             refreshChrome();
         });
-        linkDest.setOnClickListener(v -> askDest());
-        linkToken.setOnClickListener(v -> askName("Other phone lock word (empty = none)",
-                ExgNative.linkToken(), s -> {
-                    ExgNative.setLinkToken(s);
-                    refreshChrome();
-                }));
+
         tabMain.setOnClickListener(v -> showTab(0));
         tabCube.setOnClickListener(v -> showTab(1));
         tabPoses.setOnClickListener(v -> showTab(2));
@@ -385,7 +386,14 @@ public class ExgActivity extends Activity {
                     refreshChrome();
                 }));
         apiOn.setOnClickListener(v -> {
-            ExgNative.setApiOn(!ExgNative.apiOn());
+            boolean on = !ExgNative.apiOn();
+            ExgNative.setApiOn(on);
+            if (on) {
+                ensureNear();
+                BtPair.shareStart();
+            } else {
+                BtPair.shareStop();
+            }
             StreamService.ensure(this, ExgNative.apiOn() || ExgNative.connected());
             refreshChrome();
         });
@@ -397,7 +405,7 @@ public class ExgActivity extends Activity {
             ExgNative.setApiHz(p < 1 ? 1 : p);
             refreshChrome();
         }));
-        apiHttp.setOnClickListener(v -> askPort("Settings port — other phone types this after the colon. 0 = off", ExgNative.apiHttp(), p -> {
+        apiHttp.setOnClickListener(v -> askPort("Settings port (shared after Allow). 0 = off", ExgNative.apiHttp(), p -> {
             ExgNative.setApiHttp(p);
             refreshChrome();
         }));
@@ -409,7 +417,7 @@ public class ExgActivity extends Activity {
             ExgNative.setApiTcp(p);
             refreshChrome();
         }));
-        apiToken.setOnClickListener(v -> askName("Lock word (empty = off). Other phone types the same word.",
+        apiToken.setOnClickListener(v -> askName("Lock word (empty = off)",
                 ExgNative.apiToken(), s -> {
                     ExgNative.setApiToken(s);
                     refreshChrome();
@@ -421,7 +429,7 @@ public class ExgActivity extends Activity {
                 }));
         port.setOnClickListener(v -> {
             if (ExgNative.linkApi()) {
-                askDest();
+                pickNearby();
             } else {
                 pickPort();
             }
@@ -543,13 +551,13 @@ public class ExgActivity extends Activity {
         boolean apiLink = ExgNative.linkApi();
         connect.setText(on ? "Disconnect" : "Connect");
         connect.setBackgroundTintList(android.content.res.ColorStateList.valueOf(on ? 0xFF8A3038 : 0xFF2E8A58));
-        link.setText(apiLink ? "other phone" : "this board");
+        link.setText(apiLink ? "follow leftover" : "this board");
         link.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
                 apiLink ? 0xFF2E6A8A : 0xFF2A3038));
         String ports = ExgNative.ports();
         if (apiLink) {
             String d = ExgNative.linkDest();
-            port.setText(d == null || d.length() == 0 ? "other phone…" : d);
+            port.setText(d == null || d.length() == 0 ? "nearby leftover…" : "leftover ready");
         } else {
             port.setText(ports == null || ports.length() == 0 ? "no Knight" : ports.split("\n")[0]);
         }
@@ -654,7 +662,7 @@ public class ExgActivity extends Activity {
         uiScale.setText("UI " + (us == 10 ? "1.0x" : (us == 20 ? "2.0x" : "1.5x")));
         board.setText(ExgNative.boardImu() ? "8-ch + IMU" : "8-ch EXG");
         boolean apion = ExgNative.apiOn();
-        apiOn.setText(apion ? "API on" : "API off");
+        apiOn.setText(apion ? "share leftover" : "share off");
         apiOn.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
                 apion ? 0xFF2E8A58 : 0xFF2A3038));
         apiBind.setText(ExgNative.apiLan() ? "wifi" : "this phone");
@@ -667,11 +675,8 @@ public class ExgActivity extends Activity {
             apiToken.setText(tok == null || tok.length() == 0 ? "lock off" : "lock on");
             String dest = ExgNative.apiPush();
             apiPush.setText(dest == null || dest.length() == 0 ? "extra send off" : dest);
-            String peer = ExgNative.linkDest();
-            linkDest.setText(peer == null || peer.length() == 0 ? "follow other phone…" : peer);
-            String ctok = ExgNative.linkToken();
-            linkToken.setText(ctok == null || ctok.length() == 0 ? "other lock off" : "other lock on");
             apiLine.setText(ExgNative.apiLine());
+            fillPeers();
         }
         if (ExgNative.boardImu()) {
             imuLine.setVisibility(View.VISIBLE);
@@ -1181,17 +1186,149 @@ public class ExgActivity extends Activity {
         });
     }
 
-    private void askDest() {
-        askName("Other phone", ExgNative.linkDest(),
-                "name:8765  leftover is next port", s -> {
-            ExgNative.setLinkDest(s);
-            refreshChrome();
+    private void ensureNear() {
+        if (Build.VERSION.SDK_INT < 23) {
+            return;
+        }
+        java.util.ArrayList<String> need = new java.util.ArrayList<String>();
+        if (Build.VERSION.SDK_INT >= 31) {
+            if (checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+                need.add(Manifest.permission.BLUETOOTH_CONNECT);
+            }
+            if (checkSelfPermission(Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED) {
+                need.add(Manifest.permission.BLUETOOTH_SCAN);
+            }
+            if (checkSelfPermission(Manifest.permission.BLUETOOTH_ADVERTISE) != PackageManager.PERMISSION_GRANTED) {
+                need.add(Manifest.permission.BLUETOOTH_ADVERTISE);
+            }
+        } else if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            need.add(Manifest.permission.ACCESS_FINE_LOCATION);
+        }
+        if (Build.VERSION.SDK_INT >= 33 &&
+                checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            need.add(Manifest.permission.POST_NOTIFICATIONS);
+        }
+        if (!need.isEmpty()) {
+            requestPermissions(need.toArray(new String[0]), 71);
+        }
+        BluetoothAdapter ad = BluetoothAdapter.getDefaultAdapter();
+        if (ad != null && !ad.isEnabled()) {
+            try {
+                startActivity(new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE));
+            } catch (RuntimeException ignored) {
+            }
+        }
+    }
+
+    private void pickNearby() {
+        ensureNear();
+        final java.util.ArrayList<String> names = new java.util.ArrayList<String>();
+        final AlertDialog wait = new AlertDialog.Builder(this)
+                .setTitle("Nearby leftover")
+                .setMessage("Looking… Allow the ask on the other side.")
+                .setNegativeButton("Cancel", null)
+                .show();
+        BtPair.scan(this, new BtPair.ScanSink() {
+            @Override
+            public void found(String name, BluetoothDevice dev) {
+                if (!names.contains(name)) {
+                    names.add(name);
+                }
+            }
+
+            @Override
+            public void done() {
+                h.post(() -> {
+                    if (wait.isShowing()) {
+                        wait.dismiss();
+                    }
+                    if (names.isEmpty()) {
+                        new AlertDialog.Builder(ExgActivity.this)
+                                .setTitle("Nearby leftover")
+                                .setMessage("None nearby. The other side must have share leftover on, and Bluetooth on.")
+                                .setPositiveButton("OK", null)
+                                .show();
+                        return;
+                    }
+                    String[] items = names.toArray(new String[0]);
+                    new AlertDialog.Builder(ExgActivity.this)
+                            .setTitle("Nearby leftover")
+                            .setItems(items, (d, which) -> {
+                                BluetoothDevice dv = BtPair.device(items[which]);
+                                if (dv == null) {
+                                    return;
+                                }
+                                BtPair.follow(dv, items[which], new BtPair.FollowSink() {
+                                    @Override
+                                    public void ok(String n) {
+                                        h.post(() -> {
+                                            ExgNative.connect();
+                                            StreamService.ensure(ExgActivity.this,
+                                                    ExgNative.apiOn() || ExgNative.connected());
+                                            refreshChrome();
+                                        });
+                                    }
+                                    @Override
+                                    public void no(String why) {
+                                        h.post(() -> refreshChrome());
+                                    }
+                                });
+                            })
+                            .setNegativeButton("Cancel", null)
+                            .show();
+                });
+            }
         });
+    }
+
+    private void fillPeers() {
+        if (followList == null || allowList == null) {
+            return;
+        }
+        followList.removeAllViews();
+        int nf = ExgNative.followN();
+        for (int i = 0; i < nf; i++) {
+            final int ix = i;
+            String nm = ExgNative.followName(i);
+            if (nm == null || nm.length() < 1) {
+                continue;
+            }
+            Button b = new Button(this);
+            b.setText(nm.replace('_', ' '));
+            b.setOnClickListener(v -> {
+                ExgNative.followUse(ix);
+                ExgNative.connect();
+                StreamService.ensure(this, ExgNative.apiOn() || ExgNative.connected());
+                refreshChrome();
+            });
+            b.setOnLongClickListener(v -> {
+                ExgNative.followDel(ix);
+                refreshChrome();
+                return true;
+            });
+            followList.addView(b);
+        }
+        allowList.removeAllViews();
+        int na = ExgNative.allowN();
+        for (int i = 0; i < na; i++) {
+            final int ix = i;
+            String nm = ExgNative.allowName(i);
+            if (nm == null || nm.length() < 1) {
+                continue;
+            }
+            Button b = new Button(this);
+            b.setText("revoke  " + nm.replace('_', ' '));
+            b.setOnClickListener(v -> {
+                ExgNative.allowDel(ix);
+                refreshChrome();
+            });
+            allowList.addView(b);
+        }
     }
 
     private void pickPort() {
         if (ExgNative.linkApi()) {
-            askDest();
+            pickNearby();
             return;
         }
         String raw = ExgNative.ports();
@@ -1199,7 +1336,7 @@ public class ExgActivity extends Activity {
         if (items.length == 0) {
             new AlertDialog.Builder(this)
                     .setTitle("This board")
-                    .setMessage("No Knight on USB. Tap other phone to follow leftover from another phone.")
+                    .setMessage("No Knight on USB. Tap follow leftover to pair nearby.")
                     .setPositiveButton("OK", null)
                     .show();
             return;

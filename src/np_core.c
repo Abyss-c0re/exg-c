@@ -5,6 +5,7 @@
 #include "np_font.h"
 #include "np_host.h"
 #include "np_link.h"
+#include "np_peer.h"
 #ifdef NP_ANDROID_UI
 #include "sdl2_min.h"
 #include <android/log.h>
@@ -161,6 +162,30 @@ static uint32_t live_wr;
 static float live_ch[NP_NCHAN][NP_RING];
 static int last_clip[NP_NCHAN];
 static pthread_mutex_t live_mu = PTHREAD_MUTEX_INITIALIZER;
+static struct np_peers peers;
+static char pair_name[NP_PEER_NAME];
+static char pair_grant[NP_PEER_GRANT];
+static int pair_dec; /* 0 idle 1 wait 2 allow 3 no */
+static pthread_mutex_t pair_mu = PTHREAD_MUTEX_INITIALIZER;
+
+static void peers_path(char *out, int n)
+{
+    char root[NP_MAX_PATH];
+    np_cfg_root(root, sizeof(root));
+    snprintf(out, (size_t)n, "%s/exg-c.peers", root);
+}
+
+static void peers_flush(void)
+{
+    char path[NP_MAX_PATH];
+    peers_path(path, (int)sizeof(path));
+    np_peers_save(&peers, path);
+}
+
+static int host_grant_ok(const char *grant)
+{
+    return np_peers_grant_ok(&peers, grant);
+}
 static float id_base[NP_NCHAN];
 static int id_base_ok;
 static uint32_t clean_t;
@@ -1999,7 +2024,7 @@ static void link_on_sample(const struct np_api_sample *s)
     g.sps = s->sps;
     g.paused = (s->flags & 2) ? 1 : 0;
     if (!g.status_ok) {
-        set_status(1, "following other phone");
+        set_status(1, "following leftover");
     }
 }
 
@@ -2017,6 +2042,7 @@ void api_apply(void)
     snprintf(c.push, sizeof(c.push), "%s", g.api_push);
     np_api_set_status_fn(api_status_json);
     np_api_set_view_fn(api_view_json);
+    np_api_set_grant_fn(host_grant_ok);
     np_api_apply(&c);
 }
 
@@ -2951,17 +2977,17 @@ void do_connect(void)
     }
     if (g.link) {
         if (!g.link_dest[0]) {
-            set_status(0, "type the other phone  name:settings-port");
+            set_status(0, "pick leftover nearby");
             return;
         }
         np_link_set_hooks(link_on_sample, apply_link_cfg);
         if (np_link_start(g.link_dest, g.link_token) != 0) {
-            set_status(0, "other phone name failed");
+            set_status(0, "could not reach leftover");
             return;
         }
         g.connected = 1;
         g.stall_t = SDL_GetTicks();
-        set_status(1, "following other phone — waiting");
+        set_status(1, "following leftover — waiting");
         return;
     }
     g.nports = np_list_ports(g.ports, NP_MAX_PORTS);
@@ -3613,6 +3639,11 @@ int np_host_start(const char *files_dir)
         }
     }
     cfg_load();
+    {
+        char pp[NP_MAX_PATH];
+        peers_path(pp, (int)sizeof(pp));
+        np_peers_load(&peers, pp);
+    }
     if (g.set_gen < 1) {
         apply_readable_defaults();
         g.set_gen = 1;
@@ -5700,7 +5731,7 @@ void np_host_set_link(int api)
     }
     g.link = want;
     cfg_save();
-    set_status(1, g.link ? "other phone — type name:settings-port, Connect" : "this board — Knight USB");
+    set_status(1, g.link ? "follow leftover — pick nearby" : "this board — Knight USB");
 }
 
 void np_host_link_dest(char *out, int n)
@@ -5729,4 +5760,171 @@ void np_host_set_link_token(const char *s)
 {
     snprintf(g.link_token, sizeof(g.link_token), "%s", s ? s : "");
     cfg_save();
+}
+
+int np_host_follow_n(void)
+{
+    return peers.nfollow;
+}
+
+void np_host_follow_name(int i, char *out, int n)
+{
+    if (!out || n < 2) {
+        return;
+    }
+    out[0] = 0;
+    if (i >= 0 && i < peers.nfollow) {
+        snprintf(out, (size_t)n, "%s", peers.follow[i].name);
+    }
+}
+
+void np_host_follow_use(int i)
+{
+    if (i < 0 || i >= peers.nfollow) {
+        return;
+    }
+    snprintf(g.link_dest, sizeof(g.link_dest), "%s", peers.follow[i].dest);
+    snprintf(g.link_token, sizeof(g.link_token), "%s", peers.follow[i].grant);
+    g.link = 1;
+    cfg_save();
+}
+
+void np_host_follow_del(int i)
+{
+    np_peers_follow_del(&peers, i);
+    peers_flush();
+}
+
+int np_host_allow_n(void)
+{
+    return peers.nallow;
+}
+
+void np_host_allow_name(int i, char *out, int n)
+{
+    if (!out || n < 2) {
+        return;
+    }
+    out[0] = 0;
+    if (i >= 0 && i < peers.nallow) {
+        snprintf(out, (size_t)n, "%s", peers.allow[i].name);
+    }
+}
+
+void np_host_allow_del(int i)
+{
+    np_peers_allow_del(&peers, i);
+    peers_flush();
+}
+
+void np_host_follow_grant(const char *name, char *out, int n)
+{
+    int i;
+    if (!out || n < 2) {
+        return;
+    }
+    out[0] = 0;
+    if (!name) {
+        return;
+    }
+    for (i = 0; i < peers.nfollow; i++) {
+        if (strcmp(peers.follow[i].name, name) == 0) {
+            snprintf(out, (size_t)n, "%s", peers.follow[i].grant);
+            return;
+        }
+    }
+}
+
+int np_host_grant_ok(const char *grant)
+{
+    return host_grant_ok(grant);
+}
+
+void np_host_follow_remember(const char *name, const char *dest, const char *grant)
+{
+    np_peers_follow_add(&peers, name, dest, grant);
+    if (dest && dest[0]) {
+        snprintf(g.link_dest, sizeof(g.link_dest), "%s", dest);
+    }
+    if (grant && grant[0]) {
+        snprintf(g.link_token, sizeof(g.link_token), "%s", grant);
+    }
+    peers_flush();
+    cfg_save();
+}
+
+int np_host_pair_begin(const char *name)
+{
+    int i;
+    pthread_mutex_lock(&pair_mu);
+    if (name && name[0]) {
+        for (i = 0; i < peers.nallow; i++) {
+            if (strcmp(peers.allow[i].name, name) == 0) {
+                snprintf(pair_name, sizeof(pair_name), "%s", name);
+                snprintf(pair_grant, sizeof(pair_grant), "%s", peers.allow[i].grant);
+                pair_dec = 2;
+                pthread_mutex_unlock(&pair_mu);
+                return 2;
+            }
+        }
+    }
+    snprintf(pair_name, sizeof(pair_name), "%s", name ? name : "leftover");
+    pair_grant[0] = 0;
+    pair_dec = 1;
+    pthread_mutex_unlock(&pair_mu);
+    set_status(1, "%s wants leftover", pair_name);
+    return 1;
+}
+
+int np_host_pair_state(void)
+{
+    int d;
+    pthread_mutex_lock(&pair_mu);
+    d = pair_dec;
+    pthread_mutex_unlock(&pair_mu);
+    return d;
+}
+
+void np_host_pair_name(char *out, int n)
+{
+    if (!out || n < 2) {
+        return;
+    }
+    pthread_mutex_lock(&pair_mu);
+    snprintf(out, (size_t)n, "%s", pair_name);
+    pthread_mutex_unlock(&pair_mu);
+}
+
+void np_host_pair_accept(void)
+{
+    pthread_mutex_lock(&pair_mu);
+    if (pair_dec == 1) {
+        np_peers_mkgrant(pair_grant, (int)sizeof(pair_grant));
+        np_peers_allow_add(&peers, pair_name, pair_grant);
+        peers_flush();
+        pair_dec = 2;
+    }
+    pthread_mutex_unlock(&pair_mu);
+    set_status(1, "leftover allowed");
+}
+
+void np_host_pair_reject(void)
+{
+    pthread_mutex_lock(&pair_mu);
+    if (pair_dec == 1) {
+        pair_dec = 3;
+        pair_grant[0] = 0;
+    }
+    pthread_mutex_unlock(&pair_mu);
+    set_status(0, "leftover refused");
+}
+
+void np_host_pair_grant(char *out, int n)
+{
+    if (!out || n < 2) {
+        return;
+    }
+    pthread_mutex_lock(&pair_mu);
+    snprintf(out, (size_t)n, "%s", pair_grant);
+    pthread_mutex_unlock(&pair_mu);
 }

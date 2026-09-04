@@ -482,7 +482,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:paddingTop="12dp"
-                    android:text="Share leftover from this phone: API on + wifi. Follow another phone: tap other phone, type its name and settings port, Connect. Leftover is the next port."
+                    android:text="Share leftover: turn share on + wifi. Follow leftover: tap follow leftover, pick a nearby name. Bluetooth asks first. Address is shared after Allow."
                     android:textColor="@color/muted" />
 
                 <TextView
@@ -565,24 +565,31 @@
                         android:text="extra send off" />
                 </LinearLayout>
 
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:paddingTop="10dp"
+                    android:text="Who I follow — tap to use, long-press to forget"
+                    android:textColor="@color/muted" />
+
                 <LinearLayout
+                    android:id="@+id/followList"
                     android:layout_width="match_parent"
-                    android:layout_height="wrap_content">
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical" />
 
-                    <Button
-                        android:id="@+id/linkDest"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="follow other phone…" />
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:paddingTop="10dp"
+                    android:text="Who can follow — tap to revoke"
+                    android:textColor="@color/muted" />
 
-                    <Button
-                        android:id="@+id/linkToken"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="other lock off" />
-                </LinearLayout>
+                <LinearLayout
+                    android:id="@+id/allowList"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical" />
 
                 <TextView
                     android:layout_width="wrap_content"

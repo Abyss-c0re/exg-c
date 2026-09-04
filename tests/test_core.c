@@ -9,6 +9,7 @@
 #include "np_atom.h"
 #include "np_api.h"
 #include "np_link.h"
+#include "np_peer.h"
 
 #include <arpa/inet.h>
 #include <errno.h>
@@ -1236,7 +1237,7 @@ static void test_api(void)
          strstr(body, "/stream") && strstr(body, "EXG1");
     expect(ok, "api GET / index lists stream");
     expect(strstr(body, "stream.json") == NULL, "api index has no NDJSON live path");
-    expect(strstr(body, "\"v\":\"2.46\"") != NULL, "api index version 2.46");
+    expect(strstr(body, "\"v\":\"2.47\"") != NULL, "api index version 2.47");
     expect(strstr(body, "\"ip\":\"127.0.0.1\"") != NULL, "api local ip is loopback");
     {
         char host[64];
@@ -1246,6 +1247,24 @@ static void test_api(void)
         expect(np_link_parse_dest("box:8765/9000", host, 64, &hp, &up) == 0, "parse dest slash udp");
         expect(hp == 8765 && up == 9000, "explicit udp port");
         expect(np_link_parse_dest("", host, 64, &hp, &up) != 0, "empty dest fails");
+    }
+    {
+        struct np_peers p;
+        char g[32], path[] = "/tmp/exg-peer-test";
+        np_peers_init(&p);
+        np_peers_mkgrant(g, 32);
+        expect(g[0] != 0, "grant is made");
+        expect(np_peers_allow_add(&p, "Quest_3", g) >= 0, "allow add");
+        expect(np_peers_grant_ok(&p, g), "allow grant ok");
+        expect(!np_peers_grant_ok(&p, "nope"), "unknown grant is not ok");
+        expect(np_peers_follow_add(&p, "Titan_2", "x:8765", g) >= 0, "follow add");
+        expect(np_peers_save(&p, path) == 0, "peer save");
+        np_peers_init(&p);
+        expect(np_peers_load(&p, path) == 0 && p.nallow == 1 && p.nfollow == 1, "peer load");
+        expect(np_peers_grant_ok(&p, g), "loaded grant ok");
+        np_peers_allow_del(&p, 0);
+        expect(!np_peers_grant_ok(&p, g), "revoke drops grant");
+        unlink(path);
     }
     np_api_set_view_fn(test_view_extra);
     ok = http_get("127.0.0.1", 18765, "/cfg", body, sizeof(body)) > 0;

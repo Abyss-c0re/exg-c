@@ -1636,4 +1636,144 @@ Java_com_abysscore_exgc_ExgNative_setLinkToken(JNIEnv *env, jclass cls, jstring 
     jstr_to(env, s, buf, sizeof(buf));
     np_host_set_link_token(buf);
 }
+
+JNIEXPORT jint JNICALL
+Java_com_abysscore_exgc_ExgNative_followN(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    return np_host_follow_n();
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_abysscore_exgc_ExgNative_followName(JNIEnv *env, jclass cls, jint i)
+{
+    char buf[24];
+    (void)cls;
+    np_host_follow_name(i, buf, sizeof(buf));
+    return jstr_from(env, buf);
+}
+
+JNIEXPORT void JNICALL
+Java_com_abysscore_exgc_ExgNative_followUse(JNIEnv *env, jclass cls, jint i)
+{
+    (void)env;
+    (void)cls;
+    np_host_follow_use(i);
+}
+
+JNIEXPORT void JNICALL
+Java_com_abysscore_exgc_ExgNative_followDel(JNIEnv *env, jclass cls, jint i)
+{
+    (void)env;
+    (void)cls;
+    np_host_follow_del(i);
+}
+
+JNIEXPORT jint JNICALL
+Java_com_abysscore_exgc_ExgNative_allowN(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    return np_host_allow_n();
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_abysscore_exgc_ExgNative_allowName(JNIEnv *env, jclass cls, jint i)
+{
+    char buf[24];
+    (void)cls;
+    np_host_allow_name(i, buf, sizeof(buf));
+    return jstr_from(env, buf);
+}
+
+JNIEXPORT void JNICALL
+Java_com_abysscore_exgc_ExgNative_allowDel(JNIEnv *env, jclass cls, jint i)
+{
+    (void)env;
+    (void)cls;
+    np_host_allow_del(i);
+}
+
+JNIEXPORT void JNICALL
+Java_com_abysscore_exgc_ExgNative_followRemember(JNIEnv *env, jclass cls, jstring name,
+                                                 jstring dest, jstring grant)
+{
+    char nbuf[24], dbuf[64], gbuf[32];
+    (void)cls;
+    jstr_to(env, name, nbuf, sizeof(nbuf));
+    jstr_to(env, dest, dbuf, sizeof(dbuf));
+    jstr_to(env, grant, gbuf, sizeof(gbuf));
+    np_host_follow_remember(nbuf, dbuf, gbuf);
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_abysscore_exgc_ExgNative_followGrant(JNIEnv *env, jclass cls, jstring name)
+{
+    char nbuf[24], gbuf[32];
+    (void)cls;
+    jstr_to(env, name, nbuf, sizeof(nbuf));
+    np_host_follow_grant(nbuf, gbuf, sizeof(gbuf));
+    return jstr_from(env, gbuf);
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_abysscore_exgc_ExgNative_grantOk(JNIEnv *env, jclass cls, jstring grant)
+{
+    char buf[32];
+    (void)cls;
+    jstr_to(env, grant, buf, sizeof(buf));
+    return np_host_grant_ok(buf) ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jint JNICALL
+Java_com_abysscore_exgc_ExgNative_pairBegin(JNIEnv *env, jclass cls, jstring name)
+{
+    char buf[24];
+    (void)cls;
+    jstr_to(env, name, buf, sizeof(buf));
+    return np_host_pair_begin(buf);
+}
+
+JNIEXPORT jint JNICALL
+Java_com_abysscore_exgc_ExgNative_pairState(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    return np_host_pair_state();
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_abysscore_exgc_ExgNative_pairName(JNIEnv *env, jclass cls)
+{
+    char buf[24];
+    (void)cls;
+    np_host_pair_name(buf, sizeof(buf));
+    return jstr_from(env, buf);
+}
+
+JNIEXPORT void JNICALL
+Java_com_abysscore_exgc_ExgNative_pairAccept(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    np_host_pair_accept();
+}
+
+JNIEXPORT void JNICALL
+Java_com_abysscore_exgc_ExgNative_pairReject(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    np_host_pair_reject();
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_abysscore_exgc_ExgNative_pairGrant(JNIEnv *env, jclass cls)
+{
+    char buf[32];
+    (void)cls;
+    np_host_pair_grant(buf, sizeof(buf));
+    return jstr_from(env, buf);
+}
 #endif

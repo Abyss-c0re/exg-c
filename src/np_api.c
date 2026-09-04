@@ -79,6 +79,7 @@ static int n_http_stream, n_tcp, n_udp;
 static char self_ip[32];
 static np_api_status_fn status_fn;
 static np_api_view_fn view_fn;
+static np_api_grant_fn grant_fn;
 
 static void close_fd(int *fd);
 
@@ -627,14 +628,21 @@ static int local_peer(int fd)
 static int tok_ok(int fd, const char *req)
 {
     char got[NP_API_TOKEN];
-    if (!cfg.token[0]) {
-        return 1;
-    }
+    got[0] = 0;
     if (local_peer(fd)) {
         return 1;
     }
     hdr_tok(req, got, sizeof(got));
-    return strcmp(got, cfg.token) == 0;
+    if (cfg.token[0] && got[0] && strcmp(got, cfg.token) == 0) {
+        return 1;
+    }
+    if (grant_fn && got[0] && grant_fn(got)) {
+        return 1;
+    }
+    if (!cfg.token[0] && !grant_fn) {
+        return 1;
+    }
+    return 0;
 }
 
 static int json_int(const char *body, const char *key, int *out)
@@ -721,7 +729,7 @@ static void handle_req(struct http_cli *c)
 
     if (!strcmp(path, "/") || !strcmp(path, "/index")) {
         snprintf(js, sizeof(js),
-                 "{\"ok\":true,\"v\":\"2.46\",\"api\":\"exg\","
+                 "{\"ok\":true,\"v\":\"2.47\",\"api\":\"exg\","
                  "\"bind\":\"%s\",\"ip\":\"%s\",\"http\":%d,\"udp\":%d,\"tcp\":%d,"
                  "\"hz\":%d,\"token\":%s,\"push\":\"%s\","
                  "\"get\":[\"/health\",\"/status\",\"/sample\",\"/stream\",\"/cfg\"],"
@@ -734,7 +742,7 @@ static void handle_req(struct http_cli *c)
     }
     if (!strcmp(path, "/health")) {
         snprintf(js, sizeof(js),
-                 "{\"ok\":true,\"v\":\"2.46\",\"on\":true,\"bind\":\"%s\","
+                 "{\"ok\":true,\"v\":\"2.47\",\"on\":true,\"bind\":\"%s\","
                  "\"ip\":\"%s\",\"http\":%d,\"udp\":%d,\"tcp\":%d,\"hz\":%d,"
                  "\"clients\":{\"http\":%d,\"tcp\":%d,\"udp\":%d}}",
                  cfg.lan ? "lan" : "local", self_ip, cfg.http, cfg.udp, cfg.tcp, cfg.hz,
@@ -939,6 +947,22 @@ static void udp_hear(void)
             }
             if (udp_s[i].last_ms && udp_s[i].last_ms < udp_s[oldest].last_ms) {
                 oldest = i;
+            }
+        }
+        if (grant_fn) {
+            char gbuf[32];
+            int glen = n > 4 ? n - 4 : 0;
+            if (glen > 31) {
+                glen = 31;
+            }
+            memcpy(gbuf, buf + 4, (size_t)glen);
+            gbuf[glen] = 0;
+            while (glen > 0 && (gbuf[glen - 1] == '\n' || gbuf[glen - 1] == '\r' ||
+                                 gbuf[glen - 1] == ' ')) {
+                gbuf[--glen] = 0;
+            }
+            if (!grant_fn(gbuf)) {
+                continue;
             }
         }
         if (freei == -2) {
@@ -1281,4 +1305,9 @@ void np_api_set_status_fn(np_api_status_fn fn)
 void np_api_set_view_fn(np_api_view_fn fn)
 {
     view_fn = fn;
+}
+
+void np_api_set_grant_fn(np_api_grant_fn fn)
+{
+    grant_fn = fn;
 }

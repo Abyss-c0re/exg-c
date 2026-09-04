@@ -191,4 +191,21 @@ public final class ExgNative {
     public static native void setLinkDest(String s);
     public static native String linkToken();
     public static native void setLinkToken(String s);
+
+    public static native int followN();
+    public static native String followName(int i);
+    public static native void followUse(int i);
+    public static native void followDel(int i);
+    public static native int allowN();
+    public static native String allowName(int i);
+    public static native void allowDel(int i);
+    public static native void followRemember(String name, String dest, String grant);
+    public static native String followGrant(String name);
+    public static native boolean grantOk(String grant);
+    public static native int pairBegin(String name);
+    public static native int pairState();
+    public static native String pairName();
+    public static native void pairAccept();
+    public static native void pairReject();
+    public static native String pairGrant();
 }

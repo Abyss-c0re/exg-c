@@ -209,4 +209,23 @@ void np_host_set_link_dest(const char *s);
 void np_host_link_token(char *out, int n);
 void np_host_set_link_token(const char *s);
 
+int np_host_follow_n(void);
+void np_host_follow_name(int i, char *out, int n);
+void np_host_follow_use(int i);
+void np_host_follow_del(int i);
+int np_host_allow_n(void);
+void np_host_allow_name(int i, char *out, int n);
+void np_host_allow_del(int i);
+void np_host_follow_remember(const char *name, const char *dest, const char *grant);
+void np_host_follow_grant(const char *name, char *out, int n);
+int np_host_grant_ok(const char *grant);
+
+/* Incoming leftover request. 0 idle, 1 waiting, 2 allow, 3 no. */
+int np_host_pair_begin(const char *name);
+int np_host_pair_state(void);
+void np_host_pair_name(char *out, int n);
+void np_host_pair_accept(void);
+void np_host_pair_reject(void);
+void np_host_pair_grant(char *out, int n);
+
 #endif

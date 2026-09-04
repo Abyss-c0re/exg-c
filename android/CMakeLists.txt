@@ -17,6 +17,7 @@ add_library(exg SHARED
     ${EXG_ROOT}/src/np_atom.c
     ${EXG_ROOT}/src/np_api.c
     ${EXG_ROOT}/src/np_link.c
+    ${EXG_ROOT}/src/np_peer.c
     ${EXG_ROOT}/nplearn/src/nplearn.c
     ${EXG_ROOT}/nplearn/src/nplearn_filt.c
     ${EXG_ROOT}/nplearn/src/nplearn_posix.c
