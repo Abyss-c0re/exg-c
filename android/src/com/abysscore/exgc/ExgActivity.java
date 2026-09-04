@@ -189,12 +189,7 @@ public class ExgActivity extends Activity {
             if (ExgNative.linkApi()) {
                 String d = ExgNative.linkDest();
                 if (d == null || d.length() < 1) {
-                    askName("API dest  host:port", "", s -> {
-                        ExgNative.setLinkDest(s);
-                        ExgNative.connect();
-                        StreamService.ensure(this, ExgNative.apiOn() || ExgNative.connected());
-                        refreshChrome();
-                    });
+                    askDest();
                     return;
                 }
             }
@@ -206,11 +201,7 @@ public class ExgActivity extends Activity {
             ExgNative.setLinkApi(!ExgNative.linkApi());
             refreshChrome();
         });
-        linkDest.setOnClickListener(v -> askName("API dest  host:port  (empty = off)",
-                ExgNative.linkDest(), s -> {
-                    ExgNative.setLinkDest(s);
-                    refreshChrome();
-                }));
+        linkDest.setOnClickListener(v -> askDest());
         linkToken.setOnClickListener(v -> askName("API client token (empty = none)",
                 ExgNative.linkToken(), s -> {
                     ExgNative.setLinkToken(s);
@@ -428,7 +419,13 @@ public class ExgActivity extends Activity {
                     ExgNative.setApiPush(s);
                     refreshChrome();
                 }));
-        port.setOnClickListener(v -> pickPort());
+        port.setOnClickListener(v -> {
+            if (ExgNative.linkApi()) {
+                askDest();
+            } else {
+                pickPort();
+            }
+        });
         cubeAlgo.setOnClickListener(v -> pickAlgo());
         buildChannels();
         refreshProfiles();
@@ -1174,13 +1171,24 @@ public class ExgActivity extends Activity {
         });
     }
 
+    private void askDest() {
+        askName("API dest  host:port", ExgNative.linkDest(), s -> {
+            ExgNative.setLinkDest(s);
+            refreshChrome();
+        });
+    }
+
     private void pickPort() {
+        if (ExgNative.linkApi()) {
+            askDest();
+            return;
+        }
         String raw = ExgNative.ports();
         String[] items = (raw == null || raw.length() == 0) ? new String[0] : raw.split("\n");
         if (items.length == 0) {
             new AlertDialog.Builder(this)
-                    .setTitle("Port")
-                    .setMessage("no USB serial")
+                    .setTitle("USB")
+                    .setMessage("no USB serial — switch to API to type a dest")
                     .setPositiveButton("OK", null)
                     .show();
             return;

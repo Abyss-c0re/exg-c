@@ -4389,6 +4389,9 @@ void np_host_ports(char *out, int n)
 }
 void np_host_cycle_port(void)
 {
+    if (g.link) {
+        return;
+    }
     g.nports = np_list_ports(g.ports, NP_MAX_PORTS);
     if (g.nports) {
         g.port_i = (g.port_i + 1) % g.nports;

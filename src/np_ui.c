@@ -1851,6 +1851,10 @@ static void click(int x, int y)
             toggle_record();
             break;
         case 4:
+            if (g.link) {
+                set_status(1, "API dest is typed on the client field, not USB");
+                break;
+            }
             g.nports = np_list_ports(g.ports, NP_MAX_PORTS);
             if (g.nports) {
                 g.port_i = (g.port_i + 1) % g.nports;
