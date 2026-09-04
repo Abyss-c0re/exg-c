@@ -1137,6 +1137,7 @@ static int cfg_write_ex(const char *path, int with_map)
     fprintf(f, "pitch=%.4f\n", (double)g.cube_pitch);
     fprintf(f, "zoom=%.2f\n", (double)g.cube_zoom);
     fprintf(f, "view=%d\n", g.cube_view ? 1 : 0);
+    fprintf(f, "float=%d\n", g.cube_float ? 1 : 0);
     if (with_map) {
         fprintf(f, "\n[api]\n");
         fprintf(f, "on=%d\n", g.api_on ? 1 : 0);
@@ -1245,6 +1246,8 @@ static int cfg_read(const char *path)
             g.cube_zoom = fa;
         } else if (sscanf(line, "view=%d", &v) == 1 && (v == 0 || v == 1)) {
             g.cube_view = v;
+        } else if (sscanf(line, "float=%d", &v) == 1) {
+            g.cube_float = v ? 1 : 0;
         } else if (sscanf(line, "pitch=%f", &fa) == 1) {
             g.cube_pitch = fa;
         } else if (sscanf(line, "elec%d=%f,%f", &v, &fa, &fb) == 3 && v >= 1 && v <= NP_NCHAN) {
@@ -2289,26 +2292,37 @@ void smx_tick(void)
         want = NP_RING;
     }
     memset(bits, 0, sizeof(bits));
-    for (c = 0; c < NP_NCHAN; c++) {
-        uint32_t n;
-        float dc = 0, rms = 0, pk = 0, raw_rms = 0, rr = 0;
-        int det;
-        if (!g.active[c]) {
-            continue;
-        }
-        mask |= (uint8_t)(1u << c);
-        n = np_ring_copy(&g.ring, c, buf, want);
-        if (n >= 16) {
+    {
+        uint64_t atom = 0;
+        for (c = 0; c < NP_NCHAN; c++) {
+            uint32_t n;
+            float dc = 0, rms = 0, pk = 0, sc;
+            uint8_t row = 0;
+            if (!g.active[c]) {
+                continue;
+            }
+            mask |= (uint8_t)(1u << c);
+            n = view_copy(c, buf, want);
+            if (n > 32) {
+                memmove(buf, buf + (n - 32), 32 * sizeof(float));
+                n = 32;
+            }
             ch_stats(buf, n, &dc, &rms, &pk);
-            raw_rms = rms;
-            n = view_copy(c, buf, n);
-            ch_stats(buf, n, &dc, &rms, &pk);
-            det = np_detect(raw_rms > 1.f ? raw_rms : rms, rms,
-                            g.cal.have ? g.cal.rms[c] : 0.f,
-                            g.calm.have ? g.calm.rms[c] : 0.f, &rr);
-            bits[nch] = (uint8_t)np_algo_bit(g.algo, buf, (int)n, det == NP_DET_SIGNAL);
+            sc = 25.f;
+            if (id_base_ok && id_base[c] > sc) {
+                sc = id_base[c];
+            } else if (g.calm.have && g.calm.rms[c] > sc) {
+                sc = g.calm.rms[c];
+            }
+            if (n >= 8) {
+                uint64_t one = np_atom_pack_rel(buf, 1, (int)n, (int)n, &sc);
+                row = (uint8_t)(one & 0xffu);
+            }
+            atom |= (uint64_t)row << (8 * c);
+            bits[nch] = (row & 0x16u) ? 1 : 0;
+            nch++;
         }
-        nch++;
+        np_atom_faces8(atom, g.cube_bits);
     }
     if (nch > 0) {
         int ix, iy, iz;
@@ -3301,6 +3315,7 @@ int np_host_start(const char *files_dir)
     g.cube_yaw = 0.55f;
     g.cube_pitch = 0.40f;
     g.cube_zoom = 1.0f;
+    g.cube_float = 1;
     api_defaults();
     snprintf(g.prof, sizeof(g.prof), "default");
     np_elec_default(g.elec);
@@ -4097,9 +4112,12 @@ void np_host_set_port_i(int i)
     }
     g.port_i = i;
 }
-void np_host_copy_cube(unsigned char dst[512])
+void np_host_copy_cube(unsigned char dst[64])
 {
-    memcpy(dst, g.smx.cube, 512);
+    if (!dst) {
+        return;
+    }
+    memcpy(dst, g.cube_bits, 64);
 }
 int np_host_notch(void)
 {
@@ -4286,7 +4304,17 @@ void np_host_set_cube_view(int map)
 {
     g.cube_view = map ? 1 : 0;
     cfg_save();
-    set_status(1, g.cube_view ? "map  assign 10-10 sites" : "viz  crimson lattice");
+    set_status(1, g.cube_view ? "map  assign 10-10 sites" : "viz  leftover cube");
+}
+int np_host_cube_float(void)
+{
+    return g.cube_float ? 1 : 0;
+}
+void np_host_toggle_cube_float(void)
+{
+    g.cube_float = !g.cube_float;
+    cfg_save();
+    set_status(1, g.cube_float ? "float on" : "float off");
 }
 void np_host_cube_spin(float dyaw, float dpitch)
 {
@@ -4422,36 +4450,19 @@ int np_host_viz_cells(float *xyz, float *size, int *rgba, int cap)
         size[i] = cells[i].s;
         rgba[i] = (cells[i].a << 24) | (cells[i].r << 16) | (cells[i].g << 8) | cells[i].b;
     }
-    /* Live 8^3 ON bits — otherwise viz is eight dim electrode cells. */
     {
-        int ix, iy, iz;
-        for (iz = 0; iz < 8 && n < cap; iz++) {
-            for (iy = 0; iy < 8 && n < cap; iy++) {
-                for (ix = 0; ix < 8 && n < cap; ix++) {
-                    float wx, wy, wz;
-                    int k, dup = 0;
-                    if (!np_cube_get(&g.smx, ix, iy, iz)) {
-                        continue;
-                    }
-                    np_ijk_world(ix, iy, iz, &wx, &wy, &wz);
-                    for (k = 0; k < n; k++) {
-                        float dx = xyz[k * 3] - wx, dy = xyz[k * 3 + 1] - wy,
-                              dz = xyz[k * 3 + 2] - wz;
-                        if (dx * dx + dy * dy + dz * dz < 0.04f) {
-                            dup = 1;
-                            break;
-                        }
-                    }
-                    if (dup) {
-                        continue;
-                    }
-                    xyz[n * 3] = wx;
-                    xyz[n * 3 + 1] = wy;
-                    xyz[n * 3 + 2] = wz;
-                    size[n] = 0.24f;
-                    rgba[n] = (230 << 24) | (242 << 16) | (38 << 8) | 71;
-                    n++;
+        int c, b;
+        for (b = 0; b < 8 && n < cap; b++) {
+            for (c = 0; c < 8 && n < cap; c++) {
+                if (!g.cube_bits[c + b * 8]) {
+                    continue;
                 }
+                xyz[n * 3] = ((float)c - 3.5f) / 3.5f;
+                xyz[n * 3 + 1] = ((float)b - 3.5f) / 3.5f;
+                xyz[n * 3 + 2] = 0.f;
+                size[n] = 0.28f;
+                rgba[n] = (230 << 24) | (g.chrgb[c][0] << 16) | (g.chrgb[c][1] << 8) | g.chrgb[c][2];
+                n++;
             }
         }
     }

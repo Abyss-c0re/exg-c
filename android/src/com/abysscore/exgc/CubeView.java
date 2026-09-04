@@ -11,13 +11,13 @@ import android.view.MotionEvent;
 import android.view.View;
 
 /**
- * viz — Cube Experience / crimson lattice (N=8, spike #FF141A, levitate).
+ * viz — leftover cube (8×8 bits, spike #FF141A). Map assigns 10-10.
  * map — 10-10 assign: tap a channel, then a site on the scalp map or cube.
  */
 public class CubeView extends View {
     private static final int NCHAN = 8;
     private static final int N = 8;
-    private static final int NCELL = N * N * N;
+    private static final int NCELL = 64;
     private static final int MAX_CELL = 40;
     private static final int MAX_SITE = 80;
     private static final int SPIKE = 0xFFFF141A;
@@ -53,6 +53,8 @@ public class CubeView extends View {
     private float labelMul = 1f;
     private float autoYaw;
     private float t;
+    private boolean floating = true;
+    private float pinch0 = -1f;
     private long lastMs;
     private float lastX, lastY;
     private boolean spinning;
@@ -141,6 +143,7 @@ public class CubeView extends View {
         }
         smxSeq = ExgNative.smxSeq();
         smxFold = ExgNative.smxFold();
+        floating = ExgNative.cubeFloat();
         nsite = Math.min(MAX_SITE, ExgNative.siteN());
         siteFocus = ExgNative.siteFocus();
         elecSel = ExgNative.elecSel();
@@ -183,16 +186,15 @@ public class CubeView extends View {
         }
         lastMs = now;
         t += dt;
-        if (!spinning) {
-            /* cube_gl --levitate: 8.5 deg/s drift */
+        if (floating && !spinning) {
             autoYaw += 0.148f * dt;
         }
     }
 
     private void project(float x, float y, float z, float cx, float cy, float k, float[] out) {
-        float yawUse = yaw + (mode == 0 ? autoYaw : 0f);
+        float yawUse = yaw + (mode == 0 && floating ? autoYaw : 0f);
         float yy = y;
-        if (mode == 0) {
+        if (mode == 0 && floating) {
             yy += 0.06f * (float) Math.sin(t * 1.4);
         }
         float cyaw = (float) Math.cos(yawUse), syaw = (float) Math.sin(yawUse);
@@ -218,7 +220,31 @@ public class CubeView extends View {
     @Override
     public boolean onTouchEvent(MotionEvent e) {
         float x = e.getX(), y = e.getY();
-        int act = e.getAction();
+        int act = e.getActionMasked();
+        if (e.getPointerCount() == 2 &&
+                (act == MotionEvent.ACTION_POINTER_DOWN || act == MotionEvent.ACTION_MOVE)) {
+            float dx = e.getX(0) - e.getX(1), dy = e.getY(0) - e.getY(1);
+            float d = (float) Math.sqrt(dx * dx + dy * dy);
+            if (act == MotionEvent.ACTION_POINTER_DOWN || pinch0 < 1f) {
+                pinch0 = d;
+            } else if (d > 8f && pinch0 > 8f) {
+                float s = d / pinch0;
+                if (s > 1.06f) {
+                    ExgNative.cubeZoom(1);
+                    nudgeZoom(1);
+                    pinch0 = d;
+                } else if (s < 0.94f) {
+                    ExgNative.cubeZoom(-1);
+                    nudgeZoom(-1);
+                    pinch0 = d;
+                }
+            }
+            spinning = false;
+            return true;
+        }
+        if (act == MotionEvent.ACTION_POINTER_UP || act == MotionEvent.ACTION_UP) {
+            pinch0 = -1f;
+        }
         if (act == MotionEvent.ACTION_DOWN) {
             if (mode == 1 && hitMap((int) x, (int) y)) {
                 return true;
@@ -393,24 +419,21 @@ public class CubeView extends View {
         float[] pf = new float[max];
         int[] kind = new int[max]; /* 0 lattice 1 on 2 impulse */
         int[] edgeN = new int[max];
+        int[] chOf = new int[max];
         int n = 0;
         float[] p = new float[4];
         float pulse = 0.5f + 0.5f * (float) Math.sin(t * 3.2);
         float glow = 0.15f + Math.min(0.85f, onCount / 28f);
-        for (int iz = 0; iz < N; iz++) {
-            for (int iy = 0; iy < N; iy++) {
-                for (int ix = 0; ix < N; ix++) {
-                    boolean shell = ix == 0 || ix == N - 1 || iy == 0 || iy == N - 1
-                            || iz == 0 || iz == N - 1;
-                    int idx = ix + N * iy + N * N * iz;
-                    boolean on = cubeBits[idx] != 0;
-                    float imp = impulse[idx];
-                    if (!shell && !on && imp < 0.08f) {
-                        continue;
-                    }
+        for (int iy = 0; iy < N; iy++) {
+            for (int ix = 0; ix < N; ix++) {
+                {
+                    boolean shell = ix == 0 || ix == N - 1 || iy == 0 || iy == N - 1;
+                    int idx = ix + N * iy;
+                    boolean on = idx < NCELL && cubeBits[idx] != 0;
+                    float imp = idx < NCELL ? impulse[idx] : 0f;
                     float wx = (ix - 3.5f) / 3.5f;
                     float wy = (iy - 3.5f) / 3.5f;
-                    float wz = (iz - 3.5f) / 3.5f;
+                    float wz = 0f;
                     project(wx, wy, wz, cx, cy, k, p);
                     if (n >= max) {
                         continue;
@@ -420,8 +443,7 @@ public class CubeView extends View {
                     pf[n] = p[3];
                     depth[n] = p[2];
                     edgeN[n] = (ix == 0 || ix == N - 1 ? 1 : 0)
-                            + (iy == 0 || iy == N - 1 ? 1 : 0)
-                            + (iz == 0 || iz == N - 1 ? 1 : 0);
+                            + (iy == 0 || iy == N - 1 ? 1 : 0);
                     if (imp > 0.08f) {
                         kind[n] = 2;
                     } else if (on) {
@@ -429,6 +451,7 @@ public class CubeView extends View {
                     } else {
                         kind[n] = 0;
                     }
+                    chOf[n] = ix;
                     n++;
                 }
             }
@@ -472,7 +495,9 @@ public class CubeView extends View {
                 float flash = kind[i] == 2 ? impulse[i] : 0.35f;
                 float size = (6.5f + 10f * f) * (1.0f + 0.55f * flash);
                 int alpha = kind[i] == 2 ? (int) (220 * flash + 40) : 210;
-                fill.setColor((alpha << 24) | 0x00FF141A);
+                int rgb = (chOf[i] >= 0 && chOf[i] < NCHAN) ? (elecCol[chOf[i]] & 0x00FFFFFF)
+                        : 0x00FF141A;
+                fill.setColor((alpha << 24) | rgb);
                 c.drawCircle(px[i], py[i], size, fill);
                 if (kind[i] == 2) {
                     float jit = 8f + 18f * flash;

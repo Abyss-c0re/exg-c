@@ -57,7 +57,7 @@ Tap a name to switch band/filters. Long-press to rename or delete. Electrode map
 
 **Export… / Import…** use the system document picker. No storage permission.
 
-**win** 1 / 2 / 4 / 8 s. **UI** 1.0 / 1.5 / 2.0× (including the cube). **board** `8-ch EXG` or `8-ch + IMU` — disconnect first.
+**win** 1 / 2 / 4 / 8 s. **UI** 1.0 / 1.5 / 2.0× (including the cube). Cube **float on/off**, drag to spin, +/− or pinch to zoom. **board** `8-ch EXG` or `8-ch + IMU` — disconnect first.
 
 **band:** `raw` / `line-kill` (hp 2, CAR, ±1000) / `EEG` (hp 2, lp 40, ±200) / `EMG` (hp 20, envelope, CAR, ±2000).
 

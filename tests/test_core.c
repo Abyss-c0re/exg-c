@@ -963,8 +963,8 @@ static void test_atom(void)
             {
                 float base[8];
                 uint64_t rr, aa;
-                uint8_t cube[512];
-                int on = 0, i, interior = 0;
+                uint8_t cube[64];
+                int on = 0, i;
                 for (ch = 0; ch < 8; ch++) {
                     base[ch] = calm;
                 }
@@ -974,16 +974,12 @@ static void test_atom(void)
                 expect(np_atom_from_uv8(restw, base) != 0 || restw[0] != 0.f,
                        "from_uv8 runs");
                 np_atom_faces8(aa, cube);
-                for (i = 0; i < 512; i++) {
+                for (i = 0; i < 64; i++) {
                     if (cube[i]) {
                         on++;
-                        if (i >= 64) {
-                            interior++;
-                        }
                     }
                 }
-                expect(on == np_atom_popcount(aa), "faces8 is 64 signal bits");
-                expect(interior == 0, "faces8 does not pad the 8^3 interior");
+                expect(on == np_atom_popcount(aa), "cube is 64 leftover bits");
             }
             {
                 float rr[8], ar[8];
@@ -1204,7 +1200,7 @@ static void test_api(void)
          strstr(body, "/stream") && strstr(body, "EXG1");
     expect(ok, "api GET / index lists stream");
     expect(strstr(body, "stream.json") == NULL, "api index has no NDJSON live path");
-    expect(strstr(body, "\"v\":\"2.40\"") != NULL, "api index version 2.40");
+    expect(strstr(body, "\"v\":\"2.41\"") != NULL, "api index version 2.41");
     expect(strstr(body, "\"ip\":\"127.0.0.1\"") != NULL, "api local ip is loopback");
 
     {

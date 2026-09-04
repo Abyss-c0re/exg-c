@@ -32,7 +32,7 @@ public class ExgActivity extends Activity {
     private View cubePane;
     private View cubeMapTools;
     private LinearLayout cubeChRow;
-    private Button cubeViz, cubeMap, cubeAlgo;
+    private Button cubeViz, cubeMap, cubeAlgo, cubeFloat;
     private TextView siteLabel;
     private View settings;
     private View learnBar;
@@ -122,6 +122,7 @@ public class ExgActivity extends Activity {
         cubeViz = findViewById(R.id.cubeViz);
         cubeMap = findViewById(R.id.cubeMap);
         cubeAlgo = findViewById(R.id.cubeAlgo);
+        cubeFloat = findViewById(R.id.cubeFloat);
         siteLabel = findViewById(R.id.siteLabel);
         settings = findViewById(R.id.settings);
         learnBar = findViewById(R.id.learnBar);
@@ -204,6 +205,10 @@ public class ExgActivity extends Activity {
         findViewById(R.id.cubeFront).setOnClickListener(v -> {
             ExgNative.cubeFront();
             cube.resetCam();
+        });
+        cubeFloat.setOnClickListener(v -> {
+            ExgNative.toggleCubeFloat();
+            refreshCubeChrome();
         });
         findViewById(R.id.sitePrev).setOnClickListener(v -> {
             ExgNative.siteStep(-1);
@@ -476,6 +481,10 @@ public class ExgActivity extends Activity {
                 map == 1 ? 0xFF5A2810 : 0xFF2A3038));
         cubeMapTools.setVisibility(map == 1 ? View.VISIBLE : View.GONE);
         cubeAlgo.setText("algo " + ExgNative.algoName());
+        boolean fl = ExgNative.cubeFloat();
+        cubeFloat.setText(fl ? "float on" : "float off");
+        cubeFloat.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
+                fl ? 0xFF2E8A58 : 0xFF2A3038));
         siteLabel.setText(ExgNative.siteFocusLabel());
         int sel = ExgNative.elecSel();
         for (int i = 0; i < cubeChRow.getChildCount(); i++) {

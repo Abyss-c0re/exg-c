@@ -129,20 +129,17 @@ uint64_t np_atom_from_uv8(const float uv[8], const float base_uv[8])
     return np_atom_pack_rel(planar, 8, 1, 1, base_uv);
 }
 
-void np_atom_faces8(uint64_t atom, uint8_t cube[512])
+void np_atom_faces8(uint64_t atom, uint8_t cube[64])
 {
     int c, b;
     if (!cube) {
         return;
     }
-    memset(cube, 0, 512);
+    memset(cube, 0, 64);
     for (c = 0; c < 8; c++) {
         uint8_t bits = (uint8_t)((atom >> (8 * c)) & 0xffu);
         for (b = 0; b < 8; b++) {
-            if (bits & (uint8_t)(1u << b)) {
-                /* face z=0: x=channel, y=feature. 64 cells. Rest stay 0. */
-                cube[c + b * 8] = 1;
-            }
+            cube[c + b * 8] = (bits & (uint8_t)(1u << b)) ? 1 : 0;
         }
     }
 }

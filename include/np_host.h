@@ -77,7 +77,7 @@ void np_host_prof_at(int i, char *out, int n);
 void np_host_ports(char *out, int n);
 void np_host_cycle_port(void);
 void np_host_set_port_i(int i);
-void np_host_copy_cube(unsigned char dst[512]);
+void np_host_copy_cube(unsigned char dst[64]);
 int np_host_notch(void);
 /* Effective notch Hz (AUTO → plate). 0 if idle. */
 int np_host_notch_eff(void);
@@ -110,6 +110,8 @@ void np_host_set_cube_view(int map);
 void np_host_cube_spin(float dyaw, float dpitch);
 void np_host_cube_zoom(int dir);
 void np_host_cube_front(void);
+int np_host_cube_float(void);
+void np_host_toggle_cube_float(void);
 int np_host_elec_sel(void);
 void np_host_set_elec_sel(int ch);
 void np_host_elec_label(int ch, char *out, int n);

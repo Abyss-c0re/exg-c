@@ -106,11 +106,9 @@ Per-channel **bias ON** (teal) / **bias off** (dark). Connect sends `RLDADD` or 
 
 Profile load keeps the electrode map and **recooks** plates/takes from raw. It does not re-record.
 
-## State matrix
+## Cube
 
-The app cube is leftover **algo bits** (1 bit/channel/s) on 10-10 cells. That is not EXG1.
-
-To fold an EXG1 frame into CubalC: **64 bits**, leftover-relative, not a 512-bit pad. See [API.md](API.md#state-matrix-local-fold--not-a-send).
+Viz is the leftover cube: **8 channels × 8 bits**, same leftover µV as the traces. **float on** levitates; **float off** is manual drag-spin and +/− zoom. Map still assigns 10-10 sites.
 
 ## Quest / phone
 

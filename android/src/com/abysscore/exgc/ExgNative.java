@@ -122,6 +122,8 @@ public final class ExgNative {
     public static native void cubeSpin(float yaw, float pitch);
     public static native void cubeZoom(int dir);
     public static native void cubeFront();
+    public static native boolean cubeFloat();
+    public static native void toggleCubeFloat();
     public static native int elecSel();
     public static native void setElecSel(int ch);
     public static native String elecLabel(int ch);

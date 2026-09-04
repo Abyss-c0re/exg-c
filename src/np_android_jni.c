@@ -555,13 +555,13 @@ Java_com_abysscore_exgc_ExgNative_setPortI(JNIEnv *env, jclass cls, jint i)
 JNIEXPORT void JNICALL
 Java_com_abysscore_exgc_ExgNative_copyCube(JNIEnv *env, jclass cls, jbyteArray dst)
 {
-    unsigned char cube[512];
+    unsigned char cube[64];
     (void)cls;
-    if (!dst || (*env)->GetArrayLength(env, dst) < 512) {
+    if (!dst || (*env)->GetArrayLength(env, dst) < 64) {
         return;
     }
     np_host_copy_cube(cube);
-    (*env)->SetByteArrayRegion(env, dst, 0, 512, (jbyte *)cube);
+    (*env)->SetByteArrayRegion(env, dst, 0, 64, (jbyte *)cube);
 }
 
 JNIEXPORT void JNICALL
@@ -810,6 +810,22 @@ Java_com_abysscore_exgc_ExgNative_cubeFront(JNIEnv *env, jclass cls)
     (void)env;
     (void)cls;
     np_host_cube_front();
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_abysscore_exgc_ExgNative_cubeFloat(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    return np_host_cube_float() ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT void JNICALL
+Java_com_abysscore_exgc_ExgNative_toggleCubeFloat(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    np_host_toggle_cube_float();
 }
 
 JNIEXPORT jint JNICALL

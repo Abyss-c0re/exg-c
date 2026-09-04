@@ -176,6 +176,12 @@
                     android:text="front" />
 
                 <Button
+                    android:id="@+id/cubeFloat"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="float on" />
+
+                <Button
                     android:id="@+id/cubeAlgo"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
