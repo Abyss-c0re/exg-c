@@ -55,6 +55,7 @@ public class ExgActivity extends Activity {
     private Button port;
     private LinearLayout followList;
     private LinearLayout allowList;
+    private Button kitSend, kitTake, kitBoth;
     private Button tabMain, tabCube, tabPoses, tabSet;
     private View posesPane;
     private LinearLayout poseList;
@@ -148,6 +149,9 @@ public class ExgActivity extends Activity {
         port = findViewById(R.id.port);
         followList = findViewById(R.id.followList);
         allowList = findViewById(R.id.allowList);
+        kitSend = findViewById(R.id.kitSend);
+        kitTake = findViewById(R.id.kitTake);
+        kitBoth = findViewById(R.id.kitBoth);
         ExgNativeApp.ctx = getApplicationContext();
         tabMain = findViewById(R.id.tabMain);
         tabCube = findViewById(R.id.tabCube);
@@ -217,6 +221,18 @@ public class ExgActivity extends Activity {
         link.setOnClickListener(v -> {
             ExgNative.cycleLink();
             refreshChrome();
+        });
+        kitSend.setOnClickListener(v -> {
+            BtPair.sendKit();
+            status.setText("sent map & settings");
+        });
+        kitTake.setOnClickListener(v -> {
+            BtPair.takeKit();
+            status.setText("asked for their map & settings");
+        });
+        kitBoth.setOnClickListener(v -> {
+            BtPair.copyBoth();
+            status.setText("copying map & settings both ways");
         });
 
         tabMain.setOnClickListener(v -> showTab(0));

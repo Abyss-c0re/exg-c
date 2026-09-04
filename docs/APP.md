@@ -1,4 +1,4 @@
-# App (2.49)
+# App (2.50)
 
 What the host does. The LAN wire is [API.md](API.md).
 
@@ -116,4 +116,5 @@ Viz is the crimson 8³ lattice. One mapped 10-10 cell per channel tracks leftove
 - Stream service is `startService` from a visible activity, then `startForeground` (`dataSync`). Not `startForegroundService`.
 - Service stays up while the API **server** is on **or** the app is connected (USB or API client).
 - **USB / LAN / Bluetooth** next to Connect. USB is the Knight here. Bluetooth picks a nearby name (Allow/No) and leftover rides that link. LAN is leftover on wifi after a pair that saw wifi. Share leftover is how this device offers the board out.
+- **Send mine / Take theirs / Both ways** copies map, colors, filters, and named profiles over leftover. Saved here so you can unplug and plug the board on the other device.
 - Files live under the app directory (see android README). `run-as` cannot read them unless the package is debuggable.

@@ -569,6 +569,39 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:paddingTop="10dp"
+                    android:text="Map &amp; settings — copy while leftover is connected. Unplug one device, plug the other, keep the same map."
+                    android:textColor="@color/muted" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content">
+
+                    <Button
+                        android:id="@+id/kitSend"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="send mine" />
+
+                    <Button
+                        android:id="@+id/kitTake"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="take theirs" />
+
+                    <Button
+                        android:id="@+id/kitBoth"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="both ways" />
+                </LinearLayout>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:paddingTop="10dp"
                     android:text="Who I follow — tap to use, long-press to forget"
                     android:textColor="@color/muted" />
 

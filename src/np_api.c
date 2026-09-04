@@ -31,8 +31,9 @@
 #define MAX_HTTP 6
 #define MAX_TCP 4
 #define MAX_UDP 8
-#define REQ_MAX 2048
+#define REQ_MAX 8192
 #define JSON_MAX 2000
+#define KIT_MAX 8192
 
 struct http_cli {
     int fd;
@@ -80,6 +81,8 @@ static char self_ip[32];
 static np_api_status_fn status_fn;
 static np_api_view_fn view_fn;
 static np_api_grant_fn grant_fn;
+static np_api_kit_get_fn kit_get_fn;
+static np_api_kit_put_fn kit_put_fn;
 
 static void close_fd(int *fd);
 
@@ -729,11 +732,11 @@ static void handle_req(struct http_cli *c)
 
     if (!strcmp(path, "/") || !strcmp(path, "/index")) {
         snprintf(js, sizeof(js),
-                 "{\"ok\":true,\"v\":\"2.49\",\"api\":\"exg\","
+                 "{\"ok\":true,\"v\":\"2.50\",\"api\":\"exg\","
                  "\"bind\":\"%s\",\"ip\":\"%s\",\"http\":%d,\"udp\":%d,\"tcp\":%d,"
                  "\"hz\":%d,\"token\":%s,\"push\":\"%s\","
-                 "\"get\":[\"/health\",\"/status\",\"/sample\",\"/stream\",\"/cfg\"],"
-                 "\"post\":[\"/connect\",\"/disconnect\",\"/pause\",\"/cfg\"],"
+                 "\"get\":[\"/health\",\"/status\",\"/sample\",\"/stream\",\"/cfg\",\"/kit\"],"
+                 "\"post\":[\"/connect\",\"/disconnect\",\"/pause\",\"/cfg\",\"/kit\"],"
                  "\"frame\":\"EXG1 %d bytes LE cooked uV\"}",
                  cfg.lan ? "lan" : "local", self_ip, cfg.http, cfg.udp, cfg.tcp, cfg.hz,
                  cfg.token[0] ? "true" : "false", cfg.push, NP_API_FRAME);
@@ -742,7 +745,7 @@ static void handle_req(struct http_cli *c)
     }
     if (!strcmp(path, "/health")) {
         snprintf(js, sizeof(js),
-                 "{\"ok\":true,\"v\":\"2.49\",\"on\":true,\"bind\":\"%s\","
+                 "{\"ok\":true,\"v\":\"2.50\",\"on\":true,\"bind\":\"%s\","
                  "\"ip\":\"%s\",\"http\":%d,\"udp\":%d,\"tcp\":%d,\"hz\":%d,"
                  "\"clients\":{\"http\":%d,\"tcp\":%d,\"udp\":%d}}",
                  cfg.lan ? "lan" : "local", self_ip, cfg.http, cfg.udp, cfg.tcp, cfg.hz,
@@ -845,6 +848,28 @@ static void handle_req(struct http_cli *c)
             enqueue_op(NP_API_OP_BAND, v);
         }
         http_reply(c->fd, 200, "application/json", "{\"ok\":true,\"op\":\"cfg\"}");
+        return;
+    }
+    if (!strcmp(path, "/kit") && !is_post) {
+        char kit[KIT_MAX];
+        int kn = 0;
+        if (kit_get_fn) {
+            kn = kit_get_fn(kit, KIT_MAX);
+        }
+        if (kn < 1) {
+            http_reply(c->fd, 404, "text/plain", "no kit");
+            return;
+        }
+        kit[KIT_MAX - 1] = 0;
+        http_reply(c->fd, 200, "text/plain", kit);
+        return;
+    }
+    if (is_post && !strcmp(path, "/kit")) {
+        if (kit_put_fn && kit_put_fn(body, (int)strlen(body)) == 0) {
+            http_reply(c->fd, 200, "application/json", "{\"ok\":true,\"op\":\"kit\"}");
+        } else {
+            http_reply(c->fd, 404, "application/json", "{\"ok\":false,\"err\":\"kit\"}");
+        }
         return;
     }
     (void)sp;
@@ -1310,4 +1335,10 @@ void np_api_set_view_fn(np_api_view_fn fn)
 void np_api_set_grant_fn(np_api_grant_fn fn)
 {
     grant_fn = fn;
+}
+
+void np_api_set_kit_fn(np_api_kit_get_fn get, np_api_kit_put_fn put)
+{
+    kit_get_fn = get;
+    kit_put_fn = put;
 }

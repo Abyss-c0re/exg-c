@@ -1214,6 +1214,48 @@ static int cfg_write_ex(const char *path, int with_map)
     return 0;
 }
 
+static int cfg_write_kit(const char *path)
+{
+    FILE *f;
+    int i;
+    if (!path || !path[0]) {
+        return -1;
+    }
+    f = fopen(path, "w");
+    if (!f) {
+        return -1;
+    }
+    fprintf(f, "[view]\n");
+    fprintf(f, "window_s=%d\n", g.window_s);
+    fprintf(f, "scale_uv=%d\n", g.scale_uv);
+    fprintf(f, "notch_hz=%d\n", g.notch_hz);
+    fprintf(f, "hp_hz=%d\n", g.hp_hz);
+    fprintf(f, "lp_hz=%d\n", g.lp_hz);
+    fprintf(f, "car=%d\n", g.car ? 1 : 0);
+    fprintf(f, "envelope=%d\n", g.envelope ? 1 : 0);
+    fprintf(f, "band=%d\n", g.band);
+    fprintf(f, "detrend=%d\n", g.detrend);
+    fprintf(f, "cal_cut=%d\n", g.cal_cut);
+    fprintf(f, "board=%d\n", (int)g.board);
+    fprintf(f, "algo=%d\n", g.algo);
+    fprintf(f, "\n[cube]\n");
+    fprintf(f, "float=%d\n", g.cube_float ? 1 : 0);
+    for (i = 0; i < NP_NCHAN; i++) {
+        if (g.elec[i].name[0]) {
+            fprintf(f, "elec%d=%s\n", i + 1, g.elec[i].name);
+        }
+    }
+    fprintf(f, "\n[channels]\n");
+    for (i = 0; i < NP_NCHAN; i++) {
+        fprintf(f, "gain%d=%d\n", i + 1, g.gain[i]);
+        fprintf(f, "color%d=%d,%d,%d\n", i + 1, g.chrgb[i][0], g.chrgb[i][1], g.chrgb[i][2]);
+        fprintf(f, "active%d=%d\n", i + 1, g.active[i] ? 1 : 0);
+        fprintf(f, "rld%d=%d\n", i + 1, g.rld[i] ? 1 : 0);
+    }
+    fclose(f);
+    return 0;
+}
+
 static int cfg_read(const char *path)
 {
     FILE *f;
@@ -2043,6 +2085,7 @@ void api_apply(void)
     np_api_set_status_fn(api_status_json);
     np_api_set_view_fn(api_view_json);
     np_api_set_grant_fn(host_grant_ok);
+    np_api_set_kit_fn(np_host_kit_export, np_host_kit_import);
     np_api_apply(&c);
 }
 
@@ -4887,6 +4930,107 @@ int np_host_prof_import(const char *path)
     data_recook();
     cfg_save();
     set_status(1, "opened profile — map kept, plates recooked");
+    return 0;
+}
+
+static void kit_tmp(char *out, int n)
+{
+    char root[NP_MAX_PATH];
+    np_cfg_root(root, sizeof(root));
+    snprintf(out, (size_t)n, "%s/exg-c.kit", root);
+}
+
+int np_host_kit_export(char *out, int cap)
+{
+    char tmp[NP_MAX_PATH], pfile[NP_MAX_PATH];
+    FILE *f;
+    int n = 0, i;
+    if (!out || cap < 64) {
+        return 0;
+    }
+    kit_tmp(tmp, (int)sizeof(tmp));
+    if (cfg_write_kit(tmp) != 0) {
+        return 0;
+    }
+    f = fopen(tmp, "r");
+    if (!f) {
+        return 0;
+    }
+    n = (int)fread(out, 1, (size_t)(cap - 1), f);
+    fclose(f);
+    if (n < 0) {
+        n = 0;
+    }
+    for (i = 0; i < g.nprof && n < cap - 80; i++) {
+        FILE *pf;
+        int r;
+        n += snprintf(out + n, (size_t)(cap - n), "\n#profile %s\n", g.profiles[i]);
+        prof_file(g.profiles[i], pfile, sizeof(pfile));
+        pf = fopen(pfile, "r");
+        if (!pf) {
+            continue;
+        }
+        r = (int)fread(out + n, 1, (size_t)(cap - 1 - n), pf);
+        fclose(pf);
+        if (r > 0) {
+            n += r;
+        }
+    }
+    out[n] = 0;
+    return n;
+}
+
+int np_host_kit_import(const char *s, int n)
+{
+    char tmp[NP_MAX_PATH], pfile[NP_MAX_PATH], name[24];
+    const char *p, *next, *body;
+    FILE *f;
+    int mainn;
+    if (!s || n < 8) {
+        return -1;
+    }
+    kit_tmp(tmp, (int)sizeof(tmp));
+    p = strstr(s, "\n#profile ");
+    mainn = p ? (int)(p - s) : n;
+    f = fopen(tmp, "w");
+    if (!f) {
+        return -1;
+    }
+    fwrite(s, 1, (size_t)mainn, f);
+    fclose(f);
+    if (cfg_read(tmp) != 0) {
+        return -1;
+    }
+    while (p) {
+        p += 10;
+        name[0] = 0;
+        sscanf(p, "%23s", name);
+        next = strstr(p, "\n#profile ");
+        body = strchr(p, '\n');
+        if (body) {
+            body++;
+        } else {
+            body = p;
+        }
+        if (prof_ok_name(name)) {
+            int ln = next ? (int)(next - body) : (int)((s + n) - body);
+            if (ln < 0) {
+                ln = 0;
+            }
+            prof_file(name, pfile, sizeof(pfile));
+            f = fopen(pfile, "w");
+            if (f) {
+                fwrite(body, 1, (size_t)ln, f);
+                fclose(f);
+            }
+        }
+        p = next;
+    }
+    prof_scan();
+    prof_apply();
+    data_recook();
+    cfg_save();
+    set_status(1, "map & settings saved here");
     return 0;
 }
 

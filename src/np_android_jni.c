@@ -1865,4 +1865,26 @@ Java_com_abysscore_exgc_ExgNative_linkWire(JNIEnv *env, jclass cls, jboolean on)
     (void)cls;
     np_host_link_wire(on ? 1 : 0);
 }
+
+JNIEXPORT jstring JNICALL
+Java_com_abysscore_exgc_ExgNative_kitExport(JNIEnv *env, jclass cls)
+{
+    char buf[8192];
+    int n;
+    (void)cls;
+    n = np_host_kit_export(buf, (int)sizeof(buf));
+    if (n < 1) {
+        return jstr_from(env, "");
+    }
+    return jstr_from(env, buf);
+}
+
+JNIEXPORT jint JNICALL
+Java_com_abysscore_exgc_ExgNative_kitImport(JNIEnv *env, jclass cls, jstring s)
+{
+    char buf[8192];
+    (void)cls;
+    jstr_to(env, s, buf, sizeof(buf));
+    return np_host_kit_import(buf, (int)strlen(buf));
+}
 #endif

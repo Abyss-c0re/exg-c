@@ -41,6 +41,8 @@ public final class BtPair {
 
     private static volatile boolean listen;
     private static volatile boolean followLive;
+    private static volatile byte[] pendingKit;
+    private static volatile boolean pendingWant;
     private static Thread listenThr;
     private static BluetoothServerSocket server;
     private static volatile BluetoothSocket followSock;
@@ -140,6 +142,12 @@ public final class BtPair {
         }
         if (grantIn.length() > 0 && ExgNative.grantOk(grantIn)) {
             writeOk(out, grantIn);
+            new Thread(() -> {
+                try {
+                    readPeer(s.getInputStream(), out);
+                } catch (Exception ignored) {
+                }
+            }, "leftover-in").start();
             pumpOut(out);
             return;
         }
@@ -154,6 +162,12 @@ public final class BtPair {
         }
         if (st == 2) {
             writeOk(out, ExgNative.pairGrant());
+            new Thread(() -> {
+                try {
+                    readPeer(s.getInputStream(), out);
+                } catch (Exception ignored) {
+                }
+            }, "leftover-in").start();
             pumpOut(out);
         } else {
             out.write("NO\n".getBytes(UTF8));
@@ -203,12 +217,70 @@ public final class BtPair {
                 }
                 lastCfg = now;
             }
+            if (pendingWant) {
+                pendingWant = false;
+                pendingKit = kitBytes();
+            }
+            if (pendingKit != null) {
+                byte[] kit = pendingKit;
+                pendingKit = null;
+                writeKit(out, kit);
+            }
             try {
                 Thread.sleep(8);
             } catch (InterruptedException e) {
                 return;
             }
         }
+    }
+
+    private static byte[] kitBytes() {
+        String k = ExgNative.kitExport();
+        return (k == null || k.length() < 8) ? null : k.getBytes(UTF8);
+    }
+
+    private static void writeKit(OutputStream out, byte[] kit) throws Exception {
+        if (kit == null || kit.length < 1) {
+            return;
+        }
+        int ln = kit.length;
+        if (ln > 8000) {
+            ln = 8000;
+        }
+        out.write(new byte[] {'K', 'I', 'T', '1', (byte) (ln & 255), (byte) ((ln >> 8) & 255)});
+        out.write(kit, 0, ln);
+    }
+
+    private static void readPeer(java.io.InputStream in, OutputStream out) throws Exception {
+        byte[] mag = new byte[4];
+        while (listen) {
+            if (!readFull(in, mag, 4)) {
+                return;
+            }
+            if (mag[0] == 'W' && mag[1] == 'A' && mag[2] == 'N' && mag[3] == 'T') {
+                writeKit(out, kitBytes());
+            } else if (mag[0] == 'K' && mag[1] == 'I' && mag[2] == 'T' && mag[3] == '1') {
+                applyKit(in);
+            } else {
+                return;
+            }
+        }
+    }
+
+    private static void applyKit(java.io.InputStream in) throws Exception {
+        byte[] ln = new byte[2];
+        if (!readFull(in, ln, 2)) {
+            return;
+        }
+        int n = (ln[0] & 255) | ((ln[1] & 255) << 8);
+        if (n < 8 || n > 8000) {
+            return;
+        }
+        byte[] kit = new byte[n];
+        if (!readFull(in, kit, n)) {
+            return;
+        }
+        ExgNative.kitImport(new String(kit, UTF8));
     }
 
     static void scan(Context c, ScanSink sink) {
@@ -391,6 +463,10 @@ public final class BtPair {
                     return;
                 }
                 ExgNative.feedExg1(frame);
+            } else if (mag[0] == 'W' && mag[1] == 'A' && mag[2] == 'N' && mag[3] == 'T') {
+                writeKit(s.getOutputStream(), kitBytes());
+            } else if (mag[0] == 'K' && mag[1] == 'I' && mag[2] == 'T' && mag[3] == '1') {
+                applyKit(in);
             } else if (mag[0] == 'C' && mag[1] == 'F' && mag[2] == 'G' && mag[3] == '1') {
                 byte[] ln = new byte[2];
                 if (!readFull(in, ln, 2)) {
@@ -441,6 +517,119 @@ public final class BtPair {
 
     static boolean followLive() {
         return followLive;
+    }
+
+    static void sendKit() {
+        byte[] kit = kitBytes();
+        if (kit == null) {
+            return;
+        }
+        if (followLive && followSock != null) {
+            try {
+                writeKit(followSock.getOutputStream(), kit);
+                return;
+            } catch (Exception ignored) {
+            }
+        }
+        pendingKit = kit;
+        lanPostKit(kit);
+    }
+
+    static void takeKit() {
+        if (followLive && followSock != null) {
+            try {
+                followSock.getOutputStream().write(new byte[] {'W', 'A', 'N', 'T'});
+                return;
+            } catch (Exception ignored) {
+            }
+        }
+        pendingWant = true;
+        lanGetKit();
+    }
+
+    static void copyBoth() {
+        sendKit();
+        takeKit();
+    }
+
+    private static String[] destParts() {
+        String d = ExgNative.linkDest();
+        if (d == null || d.length() < 3 || d.startsWith("bt:")) {
+            return null;
+        }
+        int sl = d.lastIndexOf('/');
+        if (sl > 0) {
+            d = d.substring(0, sl);
+        }
+        int c = d.lastIndexOf(':');
+        if (c < 1) {
+            return null;
+        }
+        return new String[] {d.substring(0, c), d.substring(c + 1)};
+    }
+
+    private static void lanPostKit(byte[] kit) {
+        String[] p = destParts();
+        if (p == null) {
+            return;
+        }
+        httpKit(p[0], p[1], true, new String(kit, UTF8));
+    }
+
+    private static void lanGetKit() {
+        String[] p = destParts();
+        if (p == null) {
+            return;
+        }
+        httpKit(p[0], p[1], false, null);
+    }
+
+    private static void httpKit(final String host, final String port, final boolean post,
+            final String body) {
+        new Thread(() -> {
+            try {
+                int hp = Integer.parseInt(port);
+                java.net.Socket s = new java.net.Socket();
+                s.connect(new java.net.InetSocketAddress(host, hp), 800);
+                s.setSoTimeout(1500);
+                String tok = ExgNative.linkToken();
+                String req;
+                if (post) {
+                    byte[] b = body.getBytes(UTF8);
+                    req = "POST /kit HTTP/1.0\r\nHost: x\r\nContent-Length: " + b.length
+                            + "\r\n";
+                    if (tok != null && tok.length() > 0) {
+                        req += "X-EXG-Token: " + tok + "\r\n";
+                    }
+                    req += "\r\n";
+                    s.getOutputStream().write(req.getBytes(UTF8));
+                    s.getOutputStream().write(b);
+                } else {
+                    req = "GET /kit HTTP/1.0\r\nHost: x\r\n";
+                    if (tok != null && tok.length() > 0) {
+                        req += "X-EXG-Token: " + tok + "\r\n";
+                    }
+                    req += "\r\n";
+                    s.getOutputStream().write(req.getBytes(UTF8));
+                }
+                java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+                byte[] buf = new byte[512];
+                int r;
+                java.io.InputStream in = s.getInputStream();
+                while ((r = in.read(buf)) > 0) {
+                    bos.write(buf, 0, r);
+                }
+                s.close();
+                if (!post) {
+                    String all = bos.toString("UTF-8");
+                    int sp = all.indexOf("\r\n\r\n");
+                    if (sp >= 0) {
+                        ExgNative.kitImport(all.substring(sp + 4));
+                    }
+                }
+            } catch (Exception ignored) {
+            }
+        }, "kit-lan").start();
     }
 
     static void followName(final String shown, final FollowSink sink) {

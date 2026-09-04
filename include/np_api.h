@@ -80,5 +80,8 @@ void np_api_set_view_fn(np_api_view_fn fn);
 /* 1 if leftover may go to this grant. NULL = open (tests). */
 typedef int (*np_api_grant_fn)(const char *grant);
 void np_api_set_grant_fn(np_api_grant_fn fn);
+typedef int (*np_api_kit_get_fn)(char *out, int cap);
+typedef int (*np_api_kit_put_fn)(const char *s, int n);
+void np_api_set_kit_fn(np_api_kit_get_fn get, np_api_kit_put_fn put);
 
 #endif

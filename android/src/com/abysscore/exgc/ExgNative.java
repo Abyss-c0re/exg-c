@@ -217,4 +217,6 @@ public final class ExgNative {
     public static native void applyCfgJson(String js);
     public static native String viewJson();
     public static native void linkWire(boolean on);
+    public static native String kitExport();
+    public static native int kitImport(String s);
 }

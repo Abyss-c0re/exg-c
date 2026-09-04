@@ -142,6 +142,8 @@ unsigned int np_host_smx_seq(void);
 unsigned int np_host_smx_fold(void);
 int np_host_prof_export(const char *path);
 int np_host_prof_import(const char *path);
+int np_host_kit_export(char *out, int cap);
+int np_host_kit_import(const char *s, int n);
 
 void np_host_id(char *out, int n);
 int np_host_rec_ms(void);
