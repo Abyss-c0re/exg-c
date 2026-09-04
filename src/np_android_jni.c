@@ -1584,4 +1584,56 @@ Java_com_abysscore_exgc_ExgNative_apiLine(JNIEnv *env, jclass cls)
     np_host_api_line(buf, sizeof(buf));
     return jstr_from(env, buf);
 }
+
+JNIEXPORT jboolean JNICALL
+Java_com_abysscore_exgc_ExgNative_linkApi(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    return np_host_link() ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT void JNICALL
+Java_com_abysscore_exgc_ExgNative_setLinkApi(JNIEnv *env, jclass cls, jboolean api)
+{
+    (void)env;
+    (void)cls;
+    np_host_set_link(api ? 1 : 0);
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_abysscore_exgc_ExgNative_linkDest(JNIEnv *env, jclass cls)
+{
+    char buf[64];
+    (void)cls;
+    np_host_link_dest(buf, sizeof(buf));
+    return jstr_from(env, buf);
+}
+
+JNIEXPORT void JNICALL
+Java_com_abysscore_exgc_ExgNative_setLinkDest(JNIEnv *env, jclass cls, jstring s)
+{
+    char buf[64];
+    (void)cls;
+    jstr_to(env, s, buf, sizeof(buf));
+    np_host_set_link_dest(buf);
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_abysscore_exgc_ExgNative_linkToken(JNIEnv *env, jclass cls)
+{
+    char buf[32];
+    (void)cls;
+    np_host_link_token(buf, sizeof(buf));
+    return jstr_from(env, buf);
+}
+
+JNIEXPORT void JNICALL
+Java_com_abysscore_exgc_ExgNative_setLinkToken(JNIEnv *env, jclass cls, jstring s)
+{
+    char buf[32];
+    (void)cls;
+    jstr_to(env, s, buf, sizeof(buf));
+    np_host_set_link_token(buf);
+}
 #endif

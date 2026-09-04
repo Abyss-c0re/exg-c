@@ -4,7 +4,7 @@ A C host for a **[Knight](https://www.neuropawn.tech/)** ADS1299 board — or an
 
 Not a medical device. Not affiliated with NeuroPawn.
 
-Shipped app: **2.43** (`com.abysscore.exgc`, versionCode 52). One framework, two skins:
+Shipped app: **2.44** (`com.abysscore.exgc`, versionCode 53). One framework, two skins:
 
 | Piece | Role |
 |-------|------|
@@ -31,7 +31,8 @@ Quest / phone notes: [android/README.md](android/README.md).
 - **Record** — 1 s named leftover pose. MATCH **names** a unique pose. It does **not** print a cosine percent.
 - **bias ON / bias off** per channel (RLD). Connect applies add **and** remove.
 - **Cube viz** — crimson 8³ lattice. Mapped electrode cells track leftover µV (same color and millivolt as the traces). **float on/off**, drag to spin, +/− or pinch to zoom. **map** assigns 10-10 sites.
-- **API** off by default. When on: HTTP 8765, UDP 8766, TCP 8767, bind lan, 125 Hz. Live path is **EXG1** binary, not JSON.
+- **Link USB or API.** USB talks to the Knight. **API** is a client: type `host:port` (UDP is http+1, or `host:http/udp`). No baked address or token. The client mirrors leftover + viz from `/cfg` + EXG1 UDP.
+- **API server** off by default. When on: HTTP 8765, UDP 8766, TCP 8767, bind lan, 125 Hz. Live path is **EXG1** binary, not JSON. `/cfg` carries colors, map, and filters so a client matches.
 
 Default montage: **FCz–CPz**, **CP4–FC3**, **FC4–CP3**, **C3–C4**. Eight leftover sites; four bipolar leftover traces. Map can still assign any 10-10 name.
 

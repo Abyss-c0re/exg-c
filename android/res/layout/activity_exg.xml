@@ -32,6 +32,14 @@
             android:textColor="@color/ink" />
 
         <Button
+            android:id="@+id/link"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:backgroundTint="@color/btn"
+            android:text="USB"
+            android:textColor="@color/ink" />
+
+        <Button
             android:id="@+id/connect"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
@@ -555,6 +563,25 @@
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:text="push dest" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content">
+
+                    <Button
+                        android:id="@+id/linkDest"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="client dest" />
+
+                    <Button
+                        android:id="@+id/linkToken"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="client token" />
                 </LinearLayout>
 
                 <TextView

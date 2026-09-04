@@ -8,6 +8,7 @@
 #include "nplearn.h"
 #include "np_atom.h"
 #include "np_api.h"
+#include "np_link.h"
 
 #include <arpa/inet.h>
 #include <errno.h>
@@ -24,6 +25,11 @@
 #endif
 
 static int fails;
+
+static void test_view_extra(char *out, int n)
+{
+    snprintf(out, (size_t)n, "\"color\":[[255,255,255]],\"elec\":[\"FCz\"]");
+}
 
 static void expect(int cond, const char *name)
 {
@@ -1230,8 +1236,21 @@ static void test_api(void)
          strstr(body, "/stream") && strstr(body, "EXG1");
     expect(ok, "api GET / index lists stream");
     expect(strstr(body, "stream.json") == NULL, "api index has no NDJSON live path");
-    expect(strstr(body, "\"v\":\"2.43\"") != NULL, "api index version 2.43");
+    expect(strstr(body, "\"v\":\"2.44\"") != NULL, "api index version 2.44");
     expect(strstr(body, "\"ip\":\"127.0.0.1\"") != NULL, "api local ip is loopback");
+    {
+        char host[64];
+        int hp = 0, up = 0;
+        expect(np_link_parse_dest("box:8765", host, 64, &hp, &up) == 0, "parse dest host:port");
+        expect(strcmp(host, "box") == 0 && hp == 8765 && up == 8766, "udp defaults to http+1");
+        expect(np_link_parse_dest("box:8765/9000", host, 64, &hp, &up) == 0, "parse dest slash udp");
+        expect(hp == 8765 && up == 9000, "explicit udp port");
+        expect(np_link_parse_dest("", host, 64, &hp, &up) != 0, "empty dest fails");
+    }
+    np_api_set_view_fn(test_view_extra);
+    ok = http_get("127.0.0.1", 18765, "/cfg", body, sizeof(body)) > 0;
+    expect(ok && strstr(body, "\"color\"") && strstr(body, "FCz"), "cfg carries color and map");
+    np_api_set_view_fn(NULL);
 
     {
         int fd = socket(AF_INET, SOCK_STREAM, 0);

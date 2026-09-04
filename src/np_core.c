@@ -4,6 +4,7 @@
 #include "np_cube.h"
 #include "np_font.h"
 #include "np_host.h"
+#include "np_link.h"
 #ifdef NP_ANDROID_UI
 #include "sdl2_min.h"
 #include <android/log.h>
@@ -50,8 +51,8 @@ const int SCALE_UV[NSCALE] = {50, 100, 200, 500, 1000, 5000};
 const int WIN_S[NWINS] = {1, 2, 4, 8};
 const int WINPREF[NWINPREF][2] = {{1280, 800}, {1440, 900}, {1600, 1000}, {1920, 1080}};
 const int CHCOL[NP_NCHAN][3] = {
-    {80, 200, 255}, {255, 180, 70}, {120, 220, 140}, {240, 110, 140},
-    {180, 150, 255}, {255, 230, 90}, {90, 230, 210}, {230, 140, 255},
+    {255, 255, 255}, {255, 255, 255}, {255, 230, 90}, {255, 230, 90},
+    {80, 200, 255}, {80, 200, 255}, {255, 90, 90}, {255, 90, 90},
 };
 const int PALETTE[NPAL][3] = {
     {80, 200, 255}, {255, 180, 70}, {120, 220, 140}, {240, 110, 140},
@@ -766,7 +767,12 @@ static int stream_id(float *ratio)
 void id_label(char *out, int n)
 {
     float r = 0.f;
-    int id = stream_id(&r);
+    int id;
+    if (g.link && g.link_id[0]) {
+        snprintf(out, (size_t)n, "%s", g.link_id);
+        return;
+    }
+    id = stream_id(&r);
     if (g.connected && g.sps > 0.f && g.sps < 80.f) {
         snprintf(out, (size_t)n, "ID warming %.0f sps", (double)g.sps);
         return;
@@ -1154,6 +1160,13 @@ static int cfg_write_ex(const char *path, int with_map)
         if (g.api_push[0]) {
             fprintf(f, "push=%s\n", g.api_push);
         }
+        fprintf(f, "link=%d\n", g.link ? 1 : 0);
+        if (g.link_dest[0]) {
+            fprintf(f, "link_dest=%s\n", g.link_dest);
+        }
+        if (g.link_token[0]) {
+            fprintf(f, "link_token=%s\n", g.link_token);
+        }
     }
     if (with_map) {
         for (i = 0; i < NP_NCHAN; i++) {
@@ -1250,6 +1263,12 @@ static int cfg_read(const char *path)
             g.cube_view = v;
         } else if (sscanf(line, "float=%d", &v) == 1) {
             g.cube_float = v ? 1 : 0;
+        } else if (sscanf(line, "link_dest=%63s", longv) == 1) {
+            snprintf(g.link_dest, sizeof(g.link_dest), "%s", longv);
+        } else if (sscanf(line, "link_token=%31s", longv) == 1) {
+            snprintf(g.link_token, sizeof(g.link_token), "%s", longv);
+        } else if (sscanf(line, "link=%d", &v) == 1) {
+            g.link = v ? 1 : 0;
         } else if (sscanf(line, "pitch=%f", &fa) == 1) {
             g.cube_pitch = fa;
         } else if (sscanf(line, "elec%d=%f,%f", &v, &fa, &fb) == 3 && v >= 1 && v <= NP_NCHAN) {
@@ -1793,6 +1812,197 @@ static void api_status_json(char *out, int n)
              g.notch_hz, g.hp_hz, g.lp_hz, g.car ? 1 : 0, g.band, mask, line);
 }
 
+static void api_view_json(char *out, int n)
+{
+    char id[80], ide[96];
+    int c;
+    if (!out || n < 8) {
+        return;
+    }
+    np_host_id(id, sizeof(id));
+    api_json_esc(id, ide, sizeof(ide));
+    snprintf(out, (size_t)n,
+             "\"notch\":%d,\"hp\":%d,\"lp\":%d,\"car\":%d,\"detrend\":%d,\"env\":%d,"
+             "\"band\":%d,\"scale_uv\":%d,\"window_s\":%d,"
+             "\"color\":[[%d,%d,%d],[%d,%d,%d],[%d,%d,%d],[%d,%d,%d],"
+             "[%d,%d,%d],[%d,%d,%d],[%d,%d,%d],[%d,%d,%d]],"
+             "\"elec\":[\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\"],"
+             "\"active\":[%d,%d,%d,%d,%d,%d,%d,%d],\"id\":\"%s\"",
+             g.notch_hz, g.hp_hz, g.lp_hz, g.car ? 1 : 0, g.detrend ? 1 : 0,
+             g.envelope ? 1 : 0, g.band, g.scale_uv, g.window_s, g.chrgb[0][0],
+             g.chrgb[0][1], g.chrgb[0][2], g.chrgb[1][0], g.chrgb[1][1], g.chrgb[1][2],
+             g.chrgb[2][0], g.chrgb[2][1], g.chrgb[2][2], g.chrgb[3][0], g.chrgb[3][1],
+             g.chrgb[3][2], g.chrgb[4][0], g.chrgb[4][1], g.chrgb[4][2], g.chrgb[5][0],
+             g.chrgb[5][1], g.chrgb[5][2], g.chrgb[6][0], g.chrgb[6][1], g.chrgb[6][2],
+             g.chrgb[7][0], g.chrgb[7][1], g.chrgb[7][2], g.elec[0].name, g.elec[1].name,
+             g.elec[2].name, g.elec[3].name, g.elec[4].name, g.elec[5].name, g.elec[6].name,
+             g.elec[7].name, g.active[0] ? 1 : 0, g.active[1] ? 1 : 0, g.active[2] ? 1 : 0,
+             g.active[3] ? 1 : 0, g.active[4] ? 1 : 0, g.active[5] ? 1 : 0,
+             g.active[6] ? 1 : 0, g.active[7] ? 1 : 0, ide);
+    (void)c;
+}
+
+static int cfg_jint(const char *js, const char *key, int *out)
+{
+    char pat[40];
+    const char *p;
+    if (!js || !key || !out) {
+        return 0;
+    }
+    snprintf(pat, sizeof(pat), "\"%s\"", key);
+    p = strstr(js, pat);
+    if (!p) {
+        return 0;
+    }
+    p = strchr(p, ':');
+    if (!p) {
+        return 0;
+    }
+    p++;
+    while (*p == ' ') {
+        p++;
+    }
+    if (!(*p == '-' || (*p >= '0' && *p <= '9'))) {
+        return 0;
+    }
+    *out = atoi(p);
+    return 1;
+}
+
+static void apply_link_cfg(const char *js)
+{
+    int v, c;
+    const char *p;
+    if (!js || !js[0]) {
+        return;
+    }
+    if (cfg_jint(js, "notch", &v)) {
+        g.notch_hz = v;
+    }
+    if (cfg_jint(js, "hp", &v)) {
+        g.hp_hz = v;
+    }
+    if (cfg_jint(js, "lp", &v)) {
+        g.lp_hz = v;
+    }
+    if (cfg_jint(js, "car", &v)) {
+        g.car = v ? 1 : 0;
+    }
+    if (cfg_jint(js, "detrend", &v)) {
+        g.detrend = v ? 1 : 0;
+    }
+    if (cfg_jint(js, "env", &v)) {
+        g.envelope = v ? 1 : 0;
+    }
+    if (cfg_jint(js, "band", &v) && v >= 0 && v < NP_BAND_N) {
+        g.band = v;
+    }
+    if (cfg_jint(js, "scale_uv", &v) && v >= 20) {
+        g.scale_uv = v;
+    }
+    if (cfg_jint(js, "window_s", &v) && v >= 1 && v <= 8) {
+        g.window_s = v;
+    }
+    p = strstr(js, "\"color\":");
+    if (p) {
+        p = strchr(p, '[');
+        if (p) {
+            p++;
+            for (c = 0; c < NP_NCHAN; c++) {
+                int r = 0, gc = 0, b = 0;
+                const char *q = strchr(p, '[');
+                if (!q) {
+                    break;
+                }
+                if (sscanf(q, "[%d,%d,%d]", &r, &gc, &b) == 3) {
+                    g.chrgb[c][0] = r;
+                    g.chrgb[c][1] = gc;
+                    g.chrgb[c][2] = b;
+                }
+                p = q + 1;
+            }
+        }
+    }
+    p = strstr(js, "\"elec\":");
+    if (p) {
+        p = strchr(p, '[');
+        if (p) {
+            p++;
+            for (c = 0; c < NP_NCHAN; c++) {
+                char name[8];
+                const char *q = strchr(p, '"');
+                int i = 0;
+                if (!q) {
+                    break;
+                }
+                q++;
+                while (*q && *q != '"' && i < 7) {
+                    name[i++] = *q++;
+                }
+                name[i] = 0;
+                if (name[0]) {
+                    int s = np_1010_find(name);
+                    if (s >= 0) {
+                        np_elec_set_site(&g.elec[c], s);
+                    }
+                }
+                p = q + 1;
+            }
+        }
+    }
+    p = strstr(js, "\"active\":[");
+    if (p) {
+        p = strchr(p, '[');
+        if (p) {
+            p++;
+            for (c = 0; c < NP_NCHAN; c++) {
+                while (*p == ' ' || *p == ',') {
+                    p++;
+                }
+                if (*p == '0' || *p == '1') {
+                    g.active[c] = *p == '1';
+                    p++;
+                }
+            }
+        }
+    }
+    p = strstr(js, "\"id\":\"");
+    if (p) {
+        p += 6;
+        snprintf(g.link_id, sizeof(g.link_id), "%s", p);
+        for (c = 0; g.link_id[c]; c++) {
+            if (g.link_id[c] == '"') {
+                g.link_id[c] = 0;
+                break;
+            }
+        }
+    }
+}
+
+static void link_on_sample(const struct np_api_sample *s)
+{
+    int c;
+    if (!s) {
+        return;
+    }
+    pthread_mutex_lock(&live_mu);
+    for (c = 0; c < NP_NCHAN; c++) {
+        live_ch[c][live_wr % NP_RING] = s->uv[c];
+        if (s->mask & (uint8_t)(1u << c)) {
+            g.active[c] = 1;
+        }
+    }
+    live_wr++;
+    live_seen++;
+    pthread_mutex_unlock(&live_mu);
+    g.connected = 1;
+    g.sps = s->sps;
+    g.paused = (s->flags & 2) ? 1 : 0;
+    if (!g.status_ok) {
+        set_status(1, "API client");
+    }
+}
+
 void api_apply(void)
 {
     struct np_api_cfg c;
@@ -1806,6 +2016,7 @@ void api_apply(void)
     snprintf(c.token, sizeof(c.token), "%s", g.api_token);
     snprintf(c.push, sizeof(c.push), "%s", g.api_push);
     np_api_set_status_fn(api_status_json);
+    np_api_set_view_fn(api_view_json);
     np_api_apply(&c);
 }
 
@@ -2738,6 +2949,21 @@ void do_connect(void)
     if (g.connected) {
         return;
     }
+    if (g.link) {
+        if (!g.link_dest[0]) {
+            set_status(0, "type API dest  host:port");
+            return;
+        }
+        np_link_set_hooks(link_on_sample, apply_link_cfg);
+        if (np_link_start(g.link_dest, g.link_token) != 0) {
+            set_status(0, "API dest failed");
+            return;
+        }
+        g.connected = 1;
+        g.stall_t = SDL_GetTicks();
+        set_status(1, "API client — waiting");
+        return;
+    }
     g.nports = np_list_ports(g.ports, NP_MAX_PORTS);
     if (g.nports <= 0) {
         set_status(0, NP_TOUCH ? "no USB serial (plug Knight / grant USB)"
@@ -2792,6 +3018,12 @@ void do_disconnect(void)
     }
     g.connected = 0;
     id_base_ok = 0;
+    if (g.link) {
+        np_link_stop();
+        g.link_id[0] = 0;
+        set_status(1, "disconnected");
+        return;
+    }
     /* enable_thread checks g.connected and exits; reader joins */
     pthread_join(g.thr, NULL);
     np_serial_close(g.fd);
@@ -3397,6 +3629,16 @@ int np_host_start(const char *files_dir)
         g.set_gen = 3;
         cfg_save();
     }
+    if (g.set_gen < 4) {
+        int c;
+        for (c = 0; c < NP_NCHAN; c++) {
+            g.chrgb[c][0] = CHCOL[c][0];
+            g.chrgb[c][1] = CHCOL[c][1];
+            g.chrgb[c][2] = CHCOL[c][2];
+        }
+        g.set_gen = 4;
+        cfg_save();
+    }
     if (g.api_http == 8788) {
         g.api_http = 8765;
     }
@@ -3560,13 +3802,17 @@ void np_host_tick(void)
         return;
     }
     api_drain();
-    live_sync();
+    if (g.link) {
+        np_link_poll();
+    } else {
+        live_sync();
+    }
     smx_tick();
     atom_tick();
     learn_tick();
     live_snap();
     cal_tick();
-    if (g.connected && !g.en_running) {
+    if (g.connected && !g.en_running && !g.link) {
         uint64_t tot = 0;
         uint32_t now = SDL_GetTicks();
         np_ring_stats(&g.ring, &tot, NULL, NULL);
@@ -3614,6 +3860,9 @@ float np_host_sps(void)
 unsigned int np_host_frames(void)
 {
     uint64_t tot = 0;
+    if (g.link) {
+        return (unsigned int)(live_seen > 0 ? live_seen : 0);
+    }
     np_ring_stats(&g.ring, &tot, NULL, NULL);
     return (unsigned int)tot;
 }
@@ -5430,4 +5679,51 @@ void np_host_api_set_push(const char *s)
 void np_host_api_line(char *out, int n)
 {
     np_api_line(out, n);
+}
+
+int np_host_link(void)
+{
+    return g.link ? 1 : 0;
+}
+
+void np_host_set_link(int api)
+{
+    int want = api ? 1 : 0;
+    if (g.link == want) {
+        return;
+    }
+    if (g.connected) {
+        do_disconnect();
+    }
+    g.link = want;
+    cfg_save();
+    set_status(1, g.link ? "link API — type dest, Connect" : "link USB");
+}
+
+void np_host_link_dest(char *out, int n)
+{
+    if (!out || n < 2) {
+        return;
+    }
+    snprintf(out, (size_t)n, "%s", g.link_dest);
+}
+
+void np_host_set_link_dest(const char *s)
+{
+    snprintf(g.link_dest, sizeof(g.link_dest), "%s", s ? s : "");
+    cfg_save();
+}
+
+void np_host_link_token(char *out, int n)
+{
+    if (!out || n < 2) {
+        return;
+    }
+    snprintf(out, (size_t)n, "%s", g.link_token);
+}
+
+void np_host_set_link_token(const char *s)
+{
+    snprintf(g.link_token, sizeof(g.link_token), "%s", s ? s : "");
+    cfg_save();
 }

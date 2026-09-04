@@ -1359,7 +1359,7 @@ static void draw_side(int x)
     int c;
     int bh = btnh(), rh = rowh();
     char live[48];
-    const char *port = port_short();
+    const char *port = g.link ? (g.link_dest[0] ? g.link_dest : "type dest") : port_short();
     const char *bname = g.board == NP_BOARD_KNIGHT_IMU ? "8-ch + IMU" : "8-ch EXG";
 
     side_clamp();
@@ -1395,7 +1395,9 @@ static void draw_side(int x)
     btn(x + 188, y, 88, bh, "Settings", g.tab == 1, 31, 0, g.tab == 1 ? 36 : 28,
         g.tab == 1 ? 50 : 32, 44);
     y += rh;
-    btn(x + 12, y, 168, bh, port, 1, 4, 0, 32, 36, 44);
+    btn(x + 12, y, 80, bh, g.link ? "API" : "USB", 1, 70, 0, g.link ? 30 : 32, g.link ? 80 : 36,
+        g.link ? 100 : 44);
+    btn(x + 96, y, 84, bh, port, 1, 4, 0, 32, 36, 44);
     if (!g.connected) {
         btn(x + 184, y, 92, bh, "Connect", 1, 1, 0, 30, 110, 80);
     } else {
@@ -1841,6 +1843,9 @@ static void click(int x, int y)
             break;
         case 2:
             do_disconnect();
+            break;
+        case 70:
+            np_host_set_link(!np_host_link());
             break;
         case 3:
             toggle_record();

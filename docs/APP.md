@@ -1,4 +1,4 @@
-# App (2.43)
+# App (2.44)
 
 What the host does. The LAN wire is [API.md](API.md).
 
@@ -18,7 +18,7 @@ src/np_core.c     cook on the USB reader thread
 
 Android does **not** compile `np_ui.c`. Java talks to `include/np_host.h` via `src/np_android_jni.c`.
 
-## Defaults (first load, then `set_gen=3`)
+## Defaults (first load, then `set_gen=4`)
 
 | Setting | Value | Why |
 |---------|--------|-----|
@@ -34,7 +34,7 @@ Android does **not** compile `np_ui.c`. Java talks to `include/np_host.h` via `s
 | window | 2 s | 250 samples — **below** Wiener’s 256 |
 | API | **off** | turn on in Settings if you want LAN |
 
-After `set_gen=3`, saved ini wins. API is not forced on at boot. `set_gen=3` remounts the pair belt once (FCz–CPz, CP4–FC3, FC4–CP3, C3–C4).
+After `set_gen=4`, saved ini wins. API is not forced on at boot. `set_gen=3` remounts the pair belt once. `set_gen=4` applies pair colors (white / yellow / cyan / red).
 
 Worn raw on this head is typically **200–300 µV**. Off-head / open inputs spike toward **1 mV**. That is contact vs antenna, not a stronger brain signal. After CAR+hp+notch, rest leftover is tens–hundreds of µV; a jaw clench is several times that.
 
@@ -114,5 +114,6 @@ Viz is the crimson 8³ lattice. One mapped 10-10 cell per channel tracks leftove
 
 - Package `com.abysscore.exgc`. Quest uses `com.oculus.intent.category.2D`.
 - Stream service is `startService` from a visible activity, then `startForeground` (`dataSync`). Not `startForegroundService`.
-- If API is off, the service stops.
+- Service stays up while the API **server** is on **or** the app is connected (USB or API client).
+- **USB / API** next to Connect. API client dest is typed `host:port`. No baked address or token.
 - Files live under the app directory (see android README). `run-as` cannot read them unless the package is debuggable.

@@ -202,4 +202,11 @@ void np_host_api_push(char *out, int n);
 void np_host_api_set_push(const char *s);
 void np_host_api_line(char *out, int n);
 
+int np_host_link(void);
+void np_host_set_link(int api);
+void np_host_link_dest(char *out, int n);
+void np_host_set_link_dest(const char *s);
+void np_host_link_token(char *out, int n);
+void np_host_set_link_token(const char *s);
+
 #endif

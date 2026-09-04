@@ -96,7 +96,7 @@ public class StreamService extends Service {
                     nm.notify(NOTE, note());
                 }
             }
-            if (!ExgNative.apiOn()) {
+            if (!ExgNative.apiOn() && !ExgNative.connected()) {
                 stopSelf();
                 return;
             }

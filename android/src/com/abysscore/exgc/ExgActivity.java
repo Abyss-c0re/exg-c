@@ -46,6 +46,9 @@ public class ExgActivity extends Activity {
     private Button atom;
     private TextView atomVs;
     private Button connect;
+    private Button link;
+    private Button linkDest;
+    private Button linkToken;
     private Button port;
     private Button tabMain, tabCube, tabPoses, tabSet;
     private View posesPane;
@@ -136,6 +139,9 @@ public class ExgActivity extends Activity {
         atom = findViewById(R.id.atom);
         atomVs = findViewById(R.id.atomVs);
         connect = findViewById(R.id.connect);
+        link = findViewById(R.id.link);
+        linkDest = findViewById(R.id.linkDest);
+        linkToken = findViewById(R.id.linkToken);
         port = findViewById(R.id.port);
         tabMain = findViewById(R.id.tabMain);
         tabCube = findViewById(R.id.tabCube);
@@ -177,11 +183,39 @@ public class ExgActivity extends Activity {
         connect.setOnClickListener(v -> {
             if (ExgNative.connected()) {
                 ExgNative.disconnect();
-            } else {
-                ExgNative.connect();
+                refreshChrome();
+                return;
             }
+            if (ExgNative.linkApi()) {
+                String d = ExgNative.linkDest();
+                if (d == null || d.length() < 1) {
+                    askName("API dest  host:port", "", s -> {
+                        ExgNative.setLinkDest(s);
+                        ExgNative.connect();
+                        StreamService.ensure(this, ExgNative.apiOn() || ExgNative.connected());
+                        refreshChrome();
+                    });
+                    return;
+                }
+            }
+            ExgNative.connect();
+            StreamService.ensure(this, ExgNative.apiOn() || ExgNative.connected());
             refreshChrome();
         });
+        link.setOnClickListener(v -> {
+            ExgNative.setLinkApi(!ExgNative.linkApi());
+            refreshChrome();
+        });
+        linkDest.setOnClickListener(v -> askName("API dest  host:port  (empty = off)",
+                ExgNative.linkDest(), s -> {
+                    ExgNative.setLinkDest(s);
+                    refreshChrome();
+                }));
+        linkToken.setOnClickListener(v -> askName("API client token (empty = none)",
+                ExgNative.linkToken(), s -> {
+                    ExgNative.setLinkToken(s);
+                    refreshChrome();
+                }));
         tabMain.setOnClickListener(v -> showTab(0));
         tabCube.setOnClickListener(v -> showTab(1));
         tabPoses.setOnClickListener(v -> showTab(2));
@@ -361,7 +395,7 @@ public class ExgActivity extends Activity {
                 }));
         apiOn.setOnClickListener(v -> {
             ExgNative.setApiOn(!ExgNative.apiOn());
-            StreamService.ensure(this, ExgNative.apiOn());
+            StreamService.ensure(this, ExgNative.apiOn() || ExgNative.connected());
             refreshChrome();
         });
         apiBind.setOnClickListener(v -> {
@@ -405,6 +439,12 @@ public class ExgActivity extends Activity {
         h.post(tick);
         h.postDelayed(() -> {
             if (!ExgNative.connected()) {
+                if (ExgNative.linkApi()) {
+                    String d = ExgNative.linkDest();
+                    if (d == null || d.length() < 1) {
+                        return;
+                    }
+                }
                 ExgNative.connect();
                 refreshChrome();
             }
@@ -415,7 +455,7 @@ public class ExgActivity extends Activity {
     protected void onResume() {
         super.onResume();
         try {
-            StreamService.ensure(this, ExgNative.apiOn());
+            StreamService.ensure(this, ExgNative.apiOn() || ExgNative.connected());
         } catch (RuntimeException ignored) {
         }
     }
@@ -424,7 +464,7 @@ public class ExgActivity extends Activity {
     protected void onDestroy() {
         running = false;
         h.removeCallbacks(tick);
-        if (!ExgNative.apiOn()) {
+        if (!ExgNative.apiOn() && !ExgNative.connected()) {
             ExgNative.shutdown();
             UsbSerial.close();
         }
@@ -503,10 +543,19 @@ public class ExgActivity extends Activity {
 
     private void refreshChrome() {
         boolean on = ExgNative.connected();
+        boolean apiLink = ExgNative.linkApi();
         connect.setText(on ? "Disconnect" : "Connect");
         connect.setBackgroundTintList(android.content.res.ColorStateList.valueOf(on ? 0xFF8A3038 : 0xFF2E8A58));
+        link.setText(apiLink ? "API" : "USB");
+        link.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
+                apiLink ? 0xFF2E6A8A : 0xFF2A3038));
         String ports = ExgNative.ports();
-        port.setText(ports == null || ports.length() == 0 ? "(no port)" : ports.split("\n")[0]);
+        if (apiLink) {
+            String d = ExgNative.linkDest();
+            port.setText(d == null || d.length() == 0 ? "type dest" : d);
+        } else {
+            port.setText(ports == null || ports.length() == 0 ? "(no port)" : ports.split("\n")[0]);
+        }
         String st = ExgNative.status();
         float sps = ExgNative.sps();
         int fr = ExgNative.frames();
@@ -621,6 +670,10 @@ public class ExgActivity extends Activity {
             apiToken.setText(tok == null || tok.length() == 0 ? "token (off)" : "token set");
             String dest = ExgNative.apiPush();
             apiPush.setText(dest == null || dest.length() == 0 ? "push dest" : dest);
+            String peer = ExgNative.linkDest();
+            linkDest.setText(peer == null || peer.length() == 0 ? "client dest" : peer);
+            String ctok = ExgNative.linkToken();
+            linkToken.setText(ctok == null || ctok.length() == 0 ? "client token" : "client token set");
             apiLine.setText(ExgNative.apiLine());
         }
         if (ExgNative.boardImu()) {

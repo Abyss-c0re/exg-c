@@ -32,7 +32,7 @@
 #define MAX_TCP 4
 #define MAX_UDP 8
 #define REQ_MAX 2048
-#define JSON_MAX 1600
+#define JSON_MAX 2000
 
 struct http_cli {
     int fd;
@@ -78,6 +78,7 @@ static int have_push;
 static int n_http_stream, n_tcp, n_udp;
 static char self_ip[32];
 static np_api_status_fn status_fn;
+static np_api_view_fn view_fn;
 
 static void close_fd(int *fd);
 
@@ -720,7 +721,7 @@ static void handle_req(struct http_cli *c)
 
     if (!strcmp(path, "/") || !strcmp(path, "/index")) {
         snprintf(js, sizeof(js),
-                 "{\"ok\":true,\"v\":\"2.43\",\"api\":\"exg\","
+                 "{\"ok\":true,\"v\":\"2.44\",\"api\":\"exg\","
                  "\"bind\":\"%s\",\"ip\":\"%s\",\"http\":%d,\"udp\":%d,\"tcp\":%d,"
                  "\"hz\":%d,\"token\":%s,\"push\":\"%s\","
                  "\"get\":[\"/health\",\"/status\",\"/sample\",\"/stream\",\"/cfg\"],"
@@ -733,7 +734,7 @@ static void handle_req(struct http_cli *c)
     }
     if (!strcmp(path, "/health")) {
         snprintf(js, sizeof(js),
-                 "{\"ok\":true,\"v\":\"2.43\",\"on\":true,\"bind\":\"%s\","
+                 "{\"ok\":true,\"v\":\"2.44\",\"on\":true,\"bind\":\"%s\","
                  "\"ip\":\"%s\",\"http\":%d,\"udp\":%d,\"tcp\":%d,\"hz\":%d,"
                  "\"clients\":{\"http\":%d,\"tcp\":%d,\"udp\":%d}}",
                  cfg.lan ? "lan" : "local", self_ip, cfg.http, cfg.udp, cfg.tcp, cfg.hz,
@@ -760,11 +761,16 @@ static void handle_req(struct http_cli *c)
         return;
     }
     if (!strcmp(path, "/cfg") && !is_post) {
+        char extra[1400];
+        extra[0] = 0;
+        if (view_fn) {
+            view_fn(extra, (int)sizeof(extra));
+        }
         snprintf(js, sizeof(js),
                  "{\"ok\":true,\"on\":%d,\"bind\":\"%s\",\"http\":%d,\"udp\":%d,"
-                 "\"tcp\":%d,\"hz\":%d,\"token\":%s,\"push\":\"%s\"}",
+                 "\"tcp\":%d,\"hz\":%d,\"token\":%s,\"push\":\"%s\"%s%s}",
                  cfg.on, cfg.lan ? "lan" : "local", cfg.http, cfg.udp, cfg.tcp, cfg.hz,
-                 cfg.token[0] ? "true" : "false", cfg.push);
+                 cfg.token[0] ? "true" : "false", cfg.push, extra[0] ? "," : "", extra);
         http_reply(c->fd, 200, "application/json", js);
         return;
     }
@@ -1271,4 +1277,9 @@ int np_api_latest(struct np_api_sample *s)
 void np_api_set_status_fn(np_api_status_fn fn)
 {
     status_fn = fn;
+}
+
+void np_api_set_view_fn(np_api_view_fn fn)
+{
+    view_fn = fn;
 }

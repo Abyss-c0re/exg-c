@@ -184,4 +184,11 @@ public final class ExgNative {
     public static native String apiPush();
     public static native void setApiPush(String s);
     public static native String apiLine();
+
+    public static native boolean linkApi();
+    public static native void setLinkApi(boolean api);
+    public static native String linkDest();
+    public static native void setLinkDest(String s);
+    public static native String linkToken();
+    public static native void setLinkToken(String s);
 }
