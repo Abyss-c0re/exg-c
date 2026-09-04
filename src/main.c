@@ -266,6 +266,7 @@ static void set_status(int ok, const char *fmt, ...);
 static void typing_set(int on);
 static void apply_filt(int ch, float *buf, uint32_t n);
 static void cook_all(float buf[NP_NCHAN][NP_RING], uint32_t nn[NP_NCHAN], uint32_t want);
+static void cook_id(float buf[NP_NCHAN][NP_RING], uint32_t nn[NP_NCHAN]);
 static void band_apply(int band);
 static void present_cube(int x, int y, int w, int h);
 static void ch_stats(const float *buf, uint32_t n, float *dc, float *rms, float *pk);
@@ -316,6 +317,8 @@ static uint32_t live_wr;
 static float live_ch[NP_NCHAN][NP_RING];
 static int last_clip[NP_NCHAN];
 static pthread_mutex_t live_mu = PTHREAD_MUTEX_INITIALIZER;
+static float id_base[NP_NCHAN];
+static int id_base_ok;
 static uint32_t clean_t;
 static uint64_t clean_seen;
 static uint32_t clean_n[NP_NCHAN];
@@ -806,16 +809,17 @@ static int site_is_fp(int ch)
     return n && n[0] == 'F' && n[1] == 'p';
 }
 
-/* Last ~0.5 s vs worn CALM. This is the identifier — not the 64-sample template. */
+/* Last ~0.5 s leftover vs a rolling quiet floor. Shared 2 mV is not a pose. */
 static int stream_id(float *ratio)
 {
-    float rms[NP_NCHAN], calm[NP_NCHAN];
+    float rms[NP_NCHAN], base[NP_NCHAN];
     float buf[NP_NCHAN][NP_RING];
     uint32_t nn[NP_NCHAN];
     int fp[NP_NCHAN];
     uint8_t mask = 0;
-    int c, nclip = 0;
+    int c, nclip = 0, nlive = 0, id;
     uint32_t want = (uint32_t)(0.50f * design_sps());
+    float med = 0.f, mx = 0.f;
 
     if (ratio) {
         *ratio = 0.f;
@@ -827,7 +831,7 @@ static int stream_id(float *ratio)
         want = 32;
     }
     memset(rms, 0, sizeof(rms));
-    memset(calm, 0, sizeof(calm));
+    memset(base, 0, sizeof(base));
     memset(fp, 0, sizeof(fp));
     memset(nn, 0, sizeof(nn));
     for (c = 0; c < NP_NCHAN; c++) {
@@ -839,24 +843,81 @@ static int stream_id(float *ratio)
             nclip++;
         }
     }
-    if (nclip >= 1) {
+    if (nclip >= 6) {
         if (ratio) {
             *ratio = (float)nclip;
         }
         return NP_ID_CLIP;
     }
-    cook_all(buf, nn, want);
+    cook_id(buf, nn);
     for (c = 0; c < NP_NCHAN; c++) {
         float dc = 0, pk = 0;
         if (!g.active[c] || nn[c] < 16) {
             continue;
         }
         ch_stats(buf[c], nn[c], &dc, &rms[c], &pk);
-        calm[c] = g.calm.have ? g.calm.rms[c] : 0.f;
         fp[c] = site_is_fp(c);
         mask |= (uint8_t)(1u << c);
+        nlive++;
+        if (rms[c] > mx) {
+            mx = rms[c];
+        }
     }
-    return np_id_event(rms, calm, fp, mask, g.calm.have, ratio);
+    if (nlive < 1) {
+        return NP_ID_NONE;
+    }
+    {
+        float tmp[NP_NCHAN];
+        int n = 0;
+        for (c = 0; c < NP_NCHAN; c++) {
+            if (mask & (uint8_t)(1u << c)) {
+                tmp[n++] = rms[c];
+            }
+        }
+        if (n > 0) {
+            int i, j;
+            for (i = 0; i < n; i++) {
+                for (j = i + 1; j < n; j++) {
+                    if (tmp[j] < tmp[i]) {
+                        float s = tmp[i];
+                        tmp[i] = tmp[j];
+                        tmp[j] = s;
+                    }
+                }
+            }
+            med = tmp[n / 2];
+        }
+    }
+    /* Lockstep millivolt floor: turn display CAR on so the plot is leftover. */
+    if (!g.car && nlive >= 4 && mx > 800.f && med > 400.f && mx < med * 1.25f) {
+        g.car = 1;
+        if (g.hp_hz < 1) {
+            g.hp_hz = 2;
+        }
+        g.envelope = 0;
+        g.detrend = 1;
+        filt_reset();
+        cfg_save();
+        set_status(1, "shared floor — CAR on, ID on leftover");
+    }
+    if (!id_base_ok) {
+        for (c = 0; c < NP_NCHAN; c++) {
+            id_base[c] = rms[c] > 8.f ? rms[c] : 25.f;
+        }
+        id_base_ok = 1;
+    }
+    for (c = 0; c < NP_NCHAN; c++) {
+        base[c] = id_base[c] > 8.f ? id_base[c] : 25.f;
+    }
+    id = np_id_event(rms, base, fp, mask, 1, ratio);
+    if (id == NP_ID_STILL) {
+        for (c = 0; c < NP_NCHAN; c++) {
+            if (mask & (uint8_t)(1u << c)) {
+                id_base[c] = 0.95f * id_base[c] + 0.05f * rms[c];
+            }
+        }
+    }
+    return id;
 }
 
 static void id_label(char *out, int n)
@@ -1699,6 +1760,54 @@ static void cook_all(float buf[NP_NCHAN][NP_RING], uint32_t nn[NP_NCHAN], uint32
             for (i = 0; i < nn[c]; i++) {
                 buf[c][i] = np_env_step(&ev, buf[c][i]);
             }
+        }
+    }
+}
+
+/* ID cook: leftover after shared floor. Not the display envelope. */
+static void cook_id(float buf[NP_NCHAN][NP_RING], uint32_t nn[NP_NCHAN])
+{
+    int c, t;
+    uint32_t nmax = 0;
+    float sps = design_sps();
+    float nh = notch_hz_eff();
+    struct np_hp hp[NP_NCHAN];
+    struct np_notch nt[NP_NCHAN];
+
+    if (nh < 1.f) {
+        nh = 50.f;
+    }
+    for (c = 0; c < NP_NCHAN; c++) {
+        if (!g.active[c] || nn[c] < 16) {
+            continue;
+        }
+        np_hp_init(&hp[c], 2.f, sps);
+        np_notch_init(&nt[c], nh, sps, 30.f);
+        for (t = 0; t < (int)nn[c]; t++) {
+            float v = np_hp_step(&hp[c], buf[c][t]);
+            buf[c][t] = np_notch_step(&nt[c], v);
+        }
+        if (nn[c] > nmax) {
+            nmax = nn[c];
+        }
+    }
+    for (t = 0; t < (int)nmax; t++) {
+        float v[NP_NCHAN];
+        int use[NP_NCHAN];
+        for (c = 0; c < NP_NCHAN; c++) {
+            use[c] = g.active[c] && nn[c] > (uint32_t)t;
+            v[c] = use[c] ? buf[c][t] : 0.f;
+        }
+        np_car_sample(v, use);
+        for (c = 0; c < NP_NCHAN; c++) {
+            if (use[c]) {
+                buf[c][t] = v[c];
+            }
+        }
+    }
+    for (c = 0; c < NP_NCHAN; c++) {
+        if (nn[c] >= 16) {
+            np_detrend(buf[c], (int)nn[c]);
         }
     }
 }
@@ -2763,6 +2872,7 @@ static void do_disconnect(void)
         return;
     }
     g.connected = 0;
+    id_base_ok = 0;
     /* enable_thread checks g.connected and exits; reader joins */
     pthread_join(g.thr, NULL);
     np_serial_close(g.fd);
@@ -5910,6 +6020,11 @@ int np_host_start(const char *files_dir)
     if (g.api_http == 8788) {
         g.api_http = 8765;
     }
+    g.api_on = 1;
+    g.api_lan = 1;
+    if (!strncmp(g.api_push, "192.", 4)) {
+        g.api_push[0] = 0;
+    }
     prof_scan();
     filt_reset();
     pthread_mutex_init(&g.mu, NULL);
@@ -6000,6 +6115,23 @@ static void live_snap(void)
             }
         }
         fprintf(f, "%d,%.3f,%.3f,%.3f,%u,%u\n", c + 1, dc, rms, pk, uniq, n);
+    }
+    {
+        uint32_t nn[NP_NCHAN];
+        float left[NP_NCHAN][NP_RING];
+        int k;
+        fprintf(f, "leftover_after_car\n");
+        fprintf(f, "ch,resid_rms,resid_pk\n");
+        for (k = 0; k < NP_NCHAN; k++) {
+            nn[k] = n0;
+            memcpy(left[k], raw[k], (size_t)n0 * sizeof(float));
+        }
+        cook_id(left, nn);
+        for (k = 0; k < NP_NCHAN; k++) {
+            float dc = 0, rms = 0, pk = 0;
+            ch_stats(left[k], nn[k], &dc, &rms, &pk);
+            fprintf(f, "%d,%.3f,%.3f\n", k + 1, rms, pk);
+        }
     }
     fclose(f);
     snprintf(path, sizeof(path), "%s/live-snap.csv", root);
@@ -7928,6 +8060,11 @@ int main(int argc, char **argv)
     cfg_load();
     if (g.api_http == 8788) {
         g.api_http = 8765;
+    }
+    g.api_on = 1;
+    g.api_lan = 1;
+    if (!strncmp(g.api_push, "192.", 4)) {
+        g.api_push[0] = 0;
     }
     prof_scan();
     filt_reset();
