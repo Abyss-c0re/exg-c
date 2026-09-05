@@ -418,6 +418,7 @@ public class ExgActivity extends Activity {
             if (on) {
                 ensureNear();
                 BtPair.shareStart();
+                requestFindable();
             } else {
                 BtPair.shareStop();
             }
@@ -1222,6 +1223,25 @@ public class ExgActivity extends Activity {
         });
     }
 
+    private void requestFindable() {
+        BluetoothAdapter ad = BluetoothAdapter.getDefaultAdapter();
+        if (ad == null) {
+            return;
+        }
+        try {
+            if (ad.getScanMode() == BluetoothAdapter.SCAN_MODE_CONNECTABLE_DISCOVERABLE) {
+                return;
+            }
+        } catch (SecurityException ignored) {
+        }
+        try {
+            Intent i = new Intent(BluetoothAdapter.ACTION_REQUEST_DISCOVERABLE);
+            i.putExtra(BluetoothAdapter.EXTRA_DISCOVERABLE_DURATION, 300);
+            startActivity(i);
+        } catch (RuntimeException ignored) {
+        }
+    }
+
     private void ensureNear() {
         if (Build.VERSION.SDK_INT < 23) {
             return;
@@ -1335,7 +1355,7 @@ public class ExgActivity extends Activity {
                     if (names.isEmpty()) {
                         new AlertDialog.Builder(ExgActivity.this)
                                 .setTitle("Nearby EXG")
-                                .setMessage("None nearby. The other side must have share EXG on, and Bluetooth on.")
+                                .setMessage("None nearby. The other side must have share EXG on, Bluetooth on, and be findable (Allow the visibility ask).")
                                 .setPositiveButton("OK", null)
                                 .show();
                         return;

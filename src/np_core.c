@@ -1185,7 +1185,7 @@ static int cfg_write_ex(const char *path, int with_map)
         if (g.api_push[0]) {
             fprintf(f, "push=%s\n", g.api_push);
         }
-        fprintf(f, "link=%d\n", g.link ? 1 : 0);
+        fprintf(f, "link=%d\n", g.link);
         if (g.link_dest[0]) {
             fprintf(f, "link_dest=%s\n", g.link_dest);
         }
@@ -1335,7 +1335,13 @@ static int cfg_read(const char *path)
         } else if (sscanf(line, "link_token=%31s", longv) == 1) {
             snprintf(g.link_token, sizeof(g.link_token), "%s", longv);
         } else if (sscanf(line, "link=%d", &v) == 1) {
-            g.link = v ? 1 : 0;
+            if (v < 0) {
+                v = 0;
+            }
+            if (v > 2) {
+                v = 2;
+            }
+            g.link = v;
         } else if (sscanf(line, "pitch=%f", &fa) == 1) {
             g.cube_pitch = fa;
         } else if (sscanf(line, "elec%d=%f,%f", &v, &fa, &fb) == 3 && v >= 1 && v <= NP_NCHAN) {
@@ -1870,7 +1876,7 @@ static void api_status_json(char *out, int n)
         }
     }
     snprintf(out, (size_t)n,
-             "{\"ok\":true,\"v\":\"2.52\",\"connected\":%s,\"paused\":%s,\"sps\":%.1f,"
+             "{\"ok\":true,\"v\":\"2.53\",\"connected\":%s,\"paused\":%s,\"sps\":%.1f,"
              "\"frames\":%u,\"status\":\"%s\",\"id\":\"%s\",\"id_best\":%d,"
              "\"notch\":%d,\"hp\":%d,\"lp\":%d,\"car\":%d,\"band\":%d,\"mask\":%u,"
              "\"api\":\"%s\"}",
