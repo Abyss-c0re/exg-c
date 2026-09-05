@@ -95,6 +95,8 @@ public class ExgActivity extends Activity {
     private static final int REQ_IMPORT = 72;
     private static final int REQ_CSV = 73;
     private String csvPickName = "exg.csv";
+    private String holdLine;
+    private long holdLineUntil;
 
     private final Runnable tick = new Runnable() {
         @Override
@@ -652,8 +654,19 @@ public class ExgActivity extends Activity {
         if (ExgNative.apiOn()) {
             st = st + "   " + ExgNative.apiLine();
         }
-        status.setText(st);
-        status.setTextColor(ExgNative.statusOk() ? 0xFF3CB46E : 0xFFF0A040);
+        boolean hold = holdLine != null
+                && android.os.SystemClock.uptimeMillis() < holdLineUntil
+                && !on && !BtPair.followLive();
+        if (on || BtPair.followLive()) {
+            holdLine = null;
+        }
+        if (hold) {
+            status.setText(holdLine);
+            status.setTextColor(0xFFF0A040);
+        } else {
+            status.setText(st);
+            status.setTextColor(ExgNative.statusOk() ? 0xFF3CB46E : 0xFFF0A040);
+        }
         {
             String cl = ExgNative.calLine();
             int ph = ExgNative.calPhase();
@@ -1368,9 +1381,10 @@ public class ExgActivity extends Activity {
             @Override
             public void no(String why) {
                 h.post(() -> {
-                    if (why != null && why.length() > 0) {
-                        status.setText(why);
-                    }
+                    holdLine = why != null && why.length() > 0 ? why : "could not reach EXG";
+                    holdLineUntil = android.os.SystemClock.uptimeMillis() + 20000;
+                    status.setText(holdLine);
+                    status.setTextColor(0xFFF0A040);
                     pickNearby();
                 });
             }
@@ -1418,15 +1432,15 @@ public class ExgActivity extends Activity {
                     new AlertDialog.Builder(ExgActivity.this)
                             .setTitle("Nearby EXG")
                             .setItems(items, (d, which) -> {
-                                BluetoothDevice dv = BtPair.device(items[which]);
-                                if (dv == null) {
-                                    return;
-                                }
-                                status.setText("waiting for Allow on the share…");
-                                BtPair.follow(dv, items[which], new BtPair.FollowSink() {
+                                holdLine = "waiting for Allow on the share…";
+                                holdLineUntil = android.os.SystemClock.uptimeMillis() + 20000;
+                                status.setText(holdLine);
+                                status.setTextColor(0xFFF0A040);
+                                BtPair.followAny(items[which], new BtPair.FollowSink() {
                                     @Override
                                     public void ok(String n) {
                                         h.post(() -> {
+                                            holdLine = null;
                                             StreamService.ensure(ExgActivity.this,
                                                     ExgNative.apiOn() || ExgNative.connected());
                                             refreshChrome();
@@ -1435,9 +1449,12 @@ public class ExgActivity extends Activity {
                                     @Override
                                     public void no(String why) {
                                         h.post(() -> {
-                                            if (why != null && why.length() > 0) {
-                                                status.setText(why);
-                                            }
+                                            holdLine = why != null && why.length() > 0
+                                                    ? why : "could not reach EXG";
+                                            holdLineUntil = android.os.SystemClock.uptimeMillis()
+                                                    + 20000;
+                                            status.setText(holdLine);
+                                            status.setTextColor(0xFFF0A040);
                                             refreshChrome();
                                         });
                                     }

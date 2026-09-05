@@ -4,8 +4,13 @@ import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothServerSocket;
 import android.bluetooth.BluetoothSocket;
+import android.bluetooth.le.AdvertiseCallback;
+import android.bluetooth.le.AdvertiseData;
+import android.bluetooth.le.AdvertiseSettings;
+import android.bluetooth.le.BluetoothLeAdvertiser;
 import android.bluetooth.le.BluetoothLeScanner;
 import android.bluetooth.le.ScanCallback;
+import android.bluetooth.le.ScanRecord;
 import android.bluetooth.le.ScanResult;
 import android.content.BroadcastReceiver;
 import android.content.Context;
@@ -56,7 +61,11 @@ public final class BtPair {
     private static BluetoothLeScanner leScan;
     private static ScanCallback leCb;
     private static ScanSink scanOnce;
-    private static final Map<String, BluetoothDevice> found = new LinkedHashMap<String, BluetoothDevice>();
+    private static BluetoothLeAdvertiser leAdv;
+    private static AdvertiseCallback leAdvCb;
+    private static final int EXG_MFG = 0xC0DE;
+    private static final Map<String, ArrayList<BluetoothDevice>> found =
+            new LinkedHashMap<String, ArrayList<BluetoothDevice>>();
 
     private BtPair() {}
 
@@ -95,6 +104,7 @@ public final class BtPair {
         }
         listen = true;
         offerInquiry(ad);
+        startAdvert(ad);
         listenThr = new Thread(() -> {
             try {
                 server = ad.listenUsingInsecureRfcommWithServiceRecord("exg", SVC);
@@ -128,6 +138,7 @@ public final class BtPair {
 
     static void shareStop() {
         listen = false;
+        stopAdvert();
         if (server != null) {
             try {
                 server.close();
@@ -314,14 +325,205 @@ public final class BtPair {
         }
     }
 
-    private static void hear(BluetoothDevice d, String n, ScanSink sink) {
-        if (d == null || n == null || n.length() < 1 || found.containsKey(n)) {
+    private static String classicMac() {
+        String[] paths = {
+                "/sys/class/bluetooth/hci0/address",
+                "/sys/class/bluetooth/hci1/address"
+        };
+        for (int i = 0; i < paths.length; i++) {
+            java.io.BufferedReader r = null;
+            try {
+                r = new java.io.BufferedReader(new java.io.FileReader(paths[i]));
+                String s = r.readLine();
+                if (s != null) {
+                    s = s.trim().toUpperCase(Locale.US);
+                    if (s.length() >= 17 && !s.startsWith("00:00:00") && !s.startsWith("02:00:00")) {
+                        return s;
+                    }
+                }
+            } catch (Exception ignored) {
+            } finally {
+                if (r != null) {
+                    try {
+                        r.close();
+                    } catch (Exception ignored) {
+                    }
+                }
+            }
+        }
+        try {
+            Context c = ExgNativeApp.ctx;
+            if (c != null) {
+                String s = android.provider.Settings.Secure.getString(
+                        c.getContentResolver(), "bluetooth_address");
+                if (s != null) {
+                    s = s.trim().toUpperCase(Locale.US);
+                    if (s.length() >= 17 && !s.startsWith("00:00:00") && !s.startsWith("02:00:00")) {
+                        return s;
+                    }
+                }
+            }
+        } catch (RuntimeException ignored) {
+        }
+        return "";
+    }
+
+    private static byte[] macBytes(String mac) {
+        byte[] b = new byte[6];
+        if (mac == null || mac.length() < 17) {
+            return b;
+        }
+        try {
+            String[] p = mac.split(":");
+            for (int i = 0; i < 6 && i < p.length; i++) {
+                b[i] = (byte) Integer.parseInt(p[i], 16);
+            }
+        } catch (RuntimeException ignored) {
+        }
+        return b;
+    }
+
+    private static String macString(byte[] b, int off) {
+        if (b == null || off + 6 > b.length) {
+            return "";
+        }
+        return String.format(Locale.US, "%02X:%02X:%02X:%02X:%02X:%02X",
+                b[off] & 255, b[off + 1] & 255, b[off + 2] & 255,
+                b[off + 3] & 255, b[off + 4] & 255, b[off + 5] & 255);
+    }
+
+    private static void startAdvert(BluetoothAdapter ad) {
+        stopAdvert();
+        if (ad == null) {
             return;
         }
-        found.put(n, d);
-        if (sink != null) {
+        try {
+            leAdv = ad.getBluetoothLeAdvertiser();
+            if (leAdv == null) {
+                Log.w("exg-c", "no BLE advertiser");
+                return;
+            }
+            String mac = classicMac();
+            byte[] pay = new byte[10];
+            pay[0] = 'E';
+            pay[1] = 'X';
+            pay[2] = 'G';
+            pay[3] = '1';
+            byte[] mb = macBytes(mac);
+            System.arraycopy(mb, 0, pay, 4, 6);
+            AdvertiseSettings st = new AdvertiseSettings.Builder()
+                    .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
+                    .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_HIGH)
+                    .setConnectable(false)
+                    .setTimeout(0)
+                    .build();
+            AdvertiseData data = new AdvertiseData.Builder()
+                    .addManufacturerData(EXG_MFG, pay)
+                    .build();
+            AdvertiseData rsp = new AdvertiseData.Builder()
+                    .setIncludeDeviceName(true)
+                    .build();
+            leAdvCb = new AdvertiseCallback() {
+                @Override
+                public void onStartSuccess(AdvertiseSettings s) {
+                    Log.i("exg-c", "BLE advert EXG1 mac=" + (mac.length() > 0 ? "yes" : "none"));
+                }
+
+                @Override
+                public void onStartFailure(int err) {
+                    Log.e("exg-c", "BLE advert fail " + err);
+                }
+            };
+            leAdv.startAdvertising(st, data, rsp, leAdvCb);
+        } catch (RuntimeException e) {
+            Log.e("exg-c", "BLE advert", e);
+        }
+    }
+
+    private static void stopAdvert() {
+        if (leAdv != null && leAdvCb != null) {
+            try {
+                leAdv.stopAdvertising(leAdvCb);
+            } catch (RuntimeException ignored) {
+            }
+        }
+        leAdv = null;
+        leAdvCb = null;
+    }
+
+    private static int rank(BluetoothDevice d) {
+        if (d == null) {
+            return -1;
+        }
+        int t = d.getType();
+        if (t == BluetoothDevice.DEVICE_TYPE_CLASSIC) {
+            return 3;
+        }
+        if (t == BluetoothDevice.DEVICE_TYPE_DUAL) {
+            return 2;
+        }
+        if (t == BluetoothDevice.DEVICE_TYPE_UNKNOWN) {
+            return 1;
+        }
+        return 0;
+    }
+
+    private static void hear(BluetoothDevice d, String n, ScanSink sink) {
+        if (d == null || n == null || n.length() < 1) {
+            return;
+        }
+        ArrayList<BluetoothDevice> list = found.get(n);
+        boolean first = list == null;
+        if (first) {
+            list = new ArrayList<BluetoothDevice>();
+            found.put(n, list);
+        }
+        String addr = d.getAddress();
+        for (int i = 0; i < list.size(); i++) {
+            if (addr.equals(list.get(i).getAddress())) {
+                return;
+            }
+        }
+        list.add(d);
+        Log.i("exg-c", "hear " + n + " type=" + d.getType() + " n=" + list.size());
+        if (first && sink != null) {
             sink.found(n, d);
         }
+    }
+
+    private static void hearAdvert(ScanResult r, ScanSink sink) {
+        if (r == null) {
+            return;
+        }
+        ScanRecord rec = r.getScanRecord();
+        BluetoothDevice d = r.getDevice();
+        String n = null;
+        try {
+            n = d != null ? d.getName() : null;
+        } catch (SecurityException ignored) {
+        }
+        if ((n == null || n.length() < 1) && rec != null) {
+            n = rec.getDeviceName();
+        }
+        if (rec != null) {
+            byte[] md = rec.getManufacturerSpecificData(EXG_MFG);
+            if (md != null && md.length >= 10 && md[0] == 'E' && md[1] == 'X'
+                    && md[2] == 'G' && md[3] == '1') {
+                String mac = macString(md, 4);
+                if (mac.length() == 17 && !mac.startsWith("00:00:00")) {
+                    try {
+                        BluetoothDevice classic = BluetoothAdapter.getDefaultAdapter()
+                                .getRemoteDevice(mac);
+                        if (n == null || n.length() < 1) {
+                            n = "EXG";
+                        }
+                        hear(classic, n, sink);
+                    } catch (RuntimeException ignored) {
+                    }
+                }
+            }
+        }
+        hear(d, n, sink);
     }
 
     static void scanStop() {
@@ -443,7 +645,7 @@ public final class BtPair {
                         if ((n == null || n.length() < 1) && r.getScanRecord() != null) {
                             n = r.getScanRecord().getDeviceName();
                         }
-                        hear(r.getDevice(), n, once);
+                        hearAdvert(r, once);
                     }
                 };
                 leScan.startScan(leCb);
@@ -777,28 +979,92 @@ public final class BtPair {
         }, "kit-lan").start();
     }
 
-    static void followName(final String shown, final FollowSink sink) {
-        BluetoothDevice d = found.get(shown);
-        if (d == null) {
-            BluetoothAdapter ad = BluetoothAdapter.getDefaultAdapter();
-            if (ad != null) {
-                try {
-                    for (BluetoothDevice b : ad.getBondedDevices()) {
-                        String n = b.getName();
-                        if (n != null && (n.equals(shown) || n.replace(' ', '_').equals(shown))) {
-                            d = b;
+    static ArrayList<BluetoothDevice> cands(String shown) {
+        ArrayList<BluetoothDevice> list = new ArrayList<BluetoothDevice>();
+        if (shown == null) {
+            return list;
+        }
+        ArrayList<BluetoothDevice> have = found.get(shown);
+        if (have != null) {
+            list.addAll(have);
+        }
+        BluetoothAdapter ad = BluetoothAdapter.getDefaultAdapter();
+        if (ad != null) {
+            try {
+                for (BluetoothDevice b : ad.getBondedDevices()) {
+                    String n = b.getName();
+                    if (n == null) {
+                        continue;
+                    }
+                    if (!n.equals(shown) && !n.replace(' ', '_').equals(shown)) {
+                        continue;
+                    }
+                    boolean dup = false;
+                    for (int i = 0; i < list.size(); i++) {
+                        if (b.getAddress().equals(list.get(i).getAddress())) {
+                            dup = true;
                             break;
                         }
                     }
-                } catch (SecurityException ignored) {
+                    if (!dup) {
+                        list.add(b);
+                    }
                 }
+            } catch (SecurityException ignored) {
             }
         }
-        if (d == null) {
+        for (int i = 0; i < list.size(); i++) {
+            int best = i;
+            for (int j = i + 1; j < list.size(); j++) {
+                if (rank(list.get(j)) > rank(list.get(best))) {
+                    best = j;
+                }
+            }
+            if (best != i) {
+                BluetoothDevice t = list.get(i);
+                list.set(i, list.get(best));
+                list.set(best, t);
+            }
+        }
+        return list;
+    }
+
+    static void followAny(final String shown, final FollowSink sink) {
+        final ArrayList<BluetoothDevice> list = cands(shown);
+        if (list.isEmpty()) {
             sink.no("not nearby");
             return;
         }
-        follow(d, shown, sink);
+        followAt(list, 0, shown, sink);
+    }
+
+    private static void followAt(final ArrayList<BluetoothDevice> list, final int i,
+            final String shown, final FollowSink sink) {
+        if (i >= list.size()) {
+            sink.no("could not reach EXG — RFCOMM failed");
+            return;
+        }
+        Log.i("exg-c", "follow try " + i + "/" + list.size() + " type=" + list.get(i).getType());
+        follow(list.get(i), shown, new FollowSink() {
+            @Override
+            public void ok(String n) {
+                sink.ok(n);
+            }
+
+            @Override
+            public void no(String why) {
+                Log.w("exg-c", "follow try " + i + " no: " + why);
+                if (why != null && why.contains("refus")) {
+                    sink.no(why);
+                    return;
+                }
+                followAt(list, i + 1, shown, sink);
+            }
+        });
+    }
+
+    static void followName(final String shown, final FollowSink sink) {
+        followAny(shown, sink);
     }
 
     static ArrayList<String> foundNames() {
@@ -806,7 +1072,8 @@ public final class BtPair {
     }
 
     static BluetoothDevice device(String name) {
-        return found.get(name);
+        ArrayList<BluetoothDevice> list = cands(name);
+        return list.isEmpty() ? null : list.get(0);
     }
 }
 
