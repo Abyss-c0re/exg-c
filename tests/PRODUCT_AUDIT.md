@@ -18,11 +18,11 @@ Quest 3 = USB Knight + share. Titan 2 = client. Both ADB.
 | UDP SUB without grant | **FAIL-CLOSED** | 0 frames. Need `SUB1`+grant. |
 | Client mirrors share | **NOT RUN** | Titan lockscreen (password/fingerprint). No pair, no grant, no follow. |
 | Bluetooth nearby scan | **WAS HUNG** | API 33+ receiver was not exported; `DISCOVERY_FINISHED` never arrived. Fixed 2.52 (export + 12 s timeout). After the fix the dialog ends. |
-| Scan finds the share | **FAIL** | Quest was `CONNECTABLE`, not findable. Titan bonded list has no Quest. Scan returned none. 2.53 asks to be findable when share turns on. |
+| Scan finds the share | **2.53 heresy** | A Settings “be findable” dialog is not the pair path. 2.54: scan is bonded + classic + BLE; share does not launch Settings. |
 | BT path persists | **WAS WRONG** | ini saved `link` as 0/1, so Bluetooth became LAN after restart. Fixed 2.53. |
 | `/status` version | **WAS STALE** | said 2.31. Now matches the app. |
 
-Unlock Titan, Allow findable on the share, Connect on Bluetooth, Allow the ask, then repeat the mirror + RTT rows. Do not claim the client mirrors until that run.
+Unlock Titan, share EXG on one side, Bluetooth → Connect on the other, Allow the ask. Do not claim the client mirrors until that run.
 
 ## What this is
 

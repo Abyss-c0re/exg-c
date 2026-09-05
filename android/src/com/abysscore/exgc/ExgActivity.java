@@ -418,7 +418,6 @@ public class ExgActivity extends Activity {
             if (on) {
                 ensureNear();
                 BtPair.shareStart();
-                requestFindable();
             } else {
                 BtPair.shareStop();
             }
@@ -1223,25 +1222,6 @@ public class ExgActivity extends Activity {
         });
     }
 
-    private void requestFindable() {
-        BluetoothAdapter ad = BluetoothAdapter.getDefaultAdapter();
-        if (ad == null) {
-            return;
-        }
-        try {
-            if (ad.getScanMode() == BluetoothAdapter.SCAN_MODE_CONNECTABLE_DISCOVERABLE) {
-                return;
-            }
-        } catch (SecurityException ignored) {
-        }
-        try {
-            Intent i = new Intent(BluetoothAdapter.ACTION_REQUEST_DISCOVERABLE);
-            i.putExtra(BluetoothAdapter.EXTRA_DISCOVERABLE_DURATION, 300);
-            startActivity(i);
-        } catch (RuntimeException ignored) {
-        }
-    }
-
     private void ensureNear() {
         if (Build.VERSION.SDK_INT < 23) {
             return;
@@ -1333,10 +1313,14 @@ public class ExgActivity extends Activity {
     private void pickNearby() {
         ensureNear();
         final java.util.ArrayList<String> names = new java.util.ArrayList<String>();
+        final boolean[] cancelled = { false };
         final AlertDialog wait = new AlertDialog.Builder(this)
                 .setTitle("Nearby EXG")
                 .setMessage("Looking… Allow the ask on the other side.")
-                .setNegativeButton("Cancel", null)
+                .setNegativeButton("Cancel", (d, w) -> {
+                    cancelled[0] = true;
+                    BtPair.scanStop();
+                })
                 .show();
         BtPair.scan(this, new BtPair.ScanSink() {
             @Override
@@ -1352,10 +1336,13 @@ public class ExgActivity extends Activity {
                     if (wait.isShowing()) {
                         wait.dismiss();
                     }
+                    if (cancelled[0]) {
+                        return;
+                    }
                     if (names.isEmpty()) {
                         new AlertDialog.Builder(ExgActivity.this)
                                 .setTitle("Nearby EXG")
-                                .setMessage("None nearby. The other side must have share EXG on, Bluetooth on, and be findable (Allow the visibility ask).")
+                                .setMessage("None nearby. The other side must have share EXG on, and Bluetooth on.")
                                 .setPositiveButton("OK", null)
                                 .show();
                         return;

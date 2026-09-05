@@ -4,6 +4,9 @@ import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothServerSocket;
 import android.bluetooth.BluetoothSocket;
+import android.bluetooth.le.BluetoothLeScanner;
+import android.bluetooth.le.ScanCallback;
+import android.bluetooth.le.ScanResult;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
@@ -49,6 +52,9 @@ public final class BtPair {
     private static BluetoothServerSocket server;
     private static volatile BluetoothSocket followSock;
     private static BroadcastReceiver scanRx;
+    private static BluetoothLeScanner leScan;
+    private static ScanCallback leCb;
+    private static ScanSink scanOnce;
     private static final Map<String, BluetoothDevice> found = new LinkedHashMap<String, BluetoothDevice>();
 
     private BtPair() {}
@@ -87,6 +93,7 @@ public final class BtPair {
             return;
         }
         listen = true;
+        offerInquiry(ad);
         listenThr = new Thread(() -> {
             try {
                 server = ad.listenUsingInsecureRfcommWithServiceRecord("exg", SVC);
@@ -285,6 +292,42 @@ public final class BtPair {
         ExgNative.kitImport(new String(kit, UTF8));
     }
 
+    /* Classic inquiry if the adapter allows it. No Settings activity. */
+    private static void offerInquiry(BluetoothAdapter ad) {
+        if (ad == null) {
+            return;
+        }
+        try {
+            java.lang.reflect.Method m = BluetoothAdapter.class.getMethod(
+                    "setScanMode", int.class, int.class);
+            m.invoke(ad, BluetoothAdapter.SCAN_MODE_CONNECTABLE_DISCOVERABLE, 300);
+        } catch (Exception e) {
+            try {
+                java.lang.reflect.Method m = BluetoothAdapter.class.getMethod(
+                        "setScanMode", int.class, long.class);
+                m.invoke(ad, BluetoothAdapter.SCAN_MODE_CONNECTABLE_DISCOVERABLE, 300L);
+            } catch (Exception ignored) {
+            }
+        }
+    }
+
+    private static void hear(BluetoothDevice d, String n, ScanSink sink) {
+        if (d == null || n == null || n.length() < 1 || found.containsKey(n)) {
+            return;
+        }
+        found.put(n, d);
+        if (sink != null) {
+            sink.found(n, d);
+        }
+    }
+
+    static void scanStop() {
+        ScanSink s = scanOnce;
+        if (s != null) {
+            s.done();
+        }
+    }
+
     static void scan(Context c, ScanSink sink) {
         found.clear();
         BluetoothAdapter ad = BluetoothAdapter.getDefaultAdapter();
@@ -307,10 +350,19 @@ public final class BtPair {
                     }
                     finished[0] = true;
                 }
+                scanOnce = null;
                 try {
                     ad.cancelDiscovery();
                 } catch (SecurityException ignored) {
                 }
+                if (leScan != null && leCb != null) {
+                    try {
+                        leScan.stopScan(leCb);
+                    } catch (RuntimeException ignored) {
+                    }
+                }
+                leScan = null;
+                leCb = null;
                 if (scanRx != null) {
                     try {
                         c.unregisterReceiver(scanRx);
@@ -321,13 +373,16 @@ public final class BtPair {
                 sink.done();
             }
         };
+        scanOnce = once;
         try {
             for (BluetoothDevice d : ad.getBondedDevices()) {
-                String n = d.getName();
-                if (n != null && n.length() > 0) {
-                    found.put(n, d);
-                    once.found(n, d);
+                String n;
+                try {
+                    n = d.getName();
+                } catch (SecurityException e) {
+                    continue;
                 }
+                hear(d, n, once);
             }
         } catch (SecurityException ignored) {
         }
@@ -352,41 +407,52 @@ public final class BtPair {
                     } catch (SecurityException e) {
                         return;
                     }
-                    if (n == null || n.length() < 1 || found.containsKey(n)) {
-                        return;
-                    }
-                    found.put(n, d);
-                    once.found(n, d);
-                } else if (BluetoothAdapter.ACTION_DISCOVERY_FINISHED.equals(a)) {
-                    once.done();
+                    hear(d, n, once);
                 }
             }
         };
         IntentFilter f = new IntentFilter();
         f.addAction(BluetoothDevice.ACTION_FOUND);
-        f.addAction(BluetoothAdapter.ACTION_DISCOVERY_FINISHED);
         if (Build.VERSION.SDK_INT >= 33) {
             c.registerReceiver(scanRx, f, Context.RECEIVER_EXPORTED);
         } else {
             c.registerReceiver(scanRx, f);
         }
-        boolean started = false;
         try {
-            started = ad.startDiscovery();
-        } catch (SecurityException e) {
-            once.done();
-            return;
+            ad.startDiscovery();
+        } catch (SecurityException ignored) {
         }
-        if (!started) {
-            once.done();
-            return;
+        try {
+            leScan = ad.getBluetoothLeScanner();
+            if (leScan != null) {
+                leCb = new ScanCallback() {
+                    @Override
+                    public void onScanResult(int ct, ScanResult r) {
+                        if (r == null || r.getDevice() == null) {
+                            return;
+                        }
+                        String n;
+                        try {
+                            n = r.getDevice().getName();
+                        } catch (SecurityException e) {
+                            return;
+                        }
+                        if ((n == null || n.length() < 1) && r.getScanRecord() != null) {
+                            n = r.getScanRecord().getDeviceName();
+                        }
+                        hear(r.getDevice(), n, once);
+                    }
+                };
+                leScan.startScan(leCb);
+            }
+        } catch (RuntimeException ignored) {
         }
         new Handler(Looper.getMainLooper()).postDelayed(new Runnable() {
             @Override
             public void run() {
                 once.done();
             }
-        }, 12000);
+        }, 8000);
     }
 
     static void follow(final BluetoothDevice dev, final String shown, final FollowSink sink) {

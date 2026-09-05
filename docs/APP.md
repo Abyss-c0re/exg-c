@@ -1,4 +1,4 @@
-# App (2.53)
+# App (2.54)
 
 What the host does. The LAN wire is [API.md](API.md).
 
@@ -115,6 +115,6 @@ Viz is the crimson 8³ lattice. One mapped 10-10 cell per channel tracks EXG µV
 - Package `com.abysscore.exgc`. Quest uses `com.oculus.intent.category.2D`.
 - Stream service is `startService` from a visible activity, then `startForeground` (`dataSync`). Not `startForegroundService`.
 - Service stays up while the API **server** is on **or** the app is connected (USB or API client).
-- **USB / LAN / Bluetooth** next to Connect. USB is the Knight here. Bluetooth picks a nearby name (Allow/No) and EXG rides that link. Share EXG asks to be findable so the scan can see it. LAN is EXG on wifi after a pair that saw wifi. Share EXG is how this device offers the board out.
+- **USB / LAN / Bluetooth** next to Connect. USB is the Knight here. Bluetooth picks a nearby name (Allow/No) and EXG rides that link. LAN is EXG on wifi after a pair that saw wifi. Share EXG is how this device offers the board out.
 - **Send mine / Take theirs / Both ways** copies map, colors, filters, and named profiles over EXG. Saved here so you can unplug and plug the board on the other device.
 - Files live under the app directory (see android README). `run-as` cannot read them unless the package is debuggable.
