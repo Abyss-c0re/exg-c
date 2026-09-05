@@ -1,4 +1,4 @@
-# API (2.58)
+# API (2.60)
 
 C only (`include/np_api.h`, `src/np_api.c`). No Python in this tree.
 
@@ -16,7 +16,7 @@ Default: **off**. Settings → **API on**. Then:
 
 Cook runs on the **USB reader** thread. The API thread wakes on a pipe and sends. Sockets do not block the cook. There is no fake sample delay.
 
-`/` and `/health` advertise `"v":"2.58"`. GET `/status` is the same version. GET/POST `/kit` is map+settings text (no bind secrets). Live stream is **EXG1** binary. There is no `/stream.json`.
+`/` and `/health` advertise `"v":"2.60"`. GET `/status` is the same version. GET/POST `/kit` is map+settings text (no bind secrets). Live stream is **EXG1** binary. There is no `/stream.json`. GET/POST `/pair` is open (no token): first LAN connect. POST starts Allow/No on the share; GET polls `state` (`1` wait, `2` grant, `3` no).
 
 `GET /cfg` is the settings mirror: API bind plus EXG filters, 8 colors, 8 10-10 names, active mask, and the ID line. Token value is never returned (only `true`/`false`). Dest and token are typed on the client. Loopback GET is open. LAN `/status` `/sample` `/cfg` need the lock word **or** a pair grant — `token:false` does not mean the LAN is open once a grant table exists.
 
@@ -54,6 +54,8 @@ Cooked = the **display** cook (notch / hp / lp / CAR / envelope as set). Event I
 | GET | `/sample` | last frame as JSON (pull, not 125 Hz) |
 | GET | `/cfg` | `on`, bind, ports, hz, token flag, push dest |
 | GET | `/stream` | `application/octet-stream`, `X-EXG-Format: EXG1`, one frame per sample |
+| GET | `/pair` | current ask: `state`, `grant` if allowed. Open. |
+| POST | `/pair` | body `{"name":"…"}`. Starts Allow on the share. Open. |
 | POST | `/connect` `/disconnect` `/pause` | queued; applied on the host tick |
 | POST | `/cfg` | JSON ints: `on`, `bind`/`lan`, `http`, `udp`, `tcp`, `hz` |
 

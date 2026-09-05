@@ -83,5 +83,8 @@ void np_api_set_grant_fn(np_api_grant_fn fn);
 typedef int (*np_api_kit_get_fn)(char *out, int cap);
 typedef int (*np_api_kit_put_fn)(const char *s, int n);
 void np_api_set_kit_fn(np_api_kit_get_fn get, np_api_kit_put_fn put);
+/* First LAN connect. 1 wait, 2 grant filled, 3 no. */
+typedef int (*np_api_pair_ask_fn)(const char *name, char *grant, int gn);
+void np_api_set_pair_ask_fn(np_api_pair_ask_fn fn);
 
 #endif

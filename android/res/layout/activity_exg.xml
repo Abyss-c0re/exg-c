@@ -518,7 +518,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:paddingTop="12dp"
-                    android:text="Board reaches this app three ways. USB: Knight on this device. Bluetooth: pick a nearby name, Allow/No, EXG rides that link. LAN: EXG on wifi after a pair that saw wifi. Share EXG is how this device offers the board out."
+                    android:text="Board reaches this app two ways. USB: Knight on this device. LAN: type the share address. First connect asks Allow in the app and in a notification. Share EXG is how this device offers the board out."
                     android:textColor="@color/muted" />
 
                 <TextView

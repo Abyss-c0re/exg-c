@@ -83,6 +83,7 @@ static np_api_view_fn view_fn;
 static np_api_grant_fn grant_fn;
 static np_api_kit_get_fn kit_get_fn;
 static np_api_kit_put_fn kit_put_fn;
+static np_api_pair_ask_fn pair_ask_fn;
 
 static void close_fd(int *fd);
 
@@ -694,6 +695,65 @@ static int json_int(const char *body, const char *key, int *out)
     return 1;
 }
 
+static int json_str(const char *body, const char *key, char *out, int n)
+{
+    char pat[40];
+    const char *p, *q;
+    int i, o;
+    if (!body || !key || !out || n < 2) {
+        return 0;
+    }
+    out[0] = 0;
+    snprintf(pat, sizeof(pat), "\"%s\"", key);
+    p = strstr(body, pat);
+    if (p) {
+        p = strchr(p + 1, ':');
+        if (!p) {
+            return 0;
+        }
+        p++;
+        while (*p == ' ') {
+            p++;
+        }
+        if (*p == '"') {
+            p++;
+            q = p;
+            while (*q && *q != '"') {
+                q++;
+            }
+        } else {
+            q = p;
+            while (*q && *q != ',' && *q != '}' && *q != ' ' && *q != '\r' && *q != '\n') {
+                q++;
+            }
+        }
+    } else {
+        snprintf(pat, sizeof(pat), "%s=", key);
+        p = strstr(body, pat);
+        if (!p) {
+            return 0;
+        }
+        p += strlen(pat);
+        q = p;
+        while (*q && *q != '&' && *q != ' ' && *q != '\r' && *q != '\n') {
+            q++;
+        }
+    }
+    o = 0;
+    for (i = 0; p + i < q && o < n - 1; i++) {
+        char c = p[i];
+        if (c == ' ') {
+            c = '_';
+        }
+        if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ||
+            c == '_' || c == '-' || c == '.') {
+            out[o++] = c;
+        }
+    }
+    out[o] = 0;
+    return out[0] != 0;
+}
+
 static void handle_req(struct http_cli *c)
 {
     char path[128], method[8], body[JSON_MAX], js[JSON_MAX];
@@ -722,7 +782,8 @@ static void handle_req(struct http_cli *c)
         http_reply(c->fd, 404, "text/plain", "no");
         return;
     }
-    if (strcmp(path, "/") && strcmp(path, "/health") && !tok_ok(c->fd, c->buf)) {
+    if (strcmp(path, "/") && strcmp(path, "/health") && strcmp(path, "/pair")
+        && !tok_ok(c->fd, c->buf)) {
         http_reply(c->fd, 401, "application/json", "{\"ok\":false,\"err\":\"token\"}");
         return;
     }
@@ -732,11 +793,11 @@ static void handle_req(struct http_cli *c)
 
     if (!strcmp(path, "/") || !strcmp(path, "/index")) {
         snprintf(js, sizeof(js),
-                 "{\"ok\":true,\"v\":\"2.58\",\"api\":\"exg\","
+                 "{\"ok\":true,\"v\":\"2.60\",\"api\":\"exg\","
                  "\"bind\":\"%s\",\"ip\":\"%s\",\"http\":%d,\"udp\":%d,\"tcp\":%d,"
                  "\"hz\":%d,\"token\":%s,\"push\":\"%s\","
-                 "\"get\":[\"/health\",\"/status\",\"/sample\",\"/stream\",\"/cfg\",\"/kit\"],"
-                 "\"post\":[\"/connect\",\"/disconnect\",\"/pause\",\"/cfg\",\"/kit\"],"
+                 "\"get\":[\"/health\",\"/status\",\"/sample\",\"/stream\",\"/cfg\",\"/kit\",\"/pair\"],"
+                 "\"post\":[\"/connect\",\"/disconnect\",\"/pause\",\"/cfg\",\"/kit\",\"/pair\"],"
                  "\"frame\":\"EXG1 %d bytes LE cooked uV\"}",
                  cfg.lan ? "lan" : "local", self_ip, cfg.http, cfg.udp, cfg.tcp, cfg.hz,
                  cfg.token[0] ? "true" : "false", cfg.push, NP_API_FRAME);
@@ -745,7 +806,7 @@ static void handle_req(struct http_cli *c)
     }
     if (!strcmp(path, "/health")) {
         snprintf(js, sizeof(js),
-                 "{\"ok\":true,\"v\":\"2.58\",\"on\":true,\"bind\":\"%s\","
+                 "{\"ok\":true,\"v\":\"2.60\",\"on\":true,\"bind\":\"%s\","
                  "\"ip\":\"%s\",\"http\":%d,\"udp\":%d,\"tcp\":%d,\"hz\":%d,"
                  "\"clients\":{\"http\":%d,\"tcp\":%d,\"udp\":%d}}",
                  cfg.lan ? "lan" : "local", self_ip, cfg.http, cfg.udp, cfg.tcp, cfg.hz,
@@ -870,6 +931,39 @@ static void handle_req(struct http_cli *c)
         } else {
             http_reply(c->fd, 404, "application/json", "{\"ok\":false,\"err\":\"kit\"}");
         }
+        return;
+    }
+    if (!strcmp(path, "/pair")) {
+        char name[32], grant[32];
+        int st;
+        name[0] = 0;
+        grant[0] = 0;
+        if (is_post) {
+            json_str(body, "name", name, (int)sizeof(name));
+            if (!name[0]) {
+                json_str(c->buf, "name", name, (int)sizeof(name));
+            }
+            if (!name[0]) {
+                snprintf(name, sizeof(name), "exg");
+            }
+        }
+        if (!pair_ask_fn) {
+            http_reply(c->fd, 200, "application/json",
+                       "{\"ok\":true,\"state\":2,\"grant\":\"\"}");
+            return;
+        }
+        st = pair_ask_fn(is_post ? name : "", grant, (int)sizeof(grant));
+        if (st == 2) {
+            snprintf(js, sizeof(js), "{\"ok\":true,\"state\":2,\"grant\":\"%s\"}", grant);
+            http_reply(c->fd, 200, "application/json", js);
+            return;
+        }
+        if (st == 3) {
+            http_reply(c->fd, 200, "application/json", "{\"ok\":false,\"state\":3}");
+            return;
+        }
+        snprintf(js, sizeof(js), "{\"ok\":true,\"state\":%d}", st);
+        http_reply(c->fd, 200, "application/json", js);
         return;
     }
     (void)sp;
@@ -1281,7 +1375,7 @@ void np_api_line(char *out, int n)
         return;
     }
     snprintf(out, (size_t)n, "sharing EXG  %s  settings :%d  EXG :%d  spare :%d  %d/s",
-             cfg.lan ? "wifi" : "this phone", cfg.http, cfg.udp, cfg.tcp, cfg.hz);
+             cfg.lan ? "wifi" : "this device", cfg.http, cfg.udp, cfg.tcp, cfg.hz);
 }
 
 void np_api_push(const struct np_api_sample *s)
@@ -1341,4 +1435,9 @@ void np_api_set_kit_fn(np_api_kit_get_fn get, np_api_kit_put_fn put)
 {
     kit_get_fn = get;
     kit_put_fn = put;
+}
+
+void np_api_set_pair_ask_fn(np_api_pair_ask_fn fn)
+{
+    pair_ask_fn = fn;
 }

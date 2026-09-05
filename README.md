@@ -4,7 +4,7 @@ A C host for a **[Knight](https://www.neuropawn.tech/)** ADS1299 board — or an
 
 Not a medical device. Not affiliated with NeuroPawn.
 
-Shipped app: **2.58** (`com.abysscore.exgc`, versionCode 67). One framework, two skins:
+Shipped app: **2.60** (`com.abysscore.exgc`, versionCode 68). One framework, two skins:
 
 | Piece | Role |
 |-------|------|
@@ -31,7 +31,7 @@ Quest / phone notes: [android/README.md](android/README.md).
 - **Record** — 1 s named pose. MATCH **names** a unique pose. It does **not** print a cosine percent.
 - **bias ON / bias off** per channel (RLD). Connect applies add **and** remove.
 - **Cube viz** — crimson 8³ lattice. Mapped electrode cells track EXG µV (same color and millivolt as the traces). **float on/off**, drag to spin, +/− or pinch to zoom. **map** assigns 10-10 sites.
-- **USB / LAN / Bluetooth** — three ways the board reaches the app. USB is the Knight on this device. Bluetooth pairs nearby (Allow/No) and EXG rides that link. LAN uses wifi EXG after a pair that saw wifi.
+- **USB / LAN** — two ways the board reaches the app. USB is the Knight on this device. LAN is a typed dest (`host` or `host:8765`). First connect asks **Allow / No** in the app and in a notification. Share EXG is how this device offers the board out.
 - **API server** off by default. When on: HTTP 8765, UDP 8766, TCP 8767, bind lan, 125 Hz. Live path is **EXG1** binary, not JSON. `/cfg` carries colors, map, and filters so a client matches.
 
 Default montage: **FCz–CPz**, **CP4–FC3**, **FC4–CP3**, **C3–C4**. Eight EXG sites; four bipolar EXG traces. Map can still assign any 10-10 name.

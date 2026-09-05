@@ -22,7 +22,7 @@ Quest 3 = USB Knight + share. Titan 2 = client. Both ADB.
 | BT path persists | **WAS WRONG** | ini saved `link` as 0/1, so Bluetooth became LAN after restart. Fixed 2.53. |
 | `/status` version | **WAS STALE** | said 2.31. Now matches the app. |
 
-Unlock Titan, share EXG on one side, Bluetooth → Connect on the other, Allow the ask. Do not claim the client mirrors until that run.
+Unlock Titan, share EXG on one side, LAN → type dest → Connect on the other, Allow the ask in the app and in the notification. Do not claim the client mirrors until that run. Bluetooth pair/stream is gone as of 2.60.
 
 ## What this is
 

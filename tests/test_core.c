@@ -1117,6 +1117,68 @@ static int http_get(const char *host, int port, const char *path, char *out, int
     return got;
 }
 
+static int http_post(const char *host, int port, const char *path, const char *body, char *out, int n)
+{
+    int fd, w, r, got = 0, bl;
+    char req[512];
+    struct sockaddr_in a;
+    fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0) {
+        return -1;
+    }
+    memset(&a, 0, sizeof(a));
+    a.sin_family = AF_INET;
+    a.sin_port = htons((uint16_t)port);
+    a.sin_addr.s_addr = inet_addr(host);
+    if (connect(fd, (struct sockaddr *)&a, sizeof(a)) < 0) {
+        close(fd);
+        return -1;
+    }
+    {
+        struct timeval tv;
+        tv.tv_sec = 0;
+        tv.tv_usec = 250000;
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    }
+    bl = body ? (int)strlen(body) : 0;
+    w = snprintf(req, sizeof(req),
+                 "POST %s HTTP/1.0\r\nHost: %s\r\nContent-Length: %d\r\n\r\n", path, host, bl);
+    if (send(fd, req, (size_t)w, 0) < 0) {
+        close(fd);
+        return -1;
+    }
+    if (bl && send(fd, body, (size_t)bl, 0) < 0) {
+        close(fd);
+        return -1;
+    }
+    out[0] = 0;
+    while (got < n - 1) {
+        r = (int)recv(fd, out + got, (size_t)(n - 1 - got), 0);
+        if (r <= 0) {
+            break;
+        }
+        got += r;
+    }
+    out[got] = 0;
+    close(fd);
+    return got;
+}
+
+static int t_pair_st;
+static char t_pair_g[32];
+static int t_pair_ask(const char *name, char *grant, int gn)
+{
+    if (name && name[0] && t_pair_st == 0) {
+        t_pair_st = 1;
+        return 1;
+    }
+    if (t_pair_st == 2) {
+        snprintf(grant, (size_t)gn, "%s", t_pair_g);
+        return 2;
+    }
+    return t_pair_st;
+}
+
 static void test_api(void)
 {
     struct np_api_sample a, b;
@@ -1237,7 +1299,8 @@ static void test_api(void)
          strstr(body, "/stream") && strstr(body, "EXG1");
     expect(ok, "api GET / index lists stream");
     expect(strstr(body, "stream.json") == NULL, "api index has no NDJSON live path");
-    expect(strstr(body, "\"v\":\"2.58\"") != NULL, "api index version 2.58");
+    expect(strstr(body, "\"v\":\"2.60\"") != NULL, "api index version 2.60");
+    expect(strstr(body, "/pair") != NULL, "api index lists /pair");
     expect(strstr(body, "\"ip\":\"127.0.0.1\"") != NULL, "api local ip is loopback");
     {
         int k = http_get("127.0.0.1", 18765, "/kit", body, sizeof(body));
@@ -1293,6 +1356,31 @@ static void test_api(void)
     }
     usleep(20000);
     expect(np_api_take_op(&op, &arg) == 1 && op == NP_API_OP_PAUSE, "api POST /pause queues");
+
+    {
+        char g[32];
+        ok = http_post("127.0.0.1", 18765, "/pair", "{\"name\":\"Titan_2\"}", body, sizeof(body)) > 0
+             && strstr(body, "\"state\":2") != NULL;
+        expect(ok, "api POST /pair open without hook grants");
+        t_pair_st = 0;
+        snprintf(t_pair_g, sizeof(t_pair_g), "grantTEST");
+        np_api_set_pair_ask_fn(t_pair_ask);
+        ok = http_post("127.0.0.1", 18765, "/pair", "{\"name\":\"Titan_2\"}", body, sizeof(body)) > 0
+             && strstr(body, "\"state\":1") != NULL;
+        expect(ok, "api POST /pair first connect waits");
+        ok = http_get("127.0.0.1", 18765, "/pair", body, sizeof(body)) > 0
+             && strstr(body, "\"state\":1") != NULL;
+        expect(ok, "api GET /pair still waiting");
+        t_pair_st = 2;
+        ok = http_get("127.0.0.1", 18765, "/pair", body, sizeof(body)) > 0
+             && strstr(body, "grantTEST") != NULL;
+        expect(ok, "api GET /pair returns grant after Allow");
+        t_pair_st = 2;
+        g[0] = 0;
+        expect(np_link_pair("127.0.0.1:18765", "Titan_2", g, (int)sizeof(g)) == 0, "link pair ok");
+        expect(strcmp(g, "grantTEST") == 0, "link pair grant");
+        np_api_set_pair_ask_fn(NULL);
+    }
 
     np_api_stop();
     expect(np_api_on() == 0, "api stop");

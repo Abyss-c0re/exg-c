@@ -25,6 +25,7 @@ public class StreamService extends Service {
     private WifiManager.WifiLock wifi;
     private boolean ticking;
     private long lastNoteMs;
+    private int lastPair;
 
     public static void ensure(Context c, boolean on) {
         Intent i = new Intent(c, StreamService.class);
@@ -95,18 +96,22 @@ public class StreamService extends Service {
             }
             ExgNative.tick();
             long now = android.os.SystemClock.uptimeMillis();
+            int pst = ExgNative.pairState();
+            NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+            if (nm != null && pst != lastPair) {
+                lastPair = pst;
+                if (pst == 1) {
+                    nm.notify(PairReceiver.NOTE, pairNote());
+                } else {
+                    nm.cancel(PairReceiver.NOTE);
+                }
+            }
             if (now - lastNoteMs >= 1000) {
                 lastNoteMs = now;
-                NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
                 if (nm != null) {
                     nm.notify(NOTE, note());
-                    if (ExgNative.apiOn()) {
-                        BtPair.shareStart();
-                    }
-                    if (ExgNative.pairState() == 1) {
+                    if (pst == 1) {
                         nm.notify(PairReceiver.NOTE, pairNote());
-                    } else {
-                        nm.cancel(PairReceiver.NOTE);
                     }
                 }
             }

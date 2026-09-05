@@ -205,6 +205,156 @@ static void *link_thread(void *arg)
     return NULL;
 }
 
+static int http_once(const char *hname, int port, const char *method, const char *path,
+                    const char *body, char *out, int outn)
+{
+    int fd, n, tot = 0, bl;
+    struct sockaddr_in a;
+    char req[512];
+    char buf[CFG_MAX + 256];
+    const char *p;
+    if (resolve(hname, port, &a) != 0) {
+        return -1;
+    }
+    a.sin_port = htons((uint16_t)port);
+    fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0) {
+        return -1;
+    }
+    {
+        struct timeval tv;
+        tv.tv_sec = 1;
+        tv.tv_usec = 0;
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+        setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+    }
+    if (connect(fd, (struct sockaddr *)&a, sizeof(a)) != 0) {
+        close(fd);
+        return -1;
+    }
+    bl = body ? (int)strlen(body) : 0;
+    if (bl) {
+        snprintf(req, sizeof(req),
+                 "%s %s HTTP/1.0\r\nHost: x\r\nContent-Type: application/json\r\n"
+                 "Content-Length: %d\r\nConnection: close\r\n\r\n",
+                 method, path, bl);
+    } else {
+        snprintf(req, sizeof(req), "%s %s HTTP/1.0\r\nHost: x\r\nConnection: close\r\n\r\n",
+                 method, path);
+    }
+    if (send(fd, req, strlen(req), 0) < 0) {
+        close(fd);
+        return -1;
+    }
+    if (bl && send(fd, body, (size_t)bl, 0) < 0) {
+        close(fd);
+        return -1;
+    }
+    memset(buf, 0, sizeof(buf));
+    while (tot < (int)sizeof(buf) - 1) {
+        n = (int)recv(fd, buf + tot, sizeof(buf) - 1 - (size_t)tot, 0);
+        if (n <= 0) {
+            break;
+        }
+        tot += n;
+    }
+    close(fd);
+    p = strstr(buf, "\r\n\r\n");
+    if (!p) {
+        return -1;
+    }
+    p += 4;
+    if (out && outn > 1) {
+        snprintf(out, (size_t)outn, "%s", p);
+    }
+    return 0;
+}
+
+static int pair_parse(const char *js, char *grant, int gn)
+{
+    const char *p, *q;
+    int st = 0;
+    if (!js) {
+        return 0;
+    }
+    p = strstr(js, "\"state\"");
+    if (p) {
+        p = strchr(p, ':');
+        if (p) {
+            st = atoi(p + 1);
+        }
+    }
+    if (grant && gn > 1) {
+        grant[0] = 0;
+        p = strstr(js, "\"grant\"");
+        if (p) {
+            p = strchr(p, ':');
+            if (p) {
+                p++;
+                while (*p == ' ' || *p == '"') {
+                    p++;
+                }
+                q = p;
+                while (*q && *q != '"' && *q != ',' && *q != '}') {
+                    q++;
+                }
+                if (q > p && (int)(q - p) < gn) {
+                    memcpy(grant, p, (size_t)(q - p));
+                    grant[q - p] = 0;
+                }
+            }
+        }
+    }
+    return st;
+}
+
+int np_link_pair(const char *dest, const char *myname, char *grant, int gn)
+{
+    char host[128], body[80], resp[CFG_MAX], gbuf[NP_API_TOKEN], safe[24];
+    int http_p = 8765, udp = 8766, i, st, o = 0;
+    if (!grant || gn < 2) {
+        return -1;
+    }
+    grant[0] = 0;
+    if (np_link_parse_dest(dest, host, (int)sizeof(host), &http_p, &udp) != 0) {
+        return -1;
+    }
+    if (myname) {
+        int k;
+        for (k = 0; myname[k] && o < (int)sizeof(safe) - 1; k++) {
+            char c = myname[k];
+            if (c == ' ') {
+                c = '_';
+            }
+            if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+                (c >= '0' && c <= '9') || c == '_' || c == '-' || c == '.') {
+                safe[o++] = c;
+            }
+        }
+    }
+    safe[o] = 0;
+    if (!safe[0]) {
+        snprintf(safe, sizeof(safe), "exg");
+    }
+    snprintf(body, sizeof(body), "{\"name\":\"%s\"}", safe);
+    if (http_once(host, http_p, "POST", "/pair", body, resp, (int)sizeof(resp)) != 0) {
+        return -1;
+    }
+    st = pair_parse(resp, gbuf, (int)sizeof(gbuf));
+    for (i = 0; i < 240 && st == 1; i++) {
+        usleep(250000);
+        if (http_once(host, http_p, "GET", "/pair", NULL, resp, (int)sizeof(resp)) != 0) {
+            continue;
+        }
+        st = pair_parse(resp, gbuf, (int)sizeof(gbuf));
+    }
+    if (st != 2) {
+        return -1;
+    }
+    snprintf(grant, (size_t)gn, "%s", gbuf);
+    return 0;
+}
+
 int np_link_start(const char *dest, const char *tok)
 {
     int udp = 8766, tos = 0x10, on = 1;

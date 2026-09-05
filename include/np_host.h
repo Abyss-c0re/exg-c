@@ -207,7 +207,8 @@ void np_host_api_set_push(const char *s);
 void np_host_api_line(char *out, int n);
 
 int np_host_link(void);
-void np_host_set_link(int path); /* 0 USB  1 LAN  2 Bluetooth */
+void np_host_set_link(int path); /* 0 USB  1 LAN */
+void np_host_set_self(const char *s);
 void np_host_cycle_link(void);
 void np_host_link_dest(char *out, int n);
 void np_host_set_link_dest(const char *s);
@@ -226,7 +227,8 @@ void np_host_follow_remember(const char *name, const char *dest, const char *gra
 void np_host_follow_grant(const char *name, char *out, int n);
 int np_host_grant_ok(const char *grant);
 
-/* Incoming EXG request. 0 idle, 1 waiting, 2 allow, 3 no. */
+/* Incoming EXG request. 0 idle, 1 waiting, 2 allow, 3 no. Name starts a wait. */
+int np_host_pair_ask(const char *name, char *grant, int gn);
 int np_host_pair_begin(const char *name);
 int np_host_pair_state(void);
 void np_host_pair_name(char *out, int n);
@@ -234,7 +236,7 @@ void np_host_pair_accept(void);
 void np_host_pair_reject(void);
 void np_host_pair_grant(char *out, int n);
 
-/* Bluetooth EXG wire. Same EXG1 as wifi. */
+/* Cooked EXG1 (LAN UDP). */
 int np_host_copy_exg1(unsigned char *dst, int cap);
 int np_host_feed_exg1(const unsigned char *raw, int n);
 void np_host_apply_cfg_json(const char *js);

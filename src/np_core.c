@@ -166,7 +166,30 @@ static struct np_peers peers;
 static char pair_name[NP_PEER_NAME];
 static char pair_grant[NP_PEER_GRANT];
 static int pair_dec; /* 0 idle 1 wait 2 allow 3 no */
+static uint32_t pair_t0;
+static char self_name[NP_PEER_NAME];
 static pthread_mutex_t pair_mu = PTHREAD_MUTEX_INITIALIZER;
+
+static uint32_t pair_now_ms(void)
+{
+    struct timespec t;
+    clock_gettime(CLOCK_MONOTONIC, &t);
+    return (uint32_t)(t.tv_sec * 1000u + (uint32_t)(t.tv_nsec / 1000000u));
+}
+
+static void link_sanitize(void)
+{
+    if (g.link == 2) {
+        g.link = 1;
+    }
+    if (g.link != 0 && g.link != 1) {
+        g.link = 0;
+    }
+    if (!strncmp(g.link_dest, "bt:", 3)) {
+        g.link_dest[0] = 0;
+        g.link_token[0] = 0;
+    }
+}
 
 static void peers_path(char *out, int n)
 {
@@ -1335,12 +1358,6 @@ static int cfg_read(const char *path)
         } else if (sscanf(line, "link_token=%31s", longv) == 1) {
             snprintf(g.link_token, sizeof(g.link_token), "%s", longv);
         } else if (sscanf(line, "link=%d", &v) == 1) {
-            if (v < 0) {
-                v = 0;
-            }
-            if (v > 2) {
-                v = 2;
-            }
             g.link = v;
         } else if (sscanf(line, "pitch=%f", &fa) == 1) {
             g.cube_pitch = fa;
@@ -1403,6 +1420,7 @@ static int cfg_read(const char *path)
     if (g.pref_h < 560) {
         g.pref_h = WIN_H;
     }
+    link_sanitize();
     return 0;
 }
 
@@ -1876,7 +1894,7 @@ static void api_status_json(char *out, int n)
         }
     }
     snprintf(out, (size_t)n,
-             "{\"ok\":true,\"v\":\"2.58\",\"connected\":%s,\"paused\":%s,\"sps\":%.1f,"
+             "{\"ok\":true,\"v\":\"2.60\",\"connected\":%s,\"paused\":%s,\"sps\":%.1f,"
              "\"frames\":%u,\"status\":\"%s\",\"id\":\"%s\",\"id_best\":%d,"
              "\"notch\":%d,\"hp\":%d,\"lp\":%d,\"car\":%d,\"band\":%d,\"mask\":%u,"
              "\"api\":\"%s\"}",
@@ -2092,6 +2110,7 @@ void api_apply(void)
     np_api_set_view_fn(api_view_json);
     np_api_set_grant_fn(host_grant_ok);
     np_api_set_kit_fn(np_host_kit_export, np_host_kit_import);
+    np_api_set_pair_ask_fn(np_host_pair_ask);
     np_api_apply(&c);
 }
 
@@ -3024,16 +3043,30 @@ void do_connect(void)
     if (g.connected) {
         return;
     }
-    if (g.link == 2) {
-        set_status(0, "pick EXG nearby");
-        return;
-    }
     if (g.link == 1) {
+        char grant[NP_PEER_GRANT];
+        char who[NP_PEER_NAME];
+        char host[128];
+        int hp = 8765, up = 8766;
         if (!g.link_dest[0] || !strncmp(g.link_dest, "bt:", 3)) {
-            set_status(0, "no EXG on LAN — pair first or pick a saved share");
+            set_status(0, "type dest host:port");
             return;
         }
         np_link_set_hooks(link_on_sample, apply_link_cfg);
+        if (!g.link_token[0]) {
+            snprintf(who, sizeof(who), "%s", self_name[0] ? self_name : "exg");
+            set_status(1, "waiting for Allow on the share…");
+            if (np_link_pair(g.link_dest, who, grant, (int)sizeof(grant)) != 0) {
+                set_status(0, "share refused or no answer");
+                return;
+            }
+            snprintf(g.link_token, sizeof(g.link_token), "%s", grant);
+            if (np_link_parse_dest(g.link_dest, host, (int)sizeof(host), &hp, &up) == 0) {
+                np_host_follow_remember(host, g.link_dest, grant);
+            } else {
+                np_host_follow_remember(who, g.link_dest, grant);
+            }
+        }
         if (np_link_start(g.link_dest, g.link_token) != 0) {
             set_status(0, "could not reach EXG on LAN");
             return;
@@ -3045,7 +3078,7 @@ void do_connect(void)
     }
     g.nports = np_list_ports(g.ports, NP_MAX_PORTS);
     if (g.nports <= 0) {
-        set_status(0, NP_TOUCH ? "no Knight on USB — try LAN or Bluetooth"
+        set_status(0, NP_TOUCH ? "no Knight on USB — switch to LAN and type dest"
                                : "no /dev/ttyUSB* or /dev/ttyACM*");
         return;
     }
@@ -5938,13 +5971,7 @@ int np_host_link(void)
 
 void np_host_set_link(int path)
 {
-    int want = path;
-    if (want < 0) {
-        want = 0;
-    }
-    if (want > 2) {
-        want = 2;
-    }
+    int want = path == 1 ? 1 : 0;
     if (g.link == want) {
         return;
     }
@@ -5955,16 +5982,36 @@ void np_host_set_link(int path)
     cfg_save();
     if (g.link == 0) {
         set_status(1, "USB — Knight on this device");
-    } else if (g.link == 1) {
-        set_status(1, "LAN — EXG on wifi");
     } else {
-        set_status(1, "Bluetooth — EXG nearby");
+        set_status(1, "LAN — type dest host:port");
+    }
+}
+
+void np_host_set_self(const char *s)
+{
+    int i, o = 0;
+    if (!s) {
+        s = "";
+    }
+    for (i = 0; s[i] && o < NP_PEER_NAME - 1; i++) {
+        char c = s[i];
+        if (c == ' ') {
+            c = '_';
+        }
+        if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ||
+            c == '_' || c == '-' || c == '.') {
+            self_name[o++] = c;
+        }
+    }
+    self_name[o] = 0;
+    if (!self_name[0]) {
+        snprintf(self_name, sizeof(self_name), "exg");
     }
 }
 
 void np_host_cycle_link(void)
 {
-    np_host_set_link((g.link + 1) % 3);
+    np_host_set_link(g.link ? 0 : 1);
 }
 
 void np_host_link_dest(char *out, int n)
@@ -5977,7 +6024,15 @@ void np_host_link_dest(char *out, int n)
 
 void np_host_set_link_dest(const char *s)
 {
-    snprintf(g.link_dest, sizeof(g.link_dest), "%s", s ? s : "");
+    char next[NP_API_PUSH];
+    snprintf(next, sizeof(next), "%s", s ? s : "");
+    if (strncmp(next, "bt:", 3) == 0) {
+        next[0] = 0;
+    }
+    if (strcmp(g.link_dest, next) != 0) {
+        g.link_token[0] = 0;
+    }
+    snprintf(g.link_dest, sizeof(g.link_dest), "%s", next);
     cfg_save();
 }
 
@@ -6027,9 +6082,13 @@ void np_host_follow_use(int i)
     if (i < 0 || i >= peers.nfollow) {
         return;
     }
+    if (!strncmp(peers.follow[i].dest, "bt:", 3) || !peers.follow[i].dest[0]) {
+        set_status(0, "type dest host:port");
+        return;
+    }
     snprintf(g.link_dest, sizeof(g.link_dest), "%s", peers.follow[i].dest);
     snprintf(g.link_token, sizeof(g.link_token), "%s", peers.follow[i].grant);
-    g.link = strncmp(peers.follow[i].dest, "bt:", 3) == 0 ? 2 : 1;
+    g.link = 1;
     cfg_save();
 }
 
@@ -6112,18 +6171,40 @@ int np_host_pair_begin(const char *name)
             }
         }
     }
-    snprintf(pair_name, sizeof(pair_name), "%s", name ? name : "exg");
+    snprintf(pair_name, sizeof(pair_name), "%s", name && name[0] ? name : "exg");
     pair_grant[0] = 0;
     pair_dec = 1;
+    pair_t0 = pair_now_ms();
     pthread_mutex_unlock(&pair_mu);
     set_status(1, "%s wants EXG", pair_name);
     return 1;
+}
+
+int np_host_pair_ask(const char *name, char *grant, int gn)
+{
+    int st;
+    if (name && name[0]) {
+        st = np_host_pair_begin(name);
+    } else {
+        st = np_host_pair_state();
+    }
+    if (grant && gn > 1) {
+        grant[0] = 0;
+        if (st == 2) {
+            np_host_pair_grant(grant, gn);
+        }
+    }
+    return st;
 }
 
 int np_host_pair_state(void)
 {
     int d;
     pthread_mutex_lock(&pair_mu);
+    if (pair_dec == 1 && pair_t0 && pair_now_ms() - pair_t0 > 60000u) {
+        pair_dec = 3;
+        pair_grant[0] = 0;
+    }
     d = pair_dec;
     pthread_mutex_unlock(&pair_mu);
     return d;
@@ -6204,13 +6285,5 @@ void np_host_view_json(char *out, int n)
 
 void np_host_link_wire(int on)
 {
-    if (on) {
-        g.link = 2;
-        g.connected = 1;
-        np_link_set_hooks(link_on_sample, apply_link_cfg);
-        set_status(1, "following EXG on bluetooth");
-    } else if (g.link) {
-        g.connected = 0;
-        set_status(1, "disconnected");
-    }
+    (void)on;
 }

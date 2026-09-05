@@ -1624,7 +1624,7 @@ Java_com_abysscore_exgc_ExgNative_setLinkApi(JNIEnv *env, jclass cls, jboolean a
 {
     (void)env;
     (void)cls;
-    np_host_set_link(api ? 2 : 0);
+    np_host_set_link(api ? 1 : 0);
 }
 
 JNIEXPORT void JNICALL
@@ -1633,6 +1633,15 @@ Java_com_abysscore_exgc_ExgNative_setLinkPath(JNIEnv *env, jclass cls, jint path
     (void)env;
     (void)cls;
     np_host_set_link(path);
+}
+
+JNIEXPORT void JNICALL
+Java_com_abysscore_exgc_ExgNative_setSelf(JNIEnv *env, jclass cls, jstring s)
+{
+    char buf[24];
+    (void)cls;
+    jstr_to(env, s, buf, sizeof(buf));
+    np_host_set_self(buf);
 }
 
 JNIEXPORT jstring JNICALL

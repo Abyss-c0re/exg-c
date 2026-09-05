@@ -3,8 +3,6 @@ package com.abysscore.exgc;
 import android.Manifest;
 import android.app.Activity;
 import android.app.AlertDialog;
-import android.bluetooth.BluetoothAdapter;
-import android.bluetooth.BluetoothDevice;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.net.Uri;
@@ -97,6 +95,7 @@ public class ExgActivity extends Activity {
     private String csvPickName = "exg.csv";
     private String holdLine;
     private long holdLineUntil;
+    private volatile boolean connecting;
 
     private final Runnable tick = new Runnable() {
         @Override
@@ -128,6 +127,7 @@ public class ExgActivity extends Activity {
             new File(dir, "exg-c/raw/learn").mkdirs();
         }
         ExgNative.start(dir != null ? dir.getAbsolutePath() : getApplicationInfo().dataDir);
+        ExgNative.setSelf(Build.MODEL);
         setContentView(R.layout.activity_exg);
         traces = findViewById(R.id.traces);
         fft = findViewById(R.id.fft);
@@ -211,28 +211,21 @@ public class ExgActivity extends Activity {
             refreshChrome();
         });
         connect.setOnClickListener(v -> {
-            if (ExgNative.connected()) {
-                BtPair.followStop();
+            if (ExgNative.connected() || connecting) {
+                connecting = false;
                 ExgNative.disconnect();
+                StreamService.ensure(this, ExgNative.apiOn() || ExgNative.connected());
                 refreshChrome();
                 return;
             }
-            int path = ExgNative.linkPath();
-            if (path == 2) {
-                String d = ExgNative.linkDest();
-                if (d != null && d.startsWith("bt:") && d.length() > 3) {
-                    followSaved(d.substring(3));
-                } else {
-                    pickNearby();
-                }
-                return;
-            }
-            if (path == 1) {
+            if (ExgNative.linkPath() == 1) {
                 String d = ExgNative.linkDest();
                 if (d == null || d.length() < 1 || d.startsWith("bt:")) {
-                    pickLan();
+                    askDest();
                     return;
                 }
+                connectLan();
+                return;
             }
             ExgNative.connect();
             StreamService.ensure(this, ExgNative.apiOn() || ExgNative.connected());
@@ -243,15 +236,15 @@ public class ExgActivity extends Activity {
             refreshChrome();
         });
         kitSend.setOnClickListener(v -> {
-            BtPair.sendKit();
+            LanShare.sendKit();
             status.setText("sent map & settings");
         });
         kitTake.setOnClickListener(v -> {
-            BtPair.takeKit();
+            LanShare.takeKit();
             status.setText("asked for their map & settings");
         });
         kitBoth.setOnClickListener(v -> {
-            BtPair.copyBoth();
+            LanShare.copyBoth();
             status.setText("copying map & settings both ways");
         });
 
@@ -451,10 +444,7 @@ public class ExgActivity extends Activity {
             boolean on = !ExgNative.apiOn();
             ExgNative.setApiOn(on);
             if (on) {
-                ensureNear();
-                BtPair.shareStart();
-            } else {
-                BtPair.shareStop();
+                ensureNotify();
             }
             StreamService.ensure(this, ExgNative.apiOn() || ExgNative.connected());
             refreshChrome();
@@ -490,11 +480,8 @@ public class ExgActivity extends Activity {
                     refreshChrome();
                 }));
         port.setOnClickListener(v -> {
-            int path = ExgNative.linkPath();
-            if (path == 2) {
-                pickNearby();
-            } else if (path == 1) {
-                pickLan();
+            if (ExgNative.linkPath() == 1) {
+                askDest();
             } else {
                 pickPort();
             }
@@ -539,65 +526,51 @@ public class ExgActivity extends Activity {
         if (it == null) {
             return;
         }
-        String mac = it.getStringExtra("followmac");
-        String name = it.getStringExtra("follow");
-        if (mac != null && mac.length() >= 17) {
-            BluetoothAdapter ad = BluetoothAdapter.getDefaultAdapter();
-            if (ad == null) {
-                holdLine = "no bluetooth";
-                holdLineUntil = android.os.SystemClock.uptimeMillis() + 20000;
-                return;
-            }
-            final String shown = (name != null && name.length() > 0) ? name : "EXG";
-            holdLine = "waiting for Allow on the share…";
-            holdLineUntil = android.os.SystemClock.uptimeMillis() + 20000;
-            ExgNative.setLinkPath(2);
-            BluetoothDevice dev = ad.getRemoteDevice(mac);
-            BtPair.follow(dev, shown, new BtPair.FollowSink() {
-                @Override
-                public void ok(String n) {
-                    h.post(() -> {
-                        holdLine = null;
-                        StreamService.ensure(ExgActivity.this,
-                                ExgNative.apiOn() || ExgNative.connected());
-                        refreshChrome();
-                    });
-                }
-                @Override
-                public void no(String why) {
-                    h.post(() -> {
-                        holdLine = why != null && why.length() > 0 ? why : "could not reach EXG";
-                        holdLineUntil = android.os.SystemClock.uptimeMillis() + 20000;
-                        refreshChrome();
-                    });
-                }
-            });
+        String dest = it.getStringExtra("followdest");
+        if (dest != null && dest.length() > 0 && !dest.startsWith("bt:")) {
+            ExgNative.setLinkDest(dest);
+            ExgNative.setLinkPath(1);
+            connectLan();
+        }
+    }
+
+    private void connectLan() {
+        if (connecting || ExgNative.connected()) {
             return;
         }
-        if (name != null && name.length() > 0) {
-            holdLine = "waiting for Allow on the share…";
-            holdLineUntil = android.os.SystemClock.uptimeMillis() + 20000;
-            ExgNative.setLinkPath(2);
-            BtPair.followAny(name, new BtPair.FollowSink() {
-                @Override
-                public void ok(String n) {
-                    h.post(() -> {
-                        holdLine = null;
-                        StreamService.ensure(ExgActivity.this,
-                                ExgNative.apiOn() || ExgNative.connected());
-                        refreshChrome();
-                    });
+        connecting = true;
+        holdLine = "waiting for Allow on the share…";
+        holdLineUntil = android.os.SystemClock.uptimeMillis() + 65000;
+        refreshChrome();
+        StreamService.ensure(this, true);
+        new Thread(() -> {
+            ExgNative.connect();
+            h.post(() -> {
+                if (!connecting && ExgNative.connected()) {
+                    ExgNative.disconnect();
                 }
-                @Override
-                public void no(String why) {
-                    h.post(() -> {
-                        holdLine = why != null && why.length() > 0 ? why : "could not reach EXG";
-                        holdLineUntil = android.os.SystemClock.uptimeMillis() + 20000;
-                        refreshChrome();
-                    });
-                }
+                connecting = false;
+                holdLine = null;
+                StreamService.ensure(ExgActivity.this,
+                        ExgNative.apiOn() || ExgNative.connected());
+                refreshChrome();
             });
+        }, "exg-lan").start();
+    }
+
+    private void askDest() {
+        String cur = ExgNative.linkDest();
+        if (cur != null && cur.startsWith("bt:")) {
+            cur = "";
         }
+        askName("EXG on LAN", cur == null ? "" : cur, "host or host:8765", s -> {
+            if (s.length() < 1) {
+                return;
+            }
+            ExgNative.setLinkDest(s);
+            ExgNative.setLinkPath(1);
+            connectLan();
+        });
     }
 
     @Override
@@ -684,11 +657,10 @@ public class ExgActivity extends Activity {
     private void refreshChrome() {
         boolean on = ExgNative.connected();
         int path = ExgNative.linkPath();
-        connect.setText(on ? "Disconnect" : "Connect");
-        connect.setBackgroundTintList(android.content.res.ColorStateList.valueOf(on ? 0xFF8A3038 : 0xFF2E8A58));
-        if (path == 2) {
-            link.setText("Bluetooth");
-        } else if (path == 1) {
+        connect.setText(on ? "Disconnect" : (connecting ? "…" : "Connect"));
+        connect.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
+                on || connecting ? 0xFF8A3038 : 0xFF2E8A58));
+        if (path == 1) {
             link.setText("LAN");
         } else {
             link.setText("USB");
@@ -696,12 +668,10 @@ public class ExgActivity extends Activity {
         link.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
                 path == 0 ? 0xFF2A3038 : 0xFF2E6A8A));
         String ports = ExgNative.ports();
-        if (path == 2) {
-            port.setText(BtPair.followLive() ? "on bluetooth" : "nearby EXG…");
-        } else if (path == 1) {
+        if (path == 1) {
             String d = ExgNative.linkDest();
             port.setText(d == null || d.length() == 0 || d.startsWith("bt:")
-                    ? "EXG on wifi…" : "EXG on LAN");
+                    ? "type dest…" : "EXG on LAN");
         } else {
             port.setText(ports == null || ports.length() == 0 ? "no Knight" : ports.split("\n")[0]);
         }
@@ -729,8 +699,8 @@ public class ExgActivity extends Activity {
         }
         boolean hold = holdLine != null
                 && android.os.SystemClock.uptimeMillis() < holdLineUntil
-                && !on && !BtPair.followLive();
-        if (on || BtPair.followLive()) {
+                && !on;
+        if (on) {
             holdLine = null;
         }
         if (hold) {
@@ -833,7 +803,7 @@ public class ExgActivity extends Activity {
         apiOn.setText(apion ? "share EXG" : "share off");
         apiOn.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
                 apion ? 0xFF2E8A58 : 0xFF2A3038));
-        apiBind.setText(ExgNative.apiLan() ? "wifi" : "this phone");
+        apiBind.setText(ExgNative.apiLan() ? "wifi" : "this device");
         apiHz.setText(ExgNative.apiHz() + " /s");
         apiHttp.setText(ExgNative.apiHttp() == 0 ? "settings off" : ("settings " + ExgNative.apiHttp()));
         apiUdp.setText(ExgNative.apiUdp() == 0 ? "EXG off" : ("EXG " + ExgNative.apiUdp()));
@@ -1372,172 +1342,12 @@ public class ExgActivity extends Activity {
         });
     }
 
-    private void ensureNear() {
-        if (Build.VERSION.SDK_INT < 23) {
-            return;
-        }
-        java.util.ArrayList<String> need = new java.util.ArrayList<String>();
-        if (Build.VERSION.SDK_INT >= 31) {
-            if (checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
-                need.add(Manifest.permission.BLUETOOTH_CONNECT);
-            }
-            if (checkSelfPermission(Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED) {
-                need.add(Manifest.permission.BLUETOOTH_SCAN);
-            }
-            if (checkSelfPermission(Manifest.permission.BLUETOOTH_ADVERTISE) != PackageManager.PERMISSION_GRANTED) {
-                need.add(Manifest.permission.BLUETOOTH_ADVERTISE);
-            }
-        } else if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            need.add(Manifest.permission.ACCESS_FINE_LOCATION);
-        }
+    private void ensureNotify() {
         if (Build.VERSION.SDK_INT >= 33 &&
-                checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-            need.add(Manifest.permission.POST_NOTIFICATIONS);
+                checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
+                        != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[] {Manifest.permission.POST_NOTIFICATIONS}, 71);
         }
-        if (!need.isEmpty()) {
-            requestPermissions(need.toArray(new String[0]), 71);
-        }
-        BluetoothAdapter ad = BluetoothAdapter.getDefaultAdapter();
-        if (ad != null && !ad.isEnabled()) {
-            try {
-                startActivity(new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE));
-            } catch (RuntimeException ignored) {
-            }
-        }
-    }
-
-    private void pickLan() {
-        java.util.ArrayList<String> names = new java.util.ArrayList<String>();
-        java.util.ArrayList<Integer> idx = new java.util.ArrayList<Integer>();
-        int n = ExgNative.followN();
-        for (int i = 0; i < n; i++) {
-            String d = ExgNative.followDest(i);
-            String nm = ExgNative.followName(i);
-            if (d != null && d.length() > 0 && !d.startsWith("bt:") && nm != null) {
-                names.add(nm.replace('_', ' ') + "  on LAN");
-                idx.add(i);
-            }
-        }
-        if (names.isEmpty()) {
-            new AlertDialog.Builder(this)
-                    .setTitle("LAN")
-                    .setMessage("No EXG on wifi yet. Pair on Bluetooth while the share has wifi, then LAN can use that path.")
-                    .setPositiveButton("OK", null)
-                    .show();
-            return;
-        }
-        String[] items = names.toArray(new String[0]);
-        new AlertDialog.Builder(this)
-                .setTitle("EXG on LAN")
-                .setItems(items, (d, which) -> {
-                    ExgNative.followUse(idx.get(which));
-                    ExgNative.setLinkPath(1);
-                    ExgNative.connect();
-                    StreamService.ensure(this, ExgNative.apiOn() || ExgNative.connected());
-                    refreshChrome();
-                })
-                .setNegativeButton("Cancel", null)
-                .show();
-    }
-
-    private void followSaved(String name) {
-        ensureNear();
-        BtPair.followName(name, new BtPair.FollowSink() {
-            @Override
-            public void ok(String n) {
-                h.post(() -> {
-                    StreamService.ensure(ExgActivity.this,
-                            ExgNative.apiOn() || ExgNative.connected());
-                    refreshChrome();
-                });
-            }
-            @Override
-            public void no(String why) {
-                h.post(() -> {
-                    holdLine = why != null && why.length() > 0 ? why : "could not reach EXG";
-                    holdLineUntil = android.os.SystemClock.uptimeMillis() + 20000;
-                    status.setText(holdLine);
-                    status.setTextColor(0xFFF0A040);
-                    pickNearby();
-                });
-            }
-        });
-    }
-
-    private void pickNearby() {
-        ensureNear();
-        final java.util.ArrayList<String> names = new java.util.ArrayList<String>();
-        final boolean[] cancelled = { false };
-        final AlertDialog wait = new AlertDialog.Builder(this)
-                .setTitle("Nearby EXG")
-                .setMessage("Looking… Allow the ask on the other side.")
-                .setNegativeButton("Cancel", (d, w) -> {
-                    cancelled[0] = true;
-                    BtPair.scanStop();
-                })
-                .show();
-        BtPair.scan(this, new BtPair.ScanSink() {
-            @Override
-            public void found(String name, BluetoothDevice dev) {
-                if (!names.contains(name)) {
-                    names.add(name);
-                }
-            }
-
-            @Override
-            public void done() {
-                h.post(() -> {
-                    if (wait.isShowing()) {
-                        wait.dismiss();
-                    }
-                    if (cancelled[0]) {
-                        return;
-                    }
-                    if (names.isEmpty()) {
-                        new AlertDialog.Builder(ExgActivity.this)
-                                .setTitle("Nearby EXG")
-                                .setMessage("None nearby. The other side must have share EXG on, and Bluetooth on.")
-                                .setPositiveButton("OK", null)
-                                .show();
-                        return;
-                    }
-                    String[] items = names.toArray(new String[0]);
-                    new AlertDialog.Builder(ExgActivity.this)
-                            .setTitle("Nearby EXG")
-                            .setItems(items, (d, which) -> {
-                                holdLine = "waiting for Allow on the share…";
-                                holdLineUntil = android.os.SystemClock.uptimeMillis() + 20000;
-                                status.setText(holdLine);
-                                status.setTextColor(0xFFF0A040);
-                                BtPair.followAny(items[which], new BtPair.FollowSink() {
-                                    @Override
-                                    public void ok(String n) {
-                                        h.post(() -> {
-                                            holdLine = null;
-                                            StreamService.ensure(ExgActivity.this,
-                                                    ExgNative.apiOn() || ExgNative.connected());
-                                            refreshChrome();
-                                        });
-                                    }
-                                    @Override
-                                    public void no(String why) {
-                                        h.post(() -> {
-                                            holdLine = why != null && why.length() > 0
-                                                    ? why : "could not reach EXG";
-                                            holdLineUntil = android.os.SystemClock.uptimeMillis()
-                                                    + 20000;
-                                            status.setText(holdLine);
-                                            status.setTextColor(0xFFF0A040);
-                                            refreshChrome();
-                                        });
-                                    }
-                                });
-                            })
-                            .setNegativeButton("Cancel", null)
-                            .show();
-                });
-            }
-        });
     }
 
     private void fillPeers() {
@@ -1549,14 +1359,19 @@ public class ExgActivity extends Activity {
         for (int i = 0; i < nf; i++) {
             final int ix = i;
             String nm = ExgNative.followName(i);
+            String dest = ExgNative.followDest(i);
             if (nm == null || nm.length() < 1) {
+                continue;
+            }
+            if (dest == null || dest.length() < 1 || dest.startsWith("bt:")) {
                 continue;
             }
             Button b = new Button(this);
             b.setText(nm.replace('_', ' '));
             b.setOnClickListener(v -> {
                 ExgNative.followUse(ix);
-                followSaved(nm);
+                ExgNative.setLinkPath(1);
+                connectLan();
             });
             b.setOnLongClickListener(v -> {
                 ExgNative.followDel(ix);
@@ -1585,11 +1400,7 @@ public class ExgActivity extends Activity {
 
     private void pickPort() {
         if (ExgNative.linkPath() != 0) {
-            if (ExgNative.linkPath() == 1) {
-                pickLan();
-            } else {
-                pickNearby();
-            }
+            askDest();
             return;
         }
         String raw = ExgNative.ports();
@@ -1597,7 +1408,7 @@ public class ExgActivity extends Activity {
         if (items.length == 0) {
             new AlertDialog.Builder(this)
                     .setTitle("This board")
-                    .setMessage("No Knight on USB. Switch to LAN or Bluetooth to take EXG from a share.")
+                    .setMessage("No Knight on USB. Switch to LAN and type the share address.")
                     .setPositiveButton("OK", null)
                     .show();
             return;

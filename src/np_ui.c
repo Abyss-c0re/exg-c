@@ -1359,10 +1359,8 @@ static void draw_side(int x)
     int c;
     int bh = btnh(), rh = rowh();
     char live[48];
-    const char *port = g.link == 2 ? (g.link_dest[0] ? "on bluetooth" : "nearby EXG…")
-            : (g.link == 1 ? (g.link_dest[0] && strncmp(g.link_dest, "bt:", 3) ? "EXG on LAN"
-                                                                              : "EXG on wifi…")
-                           : port_short());
+    const char *port = g.link == 1 ? (g.link_dest[0] ? "EXG on LAN" : "type dest…")
+                                   : port_short();
     const char *bname = g.board == NP_BOARD_KNIGHT_IMU ? "8-ch + IMU" : "8-ch EXG";
 
     side_clamp();
@@ -1398,7 +1396,7 @@ static void draw_side(int x)
     btn(x + 188, y, 88, bh, "Settings", g.tab == 1, 31, 0, g.tab == 1 ? 36 : 28,
         g.tab == 1 ? 50 : 32, 44);
     y += rh;
-    btn(x + 12, y, 80, bh, g.link == 2 ? "BT" : (g.link == 1 ? "LAN" : "USB"), 1, 70, 0,
+    btn(x + 12, y, 80, bh, g.link == 1 ? "LAN" : "USB", 1, 70, 0,
         g.link ? 30 : 32, g.link ? 80 : 36, g.link ? 100 : 44);
     btn(x + 96, y, 84, bh, port, 1, 4, 0, 32, 36, 44);
     if (!g.connected) {
@@ -1854,12 +1852,8 @@ static void click(int x, int y)
             toggle_record();
             break;
         case 4:
-            if (g.link == 2) {
-                set_status(1, "Bluetooth EXG is nearby, not USB");
-                break;
-            }
             if (g.link == 1) {
-                set_status(1, "LAN EXG is a saved wifi share");
+                set_status(1, "LAN — type dest host:port");
                 break;
             }
             g.nports = np_list_ports(g.ports, NP_MAX_PORTS);

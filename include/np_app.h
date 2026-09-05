@@ -176,7 +176,7 @@ struct np_app {
     int api_hz;
     char api_token[NP_API_TOKEN];
     char api_push[NP_API_PUSH];
-    int link; /* 0 USB  1 LAN EXG  2 Bluetooth EXG */
+    int link; /* 0 USB  1 LAN */
     char link_dest[NP_API_PUSH];
     char link_token[NP_API_TOKEN];
     char link_id[80];

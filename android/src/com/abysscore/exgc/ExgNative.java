@@ -191,6 +191,7 @@ public final class ExgNative {
     public static native void cycleLink();
     public static native void setLinkApi(boolean api);
     public static native void setLinkPath(int path);
+    public static native void setSelf(String s);
     public static native String linkDest();
     public static native void setLinkDest(String s);
     public static native String linkToken();

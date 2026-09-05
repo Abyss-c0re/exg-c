@@ -9,6 +9,7 @@
 #include "np_api.h"
 
 int np_link_parse_dest(const char *dest, char *host, int hostn, int *http, int *udp);
+int np_link_pair(const char *dest, const char *myname, char *grant, int gn);
 int np_link_start(const char *dest, const char *token);
 void np_link_stop(void);
 int np_link_on(void);
