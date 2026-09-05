@@ -1,8 +1,28 @@
 # exg-c product audit
 
-**Date:** 2026-09-01  
+**Date:** 2026-09-05 (live pair attempt) / 2026-09-01 (mock + desk)  
 **Tree:** unaffiliated C host under `NeuroPawn/exg-c` (not NeuroPawn software).  
 **Bar:** Cube Law — source of truth over labels, no invented success, hold flash, devices free, no affiliation theater.
+
+## Live pair (2026-09-05, 2.51→2.53)
+
+Quest 3 = USB Knight + share. Titan 2 = client. Both ADB.
+
+| Check | Result | Evidence |
+|-------|--------|----------|
+| USB live on Quest | **PASS** | `connected usb:0403:6001`, 125.3 sps, frames advancing, real µV |
+| Share ports | **PASS** | HTTP 8765 / UDP 8766 / TCP 8767, `/health` v matches app |
+| LAN PING/PONG | **PASS** | 20/20, 2.8–6.6 ms, avg 3.9 ms |
+| Cook-to-API age | **PASS** | Quest clock minus `t_us`: 24–36 ms (avg 28 ms) at 125 Hz |
+| LAN GET without grant | **FAIL-CLOSED** | `/status` `/cfg` `/sample` from the LAN return `token` even when `token:false`. Grant table is on. Docs said otherwise; docs fixed. |
+| UDP SUB without grant | **FAIL-CLOSED** | 0 frames. Need `SUB1`+grant. |
+| Client mirrors share | **NOT RUN** | Titan lockscreen (password/fingerprint). No pair, no grant, no follow. |
+| Bluetooth nearby scan | **WAS HUNG** | API 33+ receiver was not exported; `DISCOVERY_FINISHED` never arrived. Fixed 2.52 (export + 12 s timeout). After the fix the dialog ends. |
+| Scan finds the share | **FAIL** | Quest was `CONNECTABLE`, not findable. Titan bonded list has no Quest. Scan returned none. 2.53 asks to be findable when share turns on. |
+| BT path persists | **WAS WRONG** | ini saved `link` as 0/1, so Bluetooth became LAN after restart. Fixed 2.53. |
+| `/status` version | **WAS STALE** | said 2.31. Now matches the app. |
+
+Unlock Titan, Allow findable on the share, Connect on Bluetooth, Allow the ask, then repeat the mirror + RTT rows. Do not claim the client mirrors until that run.
 
 ## What this is
 
