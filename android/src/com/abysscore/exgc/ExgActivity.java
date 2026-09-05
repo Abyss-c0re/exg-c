@@ -507,6 +507,7 @@ public class ExgActivity extends Activity {
         refreshLearnChips();
         applyUiScale();
         h.post(tick);
+        takeFollowIntent(getIntent());
         h.postDelayed(() -> {
             if (!ExgNative.connected()) {
                 if (ExgNative.linkPath() != 0) {
@@ -524,6 +525,78 @@ public class ExgActivity extends Activity {
         try {
             StreamService.ensure(this, ExgNative.apiOn() || ExgNative.connected());
         } catch (RuntimeException ignored) {
+        }
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        takeFollowIntent(intent);
+    }
+
+    private void takeFollowIntent(Intent it) {
+        if (it == null) {
+            return;
+        }
+        String mac = it.getStringExtra("followmac");
+        String name = it.getStringExtra("follow");
+        if (mac != null && mac.length() >= 17) {
+            BluetoothAdapter ad = BluetoothAdapter.getDefaultAdapter();
+            if (ad == null) {
+                holdLine = "no bluetooth";
+                holdLineUntil = android.os.SystemClock.uptimeMillis() + 20000;
+                return;
+            }
+            final String shown = (name != null && name.length() > 0) ? name : "EXG";
+            holdLine = "waiting for Allow on the share…";
+            holdLineUntil = android.os.SystemClock.uptimeMillis() + 20000;
+            ExgNative.setLinkPath(2);
+            BluetoothDevice dev = ad.getRemoteDevice(mac);
+            BtPair.follow(dev, shown, new BtPair.FollowSink() {
+                @Override
+                public void ok(String n) {
+                    h.post(() -> {
+                        holdLine = null;
+                        StreamService.ensure(ExgActivity.this,
+                                ExgNative.apiOn() || ExgNative.connected());
+                        refreshChrome();
+                    });
+                }
+                @Override
+                public void no(String why) {
+                    h.post(() -> {
+                        holdLine = why != null && why.length() > 0 ? why : "could not reach EXG";
+                        holdLineUntil = android.os.SystemClock.uptimeMillis() + 20000;
+                        refreshChrome();
+                    });
+                }
+            });
+            return;
+        }
+        if (name != null && name.length() > 0) {
+            holdLine = "waiting for Allow on the share…";
+            holdLineUntil = android.os.SystemClock.uptimeMillis() + 20000;
+            ExgNative.setLinkPath(2);
+            BtPair.followAny(name, new BtPair.FollowSink() {
+                @Override
+                public void ok(String n) {
+                    h.post(() -> {
+                        holdLine = null;
+                        StreamService.ensure(ExgActivity.this,
+                                ExgNative.apiOn() || ExgNative.connected());
+                        refreshChrome();
+                    });
+                }
+                @Override
+                public void no(String why) {
+                    h.post(() -> {
+                        holdLine = why != null && why.length() > 0 ? why : "could not reach EXG";
+                        holdLineUntil = android.os.SystemClock.uptimeMillis() + 20000;
+                        refreshChrome();
+                    });
+                }
+            });
         }
     }
 
