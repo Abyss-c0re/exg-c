@@ -1876,7 +1876,7 @@ static void api_status_json(char *out, int n)
         }
     }
     snprintf(out, (size_t)n,
-             "{\"ok\":true,\"v\":\"2.54\",\"connected\":%s,\"paused\":%s,\"sps\":%.1f,"
+             "{\"ok\":true,\"v\":\"2.55\",\"connected\":%s,\"paused\":%s,\"sps\":%.1f,"
              "\"frames\":%u,\"status\":\"%s\",\"id\":\"%s\",\"id_best\":%d,"
              "\"notch\":%d,\"hp\":%d,\"lp\":%d,\"car\":%d,\"band\":%d,\"mask\":%u,"
              "\"api\":\"%s\"}",
@@ -3117,6 +3117,82 @@ void do_disconnect(void)
     set_status(1, "disconnected");
 }
 
+static void csv_close(void)
+{
+    g.recording = 0;
+    pthread_mutex_lock(&g.csv_mu);
+    if (g.csv) {
+        fclose(g.csv);
+        g.csv = NULL;
+    }
+    pthread_mutex_unlock(&g.csv_mu);
+}
+
+static int csv_open(FILE *f, const char *label)
+{
+    if (!f) {
+        return -1;
+    }
+    setvbuf(f, NULL, _IOFBF, 8192);
+    fprintf(f, "time,seq,ch1,ch2,ch3,ch4,ch5,ch6,ch7,ch8,loff_p,loff_n\n");
+    pthread_mutex_lock(&g.csv_mu);
+    if (g.csv) {
+        fclose(g.csv);
+    }
+    g.csv = f;
+    pthread_mutex_unlock(&g.csv_mu);
+    g.recording = 1;
+    snprintf(g.csv_path, sizeof(g.csv_path), "%s", label && label[0] ? label : "csv");
+    set_status(1, "recording %s", g.csv_path);
+    return 0;
+}
+
+int np_host_csv_begin(const char *path)
+{
+    FILE *f;
+    if (!g.connected) {
+        set_status(0, "connect before record");
+        return -1;
+    }
+    if (!path || !path[0]) {
+        return -1;
+    }
+    if (g.recording) {
+        csv_close();
+    }
+    f = fopen(path, "w");
+    if (!f) {
+        set_status(0, "cannot write %s", path);
+        return -1;
+    }
+    return csv_open(f, path);
+}
+
+int np_host_csv_begin_fd(int fd, const char *name)
+{
+    FILE *f;
+    if (!g.connected) {
+        if (fd >= 0) {
+            close(fd);
+        }
+        set_status(0, "connect before record");
+        return -1;
+    }
+    if (fd < 0) {
+        return -1;
+    }
+    if (g.recording) {
+        csv_close();
+    }
+    f = fdopen(fd, "w");
+    if (!f) {
+        close(fd);
+        set_status(0, "cannot write CSV");
+        return -1;
+    }
+    return csv_open(f, name && name[0] ? name : "exg.csv");
+}
+
 void toggle_record(void)
 {
     if (!g.connected) {
@@ -3124,40 +3200,26 @@ void toggle_record(void)
         return;
     }
     if (g.recording) {
-        g.recording = 0;
-        pthread_mutex_lock(&g.csv_mu);
-        if (g.csv) {
-            fclose(g.csv);
-            g.csv = NULL;
-        }
-        pthread_mutex_unlock(&g.csv_mu);
-        set_status(1, "stopped %s", g.csv_path);
+        csv_close();
+        set_status(1, "saved %s", g.csv_path);
         return;
     }
     {
         time_t t = time(NULL);
         struct tm tm;
         FILE *f;
+        char stamp[40], root[NP_MAX_PATH];
         localtime_r(&t, &tm);
-        {
-            char stamp[40], root[NP_MAX_PATH];
-            strftime(stamp, sizeof(stamp), "knight-%Y%m%d-%H%M%S.csv", &tm);
-            np_cfg_root(root, sizeof(root));
-            mkdir(root, 0755);
-            snprintf(g.csv_path, sizeof(g.csv_path), "%s/%s", root, stamp);
-        }
+        strftime(stamp, sizeof(stamp), "knight-%Y%m%d-%H%M%S.csv", &tm);
+        np_cfg_root(root, sizeof(root));
+        mkdir(root, 0755);
+        snprintf(g.csv_path, sizeof(g.csv_path), "%s/%s", root, stamp);
         f = fopen(g.csv_path, "w");
         if (!f) {
             set_status(0, "cannot write %s", g.csv_path);
             return;
         }
-        setvbuf(f, NULL, _IOFBF, 8192);
-        fprintf(f, "time,seq,ch1,ch2,ch3,ch4,ch5,ch6,ch7,ch8,loff_p,loff_n\n");
-        pthread_mutex_lock(&g.csv_mu);
-        g.csv = f;
-        pthread_mutex_unlock(&g.csv_mu);
-        g.recording = 1;
-        set_status(1, "recording %s", g.csv_path);
+        csv_open(f, g.csv_path);
     }
 }
 

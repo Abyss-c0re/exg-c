@@ -150,6 +150,8 @@ int np_host_rec_ms(void);
 
 int np_host_csv(void);
 void np_host_toggle_csv(void);
+int np_host_csv_begin(const char *path);
+int np_host_csv_begin_fd(int fd, const char *name);
 /* 128-pt strip FFT, 64 bins. Fills dst[0..n), writes peak Hz. */
 int np_host_fft(float *dst, int max, int *peak_hz);
 

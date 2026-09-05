@@ -97,6 +97,7 @@ public final class ExgNative {
     public static native boolean paused();
     public static native boolean csvOn();
     public static native void toggleCsv();
+    public static native int csvBeginFd(int fd, String name);
     /* Fills up to 64 bins (128-pt strip). Returns peak Hz. */
     public static native int copyFft(float[] dst);
     public static native void toggleAtom();

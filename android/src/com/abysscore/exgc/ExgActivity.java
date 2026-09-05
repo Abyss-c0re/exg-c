@@ -8,6 +8,7 @@ import android.bluetooth.BluetoothDevice;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.net.Uri;
+import android.os.ParcelFileDescriptor;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -89,6 +90,8 @@ public class ExgActivity extends Activity {
     private boolean running = true;
     private static final int REQ_EXPORT = 71;
     private static final int REQ_IMPORT = 72;
+    private static final int REQ_CSV = 73;
+    private String csvPickName = "exg.csv";
 
     private final Runnable tick = new Runnable() {
         @Override
@@ -310,8 +313,23 @@ public class ExgActivity extends Activity {
             refreshChrome();
         });
         csv.setOnClickListener(v -> {
-            ExgNative.toggleCsv();
-            refreshChrome();
+            if (ExgNative.csvOn()) {
+                ExgNative.toggleCsv();
+                refreshChrome();
+                return;
+            }
+            if (!ExgNative.connected()) {
+                status.setText("connect before record");
+                return;
+            }
+            csvPickName = "knight-" + new java.text.SimpleDateFormat(
+                    "yyyyMMdd-HHmmss", java.util.Locale.US)
+                    .format(new java.util.Date()) + ".csv";
+            Intent it = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+            it.addCategory(Intent.CATEGORY_OPENABLE);
+            it.setType("text/csv");
+            it.putExtra(Intent.EXTRA_TITLE, csvPickName);
+            startActivityForResult(it, REQ_CSV);
         });
         pause.setOnClickListener(v -> {
             ExgNative.togglePause();
@@ -779,6 +797,24 @@ public class ExgActivity extends Activity {
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
         if (resultCode != RESULT_OK || data == null || data.getData() == null) {
+            return;
+        }
+        if (requestCode == REQ_CSV) {
+            Uri dest = data.getData();
+            try {
+                ParcelFileDescriptor pfd = getContentResolver().openFileDescriptor(dest, "w");
+                if (pfd == null) {
+                    status.setText("cannot write CSV");
+                    return;
+                }
+                int fd = pfd.detachFd();
+                if (ExgNative.csvBeginFd(fd, csvPickName) != 0) {
+                    status.setText("cannot write CSV");
+                }
+                refreshChrome();
+            } catch (Exception e) {
+                status.setText("CSV: " + e.getMessage());
+            }
             return;
         }
         Uri uri = data.getData();
