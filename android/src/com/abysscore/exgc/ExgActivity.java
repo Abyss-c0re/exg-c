@@ -164,7 +164,6 @@ public class ExgActivity extends Activity {
         kitSend = findViewById(R.id.kitSend);
         kitTake = findViewById(R.id.kitTake);
         kitBoth = findViewById(R.id.kitBoth);
-        ExgNativeApp.ctx = getApplicationContext();
         tabMain = findViewById(R.id.tabMain);
         tabCube = findViewById(R.id.tabCube);
         tabPoses = findViewById(R.id.tabPoses);
