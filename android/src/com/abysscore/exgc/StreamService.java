@@ -150,7 +150,9 @@ public class StreamService extends Service {
         Intent yes = new Intent(this, PairReceiver.class).setAction(PairReceiver.ALLOW);
         Intent no = new Intent(this, PairReceiver.class).setAction(PairReceiver.NO);
         int fl = PendingIntent.FLAG_UPDATE_CURRENT;
-        if (Build.VERSION.SDK_INT >= 23) {
+        if (Build.VERSION.SDK_INT >= 31) {
+            fl |= PendingIntent.FLAG_MUTABLE;
+        } else if (Build.VERSION.SDK_INT >= 23) {
             fl |= PendingIntent.FLAG_IMMUTABLE;
         }
         PendingIntent py = PendingIntent.getBroadcast(this, 2, yes, fl);

@@ -16,8 +16,9 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 
-import java.io.BufferedReader;
-import java.io.InputStreamReader;
+import android.util.Log;
+
+import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.charset.Charset;
 import java.util.ArrayList;
@@ -97,8 +98,10 @@ public final class BtPair {
         listenThr = new Thread(() -> {
             try {
                 server = ad.listenUsingInsecureRfcommWithServiceRecord("exg", SVC);
+                Log.i("exg-c", "rfcomm listen");
             } catch (Exception e) {
                 listen = false;
+                Log.e("exg-c", "rfcomm listen failed", e);
                 return;
             }
             while (listen && server != null) {
@@ -135,12 +138,12 @@ public final class BtPair {
     }
 
     private static void handleIn(BluetoothSocket s) throws Exception {
-        BufferedReader in = new BufferedReader(new InputStreamReader(s.getInputStream(), UTF8));
+        java.io.InputStream rawIn = s.getInputStream();
         OutputStream out = s.getOutputStream();
         String name = "exg";
         String grantIn = "";
         String line;
-        while ((line = in.readLine()) != null) {
+        while ((line = readLine(rawIn)) != null) {
             if (line.startsWith("NAME ")) {
                 name = line.substring(5).trim();
             } else if (line.startsWith("GRANT ")) {
@@ -455,19 +458,48 @@ public final class BtPair {
         }, 8000);
     }
 
+    private static BluetoothSocket openRfcomm(BluetoothDevice dev) throws IOException {
+        BluetoothAdapter ad = BluetoothAdapter.getDefaultAdapter();
+        if (ad != null) {
+            try {
+                ad.cancelDiscovery();
+            } catch (SecurityException ignored) {
+            }
+        }
+        IOException last = null;
+        try {
+            BluetoothSocket s = dev.createInsecureRfcommSocketToServiceRecord(SVC);
+            s.connect();
+            return s;
+        } catch (IOException e) {
+            last = e;
+            Log.w("exg-c", "rfcomm insecure uuid: " + e.getMessage());
+        }
+        try {
+            BluetoothSocket s = dev.createRfcommSocketToServiceRecord(SVC);
+            s.connect();
+            return s;
+        } catch (IOException e) {
+            last = e;
+            Log.w("exg-c", "rfcomm uuid: " + e.getMessage());
+        }
+        try {
+            java.lang.reflect.Method m = dev.getClass().getMethod(
+                    "createInsecureRfcommSocket", int.class);
+            BluetoothSocket s = (BluetoothSocket) m.invoke(dev, 1);
+            s.connect();
+            return s;
+        } catch (Exception e) {
+            Log.w("exg-c", "rfcomm ch1: " + e.getMessage());
+        }
+        throw last != null ? last : new IOException("rfcomm failed");
+    }
+
     static void follow(final BluetoothDevice dev, final String shown, final FollowSink sink) {
         new Thread(() -> {
             BluetoothSocket s = null;
             try {
-                BluetoothAdapter ad = BluetoothAdapter.getDefaultAdapter();
-                if (ad != null) {
-                    try {
-                        ad.cancelDiscovery();
-                    } catch (SecurityException ignored) {
-                    }
-                }
-                s = dev.createInsecureRfcommSocketToServiceRecord(SVC);
-                s.connect();
+                s = openRfcomm(dev);
                 OutputStream out = s.getOutputStream();
                 java.io.InputStream raw = s.getInputStream();
                 String grant = ExgNative.followGrant(shown);
@@ -526,7 +558,12 @@ public final class BtPair {
                 sink.ok(shown);
                 pumpIn(s);
             } catch (Exception e) {
-                sink.no("could not reach EXG");
+                String why = e.getMessage();
+                if (why == null || why.length() < 1) {
+                    why = e.getClass().getSimpleName();
+                }
+                Log.e("exg-c", "follow failed: " + why);
+                sink.no("could not reach EXG — " + why);
             } finally {
                 followLive = false;
                 followSock = null;

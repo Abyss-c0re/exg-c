@@ -1,4 +1,4 @@
-# API (2.55)
+# API (2.56)
 
 C only (`include/np_api.h`, `src/np_api.c`). No Python in this tree.
 
@@ -16,7 +16,7 @@ Default: **off**. Settings → **API on**. Then:
 
 Cook runs on the **USB reader** thread. The API thread wakes on a pipe and sends. Sockets do not block the cook. There is no fake sample delay.
 
-`/` and `/health` advertise `"v":"2.55"`. GET `/status` is the same version. GET/POST `/kit` is map+settings text (no bind secrets). Live stream is **EXG1** binary. There is no `/stream.json`.
+`/` and `/health` advertise `"v":"2.56"`. GET `/status` is the same version. GET/POST `/kit` is map+settings text (no bind secrets). Live stream is **EXG1** binary. There is no `/stream.json`.
 
 `GET /cfg` is the settings mirror: API bind plus EXG filters, 8 colors, 8 10-10 names, active mask, and the ID line. Token value is never returned (only `true`/`false`). Dest and token are typed on the client. Loopback GET is open. LAN `/status` `/sample` `/cfg` need the lock word **or** a pair grant — `token:false` does not mean the LAN is open once a grant table exists.
 

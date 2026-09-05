@@ -43,6 +43,9 @@ public class ExgActivity extends Activity {
     private View settings;
     private View learnBar;
     private TextView status;
+    private View pairBar;
+    private TextView pairWho;
+    private Button pairYes, pairNo;
     private TextView imuLine;
     private TextView idLine;
     private TextView profList;
@@ -139,6 +142,10 @@ public class ExgActivity extends Activity {
         settings = findViewById(R.id.settings);
         learnBar = findViewById(R.id.learnBar);
         status = findViewById(R.id.status);
+        pairBar = findViewById(R.id.pairBar);
+        pairWho = findViewById(R.id.pairWho);
+        pairYes = findViewById(R.id.pairYes);
+        pairNo = findViewById(R.id.pairNo);
         imuLine = findViewById(R.id.imuLine);
         idLine = findViewById(R.id.idLine);
         profList = findViewById(R.id.profList);
@@ -193,6 +200,14 @@ public class ExgActivity extends Activity {
         profChips = findViewById(R.id.profChips);
         learnChips = findViewById(R.id.learnChips);
 
+        pairYes.setOnClickListener(v -> {
+            ExgNative.pairAccept();
+            refreshChrome();
+        });
+        pairNo.setOnClickListener(v -> {
+            ExgNative.pairReject();
+            refreshChrome();
+        });
         connect.setOnClickListener(v -> {
             if (ExgNative.connected()) {
                 BtPair.followStop();
@@ -614,6 +629,19 @@ public class ExgActivity extends Activity {
                     ? "EXG on wifi…" : "EXG on LAN");
         } else {
             port.setText(ports == null || ports.length() == 0 ? "no Knight" : ports.split("\n")[0]);
+        }
+        {
+            int pst = ExgNative.pairState();
+            if (pst == 1) {
+                pairBar.setVisibility(View.VISIBLE);
+                String who = ExgNative.pairName();
+                if (who == null || who.length() < 1) {
+                    who = "Someone";
+                }
+                pairWho.setText(who.replace('_', ' ') + " wants EXG");
+            } else {
+                pairBar.setVisibility(View.GONE);
+            }
         }
         String st = ExgNative.status();
         float sps = ExgNative.sps();
@@ -1340,6 +1368,9 @@ public class ExgActivity extends Activity {
             @Override
             public void no(String why) {
                 h.post(() -> {
+                    if (why != null && why.length() > 0) {
+                        status.setText(why);
+                    }
                     pickNearby();
                 });
             }
@@ -1391,6 +1422,7 @@ public class ExgActivity extends Activity {
                                 if (dv == null) {
                                     return;
                                 }
+                                status.setText("waiting for Allow on the share…");
                                 BtPair.follow(dv, items[which], new BtPair.FollowSink() {
                                     @Override
                                     public void ok(String n) {
@@ -1402,7 +1434,12 @@ public class ExgActivity extends Activity {
                                     }
                                     @Override
                                     public void no(String why) {
-                                        h.post(() -> refreshChrome());
+                                        h.post(() -> {
+                                            if (why != null && why.length() > 0) {
+                                                status.setText(why);
+                                            }
+                                            refreshChrome();
+                                        });
                                     }
                                 });
                             })

@@ -60,6 +60,42 @@
         android:textColor="@color/ok"
         android:textSize="13sp" />
 
+    <LinearLayout
+        android:id="@+id/pairBar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="#3A1820"
+        android:gravity="center_vertical"
+        android:padding="6dp"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/pairWho"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:paddingStart="8dp"
+            android:text="wants EXG"
+            android:textColor="@color/ink"
+            android:textSize="15sp" />
+
+        <Button
+            android:id="@+id/pairYes"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:backgroundTint="#2E8A58"
+            android:text="Allow"
+            android:textColor="@color/ink" />
+
+        <Button
+            android:id="@+id/pairNo"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:backgroundTint="#8A3038"
+            android:text="No"
+            android:textColor="@color/ink" />
+    </LinearLayout>
+
     <TextView
         android:id="@+id/imuLine"
         android:layout_width="match_parent"
