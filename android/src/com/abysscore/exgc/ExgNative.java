@@ -88,6 +88,7 @@ public final class ExgNative {
     public static native boolean envelope();
     public static native void toggleEnvelope();
     public static native int band();
+    public static native boolean bandFit();
     public static native void cycleBand();
     public static native boolean clipped(int ch);
     public static native int algo();

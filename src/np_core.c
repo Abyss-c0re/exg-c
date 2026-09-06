@@ -48,7 +48,7 @@
 
 struct np_app g;
 static float atom_raw[NP_ATOM_RING][NP_NCHAN * NP_ATOM_WIN];
-const int SCALE_UV[NSCALE] = {50, 100, 200, 500, 1000, 5000};
+const int SCALE_UV[NSCALE] = {50, 100, 200, 500, 1000, 2000, 5000};
 const int WIN_S[NWINS] = {1, 2, 4, 8};
 const int WINPREF[NWINPREF][2] = {{1280, 800}, {1440, 900}, {1600, 1000}, {1920, 1080}};
 const int CHCOL[NP_NCHAN][3] = {
@@ -1421,6 +1421,48 @@ static int cfg_read(const char *path)
         g.pref_h = WIN_H;
     }
     link_sanitize();
+    if (g.window_s != 1 && g.window_s != 2 && g.window_s != 4 && g.window_s != 8) {
+        g.window_s = 2;
+    }
+    if (g.scale_uv > 20000) {
+        g.scale_uv = 5000;
+    }
+    if (g.notch_hz != 0 && g.notch_hz != 50 && g.notch_hz != 60 && g.notch_hz != -1) {
+        g.notch_hz = 0;
+    }
+    if (g.hp_hz != 0 && g.hp_hz != 1 && g.hp_hz != 2 && g.hp_hz != 5 && g.hp_hz != 20) {
+        g.hp_hz = 0;
+    }
+    if (g.lp_hz != 0 && g.lp_hz != 20 && g.lp_hz != 40) {
+        g.lp_hz = 0;
+    }
+    if (g.api_hz < 1 || g.api_hz > 125) {
+        g.api_hz = 125;
+    }
+    if (g.api_http < 0 || g.api_http > 65535) {
+        g.api_http = 8765;
+    }
+    if (g.api_udp < 0 || g.api_udp > 65535) {
+        g.api_udp = 8766;
+    }
+    if (g.api_tcp < 0 || g.api_tcp > 65535) {
+        g.api_tcp = 8767;
+    }
+    {
+        int c, i, ok;
+        for (c = 0; c < NP_NCHAN; c++) {
+            ok = 0;
+            for (i = 0; i < NP_NGAINS; i++) {
+                if (NP_GAINS[i] == g.gain[c]) {
+                    ok = 1;
+                    break;
+                }
+            }
+            if (!ok) {
+                g.gain[c] = 12;
+            }
+        }
+    }
     return 0;
 }
 
@@ -1786,6 +1828,32 @@ static void cook_id(float buf[NP_NCHAN][NP_RING], uint32_t nn[NP_NCHAN])
     }
 }
 
+static int band_from_filters(void)
+{
+    int notch_on = g.notch_hz != 0;
+    if (g.hp_hz == 0 && g.lp_hz == 0 && !g.car && !g.envelope && !g.detrend && !notch_on) {
+        return NP_BAND_RAW;
+    }
+    if (g.hp_hz == 2 && g.lp_hz == 0 && g.car && !g.envelope && g.detrend && notch_on) {
+        return NP_BAND_LINE;
+    }
+    if (g.hp_hz == 2 && g.lp_hz == 40 && g.car && !g.envelope && g.detrend && notch_on) {
+        return NP_BAND_EEG;
+    }
+    if (g.hp_hz == 20 && g.lp_hz == 0 && g.car && g.envelope && g.detrend && g.notch_hz == 50) {
+        return NP_BAND_EMG;
+    }
+    return -1;
+}
+
+static void band_resync(void)
+{
+    int b = band_from_filters();
+    if (b >= 0) {
+        g.band = b;
+    }
+}
+
 static void band_apply(int band)
 {
     if (band < 0 || band >= NP_BAND_N) {
@@ -1893,7 +1961,7 @@ static void api_status_json(char *out, int n)
         }
     }
     snprintf(out, (size_t)n,
-             "{\"ok\":true,\"v\":\"2.61\",\"connected\":%s,\"paused\":%s,\"sps\":%.1f,"
+             "{\"ok\":true,\"v\":\"2.62\",\"connected\":%s,\"paused\":%s,\"sps\":%.1f,"
              "\"frames\":%u,\"status\":\"%s\",\"id\":\"%s\",\"id_best\":%d,"
              "\"notch\":%d,\"hp\":%d,\"lp\":%d,\"car\":%d,\"band\":%d,\"mask\":%u,"
              "\"api\":\"%s\"}",
@@ -2110,7 +2178,10 @@ void api_apply(void)
     np_api_set_grant_fn(host_grant_ok);
     np_api_set_kit_fn(np_host_kit_export, np_host_kit_import);
     np_api_set_pair_ask_fn(np_host_pair_ask);
-    np_api_apply(&c);
+    if (np_api_apply(&c) != 0 && g.api_on) {
+        g.api_on = 0;
+        set_status(0, "share did not bind — pick a free port");
+    }
 }
 
 static void api_emit(const float *v, uint32_t frames)
@@ -2373,6 +2444,9 @@ uint32_t view_copy(int ch, float *dst, uint32_t n)
         if (g.cal_cut && g.calm.have && got > 0) {
             np_sub_dc(dst, (int)got, g.calm.dc[ch]);
         }
+        if (g.detrend && got > 1) {
+            np_detrend(dst, (int)got);
+        }
         return got;
     }
     np_ring_stats(&g.ring, &tot, NULL, NULL);
@@ -2404,6 +2478,9 @@ uint32_t view_copy(int ch, float *dst, uint32_t n)
             got = clean_n[ch];
         }
         memcpy(dst, clean_ch[ch], got * sizeof(float));
+    }
+    if (g.detrend && got > 1) {
+        np_detrend(dst, (int)got);
     }
     return got;
 }
@@ -4141,7 +4218,20 @@ void np_host_set_active(int ch, int on)
     if (ch < 0 || ch >= NP_NCHAN) {
         return;
     }
+    if (!on) {
+        int i, n = 0;
+        for (i = 0; i < NP_NCHAN; i++) {
+            if (i != ch && g.active[i]) {
+                n++;
+            }
+        }
+        if (n < 1) {
+            set_status(0, "leave at least one channel on");
+            return;
+        }
+    }
     g.active[ch] = on ? 1 : 0;
+    cfg_save();
     if (g.connected) {
         cmd_push(g.active[ch] ? CMD_CHON : CMD_CHOFF, ch + 1, g.gain[ch]);
     }
@@ -4701,6 +4791,7 @@ void np_host_cycle_notch(void)
     } else {
         g.notch_hz = 50;
     }
+    band_resync();
     filt_reset();
     cfg_save();
 }
@@ -4710,6 +4801,7 @@ void np_host_set_notch(int hz)
         hz = 50;
     }
     g.notch_hz = hz;
+    band_resync();
     filt_reset();
     cfg_save();
     prof_autosave();
@@ -4722,6 +4814,7 @@ void np_host_cycle_hp(void)
     for (k = 0; k < 5; k++) {
         if (hp[k] == g.hp_hz) {
             g.hp_hz = hp[(k + 1) % 5];
+            band_resync();
             filt_reset();
             cfg_save();
             return;
@@ -4735,6 +4828,7 @@ void np_host_set_hp(int hz)
         hz = 1;
     }
     g.hp_hz = hz;
+    band_resync();
     filt_reset();
     cfg_save();
     prof_autosave();
@@ -4751,6 +4845,7 @@ void np_host_cycle_lp(void)
     for (k = 0; k < 3; k++) {
         if (lp[k] == g.lp_hz) {
             g.lp_hz = lp[(k + 1) % 3];
+            band_resync();
             filt_reset();
             cfg_save();
             return;
@@ -4764,6 +4859,7 @@ void np_host_set_lp(int hz)
         hz = 0;
     }
     g.lp_hz = hz;
+    band_resync();
     filt_reset();
     cfg_save();
     prof_autosave();
@@ -4776,6 +4872,7 @@ int np_host_car(void)
 void np_host_toggle_car(void)
 {
     g.car = !g.car;
+    band_resync();
     filt_reset();
     cfg_save();
     prof_autosave();
@@ -4788,6 +4885,7 @@ int np_host_detrend(void)
 void np_host_toggle_detrend(void)
 {
     g.detrend = !g.detrend;
+    band_resync();
     cfg_save();
     prof_autosave();
     data_recook();
@@ -4799,6 +4897,7 @@ int np_host_envelope(void)
 void np_host_toggle_envelope(void)
 {
     g.envelope = !g.envelope;
+    band_resync();
     filt_reset();
     cfg_save();
     prof_autosave();
@@ -4815,6 +4914,11 @@ void np_host_cycle_band(void)
 void np_host_set_band(int band)
 {
     band_apply(band);
+}
+
+int np_host_band_fit(void)
+{
+    return band_from_filters() == g.band;
 }
 int np_host_ch_clip(int ch)
 {
@@ -5802,8 +5906,7 @@ void np_host_atom_id_line(char *out, int n)
         }
         return;
     }
-    snprintf(out, (size_t)n, "now %s  %.0f%%", atom_listed[g.atom_id_best],
-             (double)(g.atom_id[g.atom_id_best] * 100.f));
+    snprintf(out, (size_t)n, "now %s", atom_listed[g.atom_id_best]);
 }
 
 int np_host_imu(float acc[3], float gyr[3], float mag[3])
@@ -5869,9 +5972,16 @@ int np_host_api_on(void)
 }
 void np_host_api_set_on(int on)
 {
+    if (on && g.api_http <= 0 && g.api_udp <= 0 && g.api_tcp <= 0) {
+        set_status(0, "share needs a port — settings 8765");
+        return;
+    }
     g.api_on = on ? 1 : 0;
     cfg_save();
     api_apply();
+    if (g.api_on && !np_api_on()) {
+        set_status(0, "share did not bind — pick a free port");
+    }
 }
 int np_host_api_lan(void)
 {
@@ -5903,10 +6013,28 @@ int np_host_api_http(void)
 {
     return g.api_http;
 }
+static int port_clash(int http, int udp, int tcp)
+{
+    if (http > 0 && udp > 0 && http == udp) {
+        return 1;
+    }
+    if (http > 0 && tcp > 0 && http == tcp) {
+        return 1;
+    }
+    if (udp > 0 && tcp > 0 && udp == tcp) {
+        return 1;
+    }
+    return 0;
+}
+
 void np_host_api_set_http(int port)
 {
     if (port < 0 || port > 65535) {
         port = 8765;
+    }
+    if (port_clash(port, g.api_udp, g.api_tcp)) {
+        set_status(0, "settings port already used by EXG or spare");
+        return;
     }
     g.api_http = port;
     cfg_save();
@@ -5921,6 +6049,10 @@ void np_host_api_set_udp(int port)
     if (port < 0 || port > 65535) {
         port = 8766;
     }
+    if (port_clash(g.api_http, port, g.api_tcp)) {
+        set_status(0, "EXG port already used by settings or spare");
+        return;
+    }
     g.api_udp = port;
     cfg_save();
     api_apply();
@@ -5933,6 +6065,10 @@ void np_host_api_set_tcp(int port)
 {
     if (port < 0 || port > 65535) {
         port = 8767;
+    }
+    if (port_clash(g.api_http, g.api_udp, port)) {
+        set_status(0, "spare port already used by settings or EXG");
+        return;
     }
     g.api_tcp = port;
     cfg_save();
@@ -5947,7 +6083,18 @@ void np_host_api_token(char *out, int n)
 }
 void np_host_api_set_token(const char *s)
 {
-    snprintf(g.api_token, sizeof(g.api_token), "%s", s ? s : "");
+    int i, o = 0;
+    if (!s) {
+        s = "";
+    }
+    for (i = 0; s[i] && o < (int)sizeof(g.api_token) - 1; i++) {
+        char c = s[i];
+        if (c == ' ' || c == '\r' || c == '\n' || c == '\t') {
+            continue;
+        }
+        g.api_token[o++] = c;
+    }
+    g.api_token[o] = 0;
     cfg_save();
     api_apply();
 }
@@ -5960,7 +6107,15 @@ void np_host_api_push(char *out, int n)
 }
 void np_host_api_set_push(const char *s)
 {
+    char host[128];
+    int hp = 0, up = 0;
     snprintf(g.api_push, sizeof(g.api_push), "%s", s ? s : "");
+    if (g.api_push[0] && np_link_parse_dest(g.api_push, host, (int)sizeof(host), &hp, &up) != 0) {
+        g.api_push[0] = 0;
+        set_status(0, "extra send is host:port");
+        cfg_save();
+        return;
+    }
     cfg_save();
     api_apply();
 }
@@ -6030,9 +6185,15 @@ void np_host_link_dest(char *out, int n)
 void np_host_set_link_dest(const char *s)
 {
     char next[NP_API_PUSH];
+    char host[128];
+    int hp = 8765, up = 8766;
     snprintf(next, sizeof(next), "%s", s ? s : "");
     if (strncmp(next, "bt:", 3) == 0) {
         next[0] = 0;
+    }
+    if (next[0] && np_link_parse_dest(next, host, (int)sizeof(host), &hp, &up) != 0) {
+        set_status(0, "dest is host or host:8765");
+        return;
     }
     if (strcmp(g.link_dest, next) != 0) {
         g.link_token[0] = 0;

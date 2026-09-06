@@ -733,6 +733,14 @@ Java_com_abysscore_exgc_ExgNative_band(JNIEnv *env, jclass cls)
     return np_host_band();
 }
 
+JNIEXPORT jboolean JNICALL
+Java_com_abysscore_exgc_ExgNative_bandFit(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    return np_host_band_fit() ? JNI_TRUE : JNI_FALSE;
+}
+
 JNIEXPORT void JNICALL
 Java_com_abysscore_exgc_ExgNative_cycleBand(JNIEnv *env, jclass cls)
 {

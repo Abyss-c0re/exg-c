@@ -452,7 +452,7 @@ public class ExgActivity extends Activity {
             ExgNative.setApiLan(!ExgNative.apiLan());
             refreshChrome();
         });
-        apiHz.setOnClickListener(v -> askPort("EXG samples per second", ExgNative.apiHz(), p -> {
+        apiHz.setOnClickListener(v -> askPort("Share rate (API emit Hz, not board SPS). 1–125", ExgNative.apiHz(), p -> {
             ExgNative.setApiHz(p < 1 ? 1 : p);
             refreshChrome();
         }));
@@ -784,12 +784,21 @@ public class ExgActivity extends Activity {
         }
         refreshLearnChips();
         int nh = ExgNative.notch();
-        notch.setText(nh < 0 ? "notch AUTO" : (nh == 0 ? "notch off" : "notch " + nh));
+        if (nh < 0) {
+            int eff = ExgNative.notchEff();
+            notch.setText(eff > 0 ? ("notch AUTO " + eff) : "notch AUTO idle");
+        } else {
+            notch.setText(nh == 0 ? "notch off" : "notch " + nh);
+        }
         hp.setText(ExgNative.hp() == 0 ? "hp off" : "hp " + ExgNative.hp() + "Hz");
         scale.setText("±" + ExgNative.scaleUv() + " µV");
         win.setText("win " + ExgNative.windowS() + "s");
         int bd = ExgNative.band();
-        band.setText(bd == 1 ? "band line-kill" : (bd == 2 ? "band EEG" : (bd == 3 ? "band EMG" : "band raw")));
+        if (!ExgNative.bandFit()) {
+            band.setText("band mix");
+        } else {
+            band.setText(bd == 1 ? "band line-kill" : (bd == 2 ? "band EEG" : (bd == 3 ? "band EMG" : "band raw")));
+        }
         car.setText(ExgNative.car() ? "CAR on" : "CAR off");
         detrend.setText(ExgNative.detrend() ? "detrend" : "raw DC");
         env.setText(ExgNative.envelope() ? "envelope" : "wave");

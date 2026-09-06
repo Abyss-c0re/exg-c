@@ -104,6 +104,7 @@ void np_host_toggle_detrend(void);
 int np_host_envelope(void);
 void np_host_toggle_envelope(void);
 int np_host_band(void);
+int np_host_band_fit(void);
 void np_host_cycle_band(void);
 void np_host_set_band(int band);
 int np_host_ch_clip(int ch);

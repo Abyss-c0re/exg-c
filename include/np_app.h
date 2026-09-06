@@ -46,7 +46,7 @@
 #define Q_OPEN 3
 #define Q_LIVE 4
 enum { FFT_STRIP_N = 128, FFT_STRIP_BINS = 64 };
-#define NSCALE 6
+#define NSCALE 7
 #define NWINS 4
 #define NWINPREF 4
 #define NPAL 12
