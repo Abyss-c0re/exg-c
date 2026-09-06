@@ -4993,8 +4993,9 @@ void np_host_cube_zoom(int dir)
 }
 void np_host_cube_front(void)
 {
-    g.cube_yaw = 0.55f;
-    g.cube_pitch = 0.40f;
+    /* +z / Fp toward the camera. Not the 0.55/0.40 start pose. */
+    g.cube_yaw = (float)M_PI;
+    g.cube_pitch = 0.25f;
     g.cube_zoom = 1.0f;
     cfg_save();
     set_status(1, "front");

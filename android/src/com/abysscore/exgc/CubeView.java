@@ -108,9 +108,11 @@ public class CubeView extends View {
     }
 
     public void resetCam() {
-        yaw = 0.55f;
-        pitch = 0.40f;
+        /* Same pose as np_host_cube_front. */
+        yaw = (float) Math.PI;
+        pitch = 0.25f;
         zoom = 1.0f;
+        autoYaw = 0f;
         invalidate();
     }
 

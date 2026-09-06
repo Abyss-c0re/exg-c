@@ -2086,9 +2086,8 @@ static void click(int x, int y)
                        g.elec[g.elec_sel].name[0] ? g.elec[g.elec_sel].name : "?");
             break;
         case 38:
-            g.cube_yaw = 0.55f;
-            g.cube_pitch = 0.40f;
-            set_status(1, "front");
+            viz_auto_yaw = 0;
+            np_host_cube_front();
             break;
         case 39:
             np_elec_default(g.elec);
