@@ -461,14 +461,14 @@ public class CubeView extends View {
                 }
             }
         }
-        int fill = on
+        int fillArgb = on
                 ? (0xE0000000 | (cr << 16) | (cg << 8) | cb)
                 : (0x38000000 | ((cr / 3) << 16) | ((cg / 3) << 8) | (cb / 3));
-        int stroke = on
+        int strokeArgb = on
                 ? (0xF0000000 | (Math.min(255, cr + 40) << 16) | (Math.min(255, cg + 40) << 8)
                         | Math.min(255, cb + 40))
                 : (0x55000000 | ((cr / 2) << 16) | ((cg / 2) << 8) | (cb / 2));
-        fill.setStyle(Paint.Style.FILL);
+        this.fill.setStyle(Paint.Style.FILL);
         android.graphics.Path fp = new android.graphics.Path();
         for (int oi = 0; oi < 6; oi++) {
             int[] f = faces[order[oi]];
@@ -478,9 +478,9 @@ public class CubeView extends View {
                 fp.lineTo(corn[f[k]][0], corn[f[k]][1]);
             }
             fp.close();
-            this.fill.setColor(fill);
+            this.fill.setColor(fillArgb);
             c.drawPath(fp, this.fill);
-            this.stroke.setColor(stroke);
+            this.stroke.setColor(strokeArgb);
             this.stroke.setStrokeWidth(on ? 1.2f : 0.5f);
             c.drawPath(fp, this.stroke);
         }
