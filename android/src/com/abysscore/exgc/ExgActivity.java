@@ -35,11 +35,15 @@ public class ExgActivity extends Activity {
     private CubeView cube;
     private View cubePane;
     private LinearLayout cubeList;
-    private Button cubeAdd, cubeDel, cubeColor, cubeFloat, cubeAlgo, cubeSrcApply;
+    private Button cubeAdd, cubeDel, cubeColor, cubeFloat;
     private Button[] cubeQ = new Button[8];
-    private TextView cubeRule, cubeSrcErr;
-    private EditText cubeSrc;
-    private boolean cubeSrcLoaded;
+    private TextView cubeRule;
+    private View algosPane;
+    private LinearLayout algoList;
+    private EditText algoSrc;
+    private Button algoAdd, algoDel, algoReset, algoRename, algoApply;
+    private TextView algoErr;
+    private boolean algoSrcLoaded;
     private View settings;
     private View learnBar;
     private TextView status;
@@ -60,7 +64,7 @@ public class ExgActivity extends Activity {
     private LinearLayout followList;
     private LinearLayout allowList;
     private Button kitSend, kitTake, kitBoth;
-    private Button tabMain, tabCube, tabPoses, tabSet;
+    private Button tabMain, tabCube, tabAlgos, tabPoses, tabSet;
     private View posesPane;
     private LinearLayout poseList;
     private TextView poseHint;
@@ -141,12 +145,17 @@ public class ExgActivity extends Activity {
         cubeAdd = findViewById(R.id.cubeAdd);
         cubeDel = findViewById(R.id.cubeDel);
         cubeColor = findViewById(R.id.cubeColor);
-        cubeAlgo = findViewById(R.id.cubeAlgo);
         cubeFloat = findViewById(R.id.cubeFloat);
         cubeRule = findViewById(R.id.cubeRule);
-        cubeSrc = findViewById(R.id.cubeSrc);
-        cubeSrcApply = findViewById(R.id.cubeSrcApply);
-        cubeSrcErr = findViewById(R.id.cubeSrcErr);
+        algosPane = findViewById(R.id.algosPane);
+        algoList = findViewById(R.id.algoList);
+        algoSrc = findViewById(R.id.algoSrc);
+        algoAdd = findViewById(R.id.algoAdd);
+        algoDel = findViewById(R.id.algoDel);
+        algoReset = findViewById(R.id.algoReset);
+        algoRename = findViewById(R.id.algoRename);
+        algoApply = findViewById(R.id.algoApply);
+        algoErr = findViewById(R.id.algoErr);
         cubeQ[0] = findViewById(R.id.cubeQ1);
         cubeQ[1] = findViewById(R.id.cubeQ2);
         cubeQ[2] = findViewById(R.id.cubeQ3);
@@ -180,6 +189,7 @@ public class ExgActivity extends Activity {
         kitBoth = findViewById(R.id.kitBoth);
         tabMain = findViewById(R.id.tabMain);
         tabCube = findViewById(R.id.tabCube);
+        tabAlgos = findViewById(R.id.tabAlgos);
         tabPoses = findViewById(R.id.tabPoses);
         tabSet = findViewById(R.id.tabSet);
         posesPane = findViewById(R.id.poses);
@@ -263,8 +273,9 @@ public class ExgActivity extends Activity {
 
         tabMain.setOnClickListener(v -> showTab(0));
         tabCube.setOnClickListener(v -> showTab(1));
-        tabPoses.setOnClickListener(v -> showTab(2));
-        tabSet.setOnClickListener(v -> showTab(3));
+        tabAlgos.setOnClickListener(v -> showTab(2));
+        tabPoses.setOnClickListener(v -> showTab(3));
+        tabSet.setOnClickListener(v -> showTab(4));
         cubeAdd.setOnClickListener(v -> {
             ExgNative.madeAdd();
             refreshCubeChrome();
@@ -303,24 +314,49 @@ public class ExgActivity extends Activity {
             ExgNative.toggleCubeFloat();
             refreshCubeChrome();
         });
-        cubeAlgo.setOnClickListener(v -> pickAlgo());
-        cubeSrcApply.setOnClickListener(v -> {
-            String src = cubeSrc.getText() != null ? cubeSrc.getText().toString() : "";
-            int sel = ExgNative.madeSel();
-            int q = ExgNative.madeQSel();
-            String err = ExgNative.madeN() > 0
-                    ? ExgNative.setMadeSrc(sel, q, src)
-                    : ExgNative.setAlgoSrc(src);
-            if (err != null && err.length() > 0) {
-                cubeSrcErr.setVisibility(View.VISIBLE);
-                cubeSrcErr.setText(err);
+        algoAdd.setOnClickListener(v -> {
+            ExgNative.alibAdd();
+            algoSrcLoaded = false;
+            refreshAlgos();
+            refreshChrome();
+        });
+        algoDel.setOnClickListener(v -> {
+            ExgNative.alibDel(ExgNative.alibSel());
+            algoSrcLoaded = false;
+            refreshAlgos();
+            refreshChrome();
+        });
+        algoReset.setOnClickListener(v -> {
+            ExgNative.alibReset(ExgNative.alibSel());
+            algoSrcLoaded = false;
+            refreshAlgos();
+            refreshChrome();
+        });
+        algoRename.setOnClickListener(v -> {
+            int i = ExgNative.alibSel();
+            if (ExgNative.alibDef(i)) {
+                algoErr.setVisibility(View.VISIBLE);
+                algoErr.setText("default names stay");
                 return;
             }
-            cubeSrcErr.setVisibility(View.GONE);
-            cubeSrcErr.setText("");
-            cubeSrcLoaded = true;
+            askName("Algo name", ExgNative.alibName(i), s -> {
+                ExgNative.alibSetName(i, s);
+                refreshAlgos();
+            });
+        });
+        algoApply.setOnClickListener(v -> {
+            String src = algoSrc.getText() != null ? algoSrc.getText().toString() : "";
+            String err = ExgNative.alibSetSrc(ExgNative.alibSel(), src);
+            if (err != null && err.length() > 0) {
+                algoErr.setVisibility(View.VISIBLE);
+                algoErr.setText(err);
+                return;
+            }
+            algoErr.setVisibility(View.GONE);
+            algoErr.setText("");
+            algoSrcLoaded = true;
+            refreshAlgos();
             refreshChrome();
-            refreshCubeChrome();
         });
         for (int qi = 0; qi < 8; qi++) {
             final int q = qi;
@@ -473,7 +509,7 @@ public class ExgActivity extends Activity {
                     ExgNative.setLp(new int[] {0, 20, 40}[i]);
                     refreshChrome();
                 }));
-        algo.setOnClickListener(v -> pickAlgo());
+        algo.setOnClickListener(v -> showTab(2));
         uiScale.setOnClickListener(v -> pick("UI scale",
                 new String[] {"1.0×", "1.5×", "2.0×"},
                 uiIndex(), i -> {
@@ -636,23 +672,28 @@ public class ExgActivity extends Activity {
         tab = t;
         mainPane.setVisibility(t == 0 ? View.VISIBLE : View.GONE);
         cubePane.setVisibility(t == 1 ? View.VISIBLE : View.GONE);
-        posesPane.setVisibility(t == 2 ? View.VISIBLE : View.GONE);
-        settings.setVisibility(t == 3 ? View.VISIBLE : View.GONE);
+        algosPane.setVisibility(t == 2 ? View.VISIBLE : View.GONE);
+        posesPane.setVisibility(t == 3 ? View.VISIBLE : View.GONE);
+        settings.setVisibility(t == 4 ? View.VISIBLE : View.GONE);
         learnBar.setVisibility(t == 0 ? View.VISIBLE : View.GONE);
         tabMain.setBackgroundTintList(android.content.res.ColorStateList.valueOf(t == 0 ? 0xFF24322C : 0xFF2A3038));
         tabCube.setBackgroundTintList(android.content.res.ColorStateList.valueOf(t == 1 ? 0xFF3A1820 : 0xFF2A3038));
-        tabPoses.setBackgroundTintList(android.content.res.ColorStateList.valueOf(t == 2 ? 0xFF3A3020 : 0xFF2A3038));
-        tabSet.setBackgroundTintList(android.content.res.ColorStateList.valueOf(t == 3 ? 0xFF243044 : 0xFF2A3038));
+        tabAlgos.setBackgroundTintList(android.content.res.ColorStateList.valueOf(t == 2 ? 0xFF3A3020 : 0xFF2A3038));
+        tabPoses.setBackgroundTintList(android.content.res.ColorStateList.valueOf(t == 3 ? 0xFF3A3020 : 0xFF2A3038));
+        tabSet.setBackgroundTintList(android.content.res.ColorStateList.valueOf(t == 4 ? 0xFF243044 : 0xFF2A3038));
         if (t == 1) {
-            cubeSrcLoaded = ExgNative.algo() != 7;
             refreshCubeChrome();
         }
         if (t == 2) {
+            algoSrcLoaded = false;
+            refreshAlgos();
+        }
+        if (t == 3) {
             lastLearnN = -1;
             lastAtomN = -1;
             rebuildSavedList();
         }
-        if (t == 3) {
+        if (t == 4) {
             refreshChannels();
             refreshProfiles();
         }
@@ -663,13 +704,21 @@ public class ExgActivity extends Activity {
         if (n < 1) {
             return;
         }
+        int sel = ExgNative.madeSel();
         ExgNative.madeSetQSel(q);
-        cubeSrcLoaded = false;
-        if (ExgNative.algo() == 7) {
-            refreshCubeBits();
+        int an = ExgNative.alibN();
+        if (an < 1) {
             return;
         }
-        pickQuarterCh(q);
+        String[] names = new String[an];
+        for (int i = 0; i < an; i++) {
+            names[i] = ExgNative.alibName(i);
+        }
+        pick("bit " + (q + 1) + " algo", names, ExgNative.madeAlgo(sel, q), i -> {
+            ExgNative.madeSetAlgo(sel, q, i);
+            refreshCubeChrome();
+            refreshChrome();
+        });
     }
 
     private void pickQuarterCh(int q) {
@@ -687,7 +736,6 @@ public class ExgActivity extends Activity {
         }
         pick("bit " + (q + 1) + " channel", names, cur, i -> {
             ExgNative.madeSetCh(sel, q, i);
-            cubeSrcLoaded = false;
             refreshCubeChrome();
             refreshChrome();
         });
@@ -715,7 +763,6 @@ public class ExgActivity extends Activity {
                     i == sel ? 0xFF5A1020 : 0xFF2A3038));
             b.setOnClickListener(v -> {
                 ExgNative.madeSetSel(ix);
-                cubeSrcLoaded = false;
                 refreshCubeChrome();
             });
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0,
@@ -723,6 +770,41 @@ public class ExgActivity extends Activity {
             cubeList.addView(b, lp);
         }
         refreshCubeBits();
+        applyUiScale();
+    }
+
+    private void refreshAlgos() {
+        if (algoList == null) {
+            return;
+        }
+        int n = ExgNative.alibN();
+        int sel = ExgNative.alibSel();
+        algoList.removeAllViews();
+        for (int i = 0; i < n; i++) {
+            final int ix = i;
+            Button b = new Button(this);
+            b.setText(ExgNative.alibName(i));
+            b.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
+                    i == sel ? 0xFF5A1020 : 0xFF2A3038));
+            b.setOnClickListener(v -> {
+                ExgNative.alibSetSel(ix);
+                algoSrcLoaded = false;
+                refreshAlgos();
+                refreshChrome();
+            });
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT);
+            algoList.addView(b, lp);
+        }
+        algoDel.setEnabled(n > 8 && !ExgNative.alibDef(sel));
+        algoReset.setEnabled(ExgNative.alibDef(sel));
+        algoRename.setEnabled(!ExgNative.alibDef(sel));
+        if (!algoSrcLoaded) {
+            String src = ExgNative.alibSrc(sel);
+            algoSrc.setText(src != null ? src : "");
+            algoSrcLoaded = true;
+        }
         applyUiScale();
     }
 
@@ -734,35 +816,16 @@ public class ExgActivity extends Activity {
         int sel = ExgNative.madeSel();
         int qsel = ExgNative.madeQSel();
         int fold = n > 0 ? ExgNative.madeFold(sel) : 0;
-        String rule = ExgNative.algoRule();
-        if (rule == null) {
-            rule = "";
-        }
-        boolean custom = ExgNative.algo() == 7;
         if (n < 1) {
-            cubeRule.setText("add a cube — each bit is one channel through this algo");
-        } else if (custom) {
+            cubeRule.setText("add a cube — tap a bit to pick its algo · hold for channel");
+        } else {
             int ch = ExgNative.madeCh(sel, qsel);
+            int ai = ExgNative.madeAlgo(sel, qsel);
+            String an = ExgNative.alibName(ai);
             cubeRule.setText("bit " + (qsel + 1)
                     + (ch < 1 ? "" : (" ch" + ch))
-                    + " — " + rule
-                    + "  ·  tap bit to edit · hold for channel");
-        } else {
-            cubeRule.setText(ExgNative.algoName() + " — " + rule
-                    + "  ·  bit N = that channel");
-        }
-        cubeSrc.setVisibility(custom ? View.VISIBLE : View.GONE);
-        cubeSrcApply.setVisibility(custom ? View.VISIBLE : View.GONE);
-        if (custom) {
-            cubeSrcApply.setText("apply bit " + (qsel + 1));
-        }
-        if (custom && !cubeSrcLoaded) {
-            String src = n > 0 ? ExgNative.madeSrc(sel, qsel) : ExgNative.algoSrc();
-            cubeSrc.setText(src != null ? src : "if ch1 < ch5 then 1\nelse 0\n");
-            cubeSrcLoaded = true;
-        }
-        if (!custom) {
-            cubeSrcErr.setVisibility(View.GONE);
+                    + " · " + (an != null ? an : "?")
+                    + "  ·  tap algo · hold channel");
         }
         for (int q = 0; q < 8; q++) {
             cubeQ[q].setEnabled(n > 0);
@@ -773,17 +836,17 @@ public class ExgActivity extends Activity {
             }
             int ch = ExgNative.madeCh(sel, q);
             boolean on = ((fold >> q) & 1) != 0;
-            boolean edit = custom && q == qsel;
+            String an = ExgNative.alibName(ExgNative.madeAlgo(sel, q));
+            if (an == null || an.length() == 0) {
+                an = "?";
+            }
             if (ch < 1) {
                 cubeQ[q].setText((q + 1) + " —");
             } else {
-                cubeQ[q].setText((q + 1) + " ch" + ch + (on ? " ·1" : " ·0"));
+                cubeQ[q].setText((q + 1) + " " + an + (on ? " ·1" : " ·0"));
             }
-            int bg = on ? 0xFF8A1828 : 0xFF2A3038;
-            if (edit) {
-                bg = on ? 0xFFC42840 : 0xFF3A4050;
-            }
-            cubeQ[q].setBackgroundTintList(android.content.res.ColorStateList.valueOf(bg));
+            cubeQ[q].setBackgroundTintList(android.content.res.ColorStateList.valueOf(
+                    on ? 0xFF8A1828 : 0xFF2A3038));
         }
     }
 
@@ -937,10 +1000,7 @@ public class ExgActivity extends Activity {
         detrend.setText(ExgNative.detrend() ? "detrend" : "raw DC");
         env.setText(ExgNative.envelope() ? "envelope" : "wave");
         lp.setText(ExgNative.lp() == 0 ? "lp off" : "lp " + ExgNative.lp() + "Hz");
-        algo.setText("algo " + ExgNative.algoName());
-        if (cubeAlgo != null) {
-            cubeAlgo.setText("algo " + ExgNative.algoName());
-        }
+        algo.setText("Algos tab");
         int us = ExgNative.uiScale();
         uiScale.setText("UI " + (us == 10 ? "1.0x" : (us == 20 ? "2.0x" : "1.5x")));
         board.setText(ExgNative.boardImu() ? "8-ch + IMU" : "8-ch EXG");
@@ -1500,27 +1560,6 @@ public class ExgActivity extends Activity {
                 })
                 .setNegativeButton("Cancel", null)
                 .show();
-    }
-
-    private void pickAlgo() {
-        String[] names = {
-                "detect — 1 if ID is SIGNAL",
-                "sign — 1 if last > 0",
-                "mean — 1 if |last| > 0.85·mean|x|",
-                "energy — 1 if rms > 1.05·mean|x|",
-                "delta — 1 if |step| > 1.10·mean|dx|",
-                "fold — 1 if majority of samples > 0",
-                "proton — 1 if +energy > half total",
-                "custom — each bit has its own if/else (ch1 < ch5)"
-        };
-        pick("Cube algorithm — what turns a bit on", names, ExgNative.algo(), i -> {
-            ExgNative.setAlgo(i);
-            if (i == 7) {
-                cubeSrcLoaded = false;
-            }
-            refreshChrome();
-            refreshCubeChrome();
-        });
     }
 
     private void ensureNotify() {

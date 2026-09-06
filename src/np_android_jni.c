@@ -864,6 +864,121 @@ Java_com_abysscore_exgc_ExgNative_algoFold(JNIEnv *env, jclass cls)
     return (jint)np_host_algo_fold();
 }
 
+JNIEXPORT jint JNICALL
+Java_com_abysscore_exgc_ExgNative_alibN(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    return np_host_alib_n();
+}
+
+JNIEXPORT jint JNICALL
+Java_com_abysscore_exgc_ExgNative_alibSel(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    return np_host_alib_sel();
+}
+
+JNIEXPORT void JNICALL
+Java_com_abysscore_exgc_ExgNative_alibSetSel(JNIEnv *env, jclass cls, jint i)
+{
+    (void)env;
+    (void)cls;
+    np_host_alib_set_sel(i);
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_abysscore_exgc_ExgNative_alibName(JNIEnv *env, jclass cls, jint i)
+{
+    char buf[NP_ALIB_NAME];
+    (void)cls;
+    np_host_alib_name(i, buf, sizeof(buf));
+    return jstr_from(env, buf);
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_abysscore_exgc_ExgNative_alibSrc(JNIEnv *env, jclass cls, jint i)
+{
+    char buf[NP_ALGO_SRC];
+    (void)cls;
+    np_host_alib_src(i, buf, sizeof(buf));
+    return jstr_from(env, buf);
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_abysscore_exgc_ExgNative_alibDef(JNIEnv *env, jclass cls, jint i)
+{
+    (void)env;
+    (void)cls;
+    return np_host_alib_def(i) ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_abysscore_exgc_ExgNative_alibSetSrc(JNIEnv *env, jclass cls, jint i,
+                                            jstring src)
+{
+    char buf[NP_ALGO_SRC], err[80];
+    (void)cls;
+    jstr_to(env, src, buf, sizeof(buf));
+    if (np_host_alib_set_src(i, buf, err, (int)sizeof(err)) != 0) {
+        return jstr_from(env, err);
+    }
+    return jstr_from(env, "");
+}
+
+JNIEXPORT jint JNICALL
+Java_com_abysscore_exgc_ExgNative_alibSetName(JNIEnv *env, jclass cls, jint i,
+                                             jstring name)
+{
+    char buf[NP_ALIB_NAME];
+    (void)cls;
+    jstr_to(env, name, buf, sizeof(buf));
+    return np_host_alib_set_name(i, buf);
+}
+
+JNIEXPORT jint JNICALL
+Java_com_abysscore_exgc_ExgNative_alibAdd(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    return np_host_alib_add();
+}
+
+JNIEXPORT jint JNICALL
+Java_com_abysscore_exgc_ExgNative_alibDel(JNIEnv *env, jclass cls, jint i)
+{
+    (void)env;
+    (void)cls;
+    return np_host_alib_del(i);
+}
+
+JNIEXPORT jint JNICALL
+Java_com_abysscore_exgc_ExgNative_alibReset(JNIEnv *env, jclass cls, jint i)
+{
+    (void)env;
+    (void)cls;
+    return np_host_alib_reset(i);
+}
+
+JNIEXPORT jint JNICALL
+Java_com_abysscore_exgc_ExgNative_madeAlgo(JNIEnv *env, jclass cls, jint cube,
+                                          jint q)
+{
+    (void)env;
+    (void)cls;
+    return np_host_made_algo(cube, q);
+}
+
+JNIEXPORT jint JNICALL
+Java_com_abysscore_exgc_ExgNative_madeSetAlgo(JNIEnv *env, jclass cls, jint cube,
+                                             jint q, jint id)
+{
+    (void)env;
+    (void)cls;
+    return np_host_made_set_algo(cube, q, id);
+}
+
 JNIEXPORT void JNICALL
 Java_com_abysscore_exgc_ExgNative_togglePause(JNIEnv *env, jclass cls)
 {

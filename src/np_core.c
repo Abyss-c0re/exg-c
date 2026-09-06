@@ -639,6 +639,49 @@ void atom_tick(void)
 static uint8_t rec_smx[NPL_SMX_SEC];
 static int rec_smx_n;
 
+static void alib_seed(void)
+{
+    int i;
+    if (g.alib_n < 0) {
+        g.alib_n = 0;
+    }
+    if (g.alib_n > NP_ALIB_N) {
+        g.alib_n = NP_ALIB_N;
+    }
+    if (g.alib_n < NP_ALIB_DEF) {
+        for (i = g.alib_n; i < NP_ALIB_DEF; i++) {
+            snprintf(g.alib[i].name, sizeof(g.alib[i].name), "%s", np_algo_name(i));
+            snprintf(g.alib[i].src, sizeof(g.alib[i].src), "%s", np_algo_def_src(i));
+        }
+        g.alib_n = NP_ALIB_DEF;
+    }
+    for (i = 0; i < NP_ALIB_DEF && i < g.alib_n; i++) {
+        if (!g.alib[i].name[0]) {
+            snprintf(g.alib[i].name, sizeof(g.alib[i].name), "%s", np_algo_name(i));
+        }
+        if (!g.alib[i].src[0]) {
+            snprintf(g.alib[i].src, sizeof(g.alib[i].src), "%s", np_algo_def_src(i));
+        }
+    }
+    if (g.alib_sel < 0 || g.alib_sel >= g.alib_n) {
+        g.alib_sel = (g.algo >= 0 && g.algo < g.alib_n) ? g.algo : 0;
+    }
+    if (g.algo < 0 || g.algo >= g.alib_n) {
+        g.algo = g.alib_sel;
+    }
+}
+
+static const char *alib_src(int i)
+{
+    if (i >= 0 && i < g.alib_n && g.alib[i].src[0]) {
+        return g.alib[i].src;
+    }
+    if (i >= 0 && i < NP_ALGO_N) {
+        return np_algo_def_src(i);
+    }
+    return np_algo_def_src(NP_ALGO_COMPARE);
+}
+
 static void fill_algo_bank(struct np_algo_bank *b)
 {
     int c;
@@ -651,41 +694,14 @@ static void fill_algo_bank(struct np_algo_bank *b)
         want = NP_RING;
     }
     for (c = 0; c < NP_NCHAN; c++) {
-        float buf[NP_RING];
+        float buf[NP_RING], dc = 0, rms = 0, pk = 0, raw = 0, rr = 0;
         uint32_t n;
+        int det = 0;
         if (!g.active[c]) {
             continue;
         }
         n = np_ring_copy(&g.ring, c, buf, want);
         if (n < 1) {
-            continue;
-        }
-        apply_filt(c, buf, n);
-        np_algo_bank_set(b, c, buf, (int)n);
-    }
-}
-
-static uint8_t learn_fold_byte(uint8_t bits[NP_NCHAN])
-{
-    int c;
-    uint8_t fold = 0;
-    uint32_t want = (uint32_t)(2.f * design_sps());
-    memset(bits, 0, NP_NCHAN);
-    if (want < 32) {
-        want = 32;
-    }
-    if (want > NP_RING) {
-        want = NP_RING;
-    }
-    for (c = 0; c < NP_NCHAN; c++) {
-        float buf[NP_RING], dc = 0, rms = 0, pk = 0, raw = 0, rr = 0;
-        uint32_t n;
-        int det;
-        if (!g.active[c]) {
-            continue;
-        }
-        n = np_ring_copy(&g.ring, c, buf, want);
-        if (n < 16) {
             continue;
         }
         ch_stats(buf, n, &dc, &rms, &pk);
@@ -694,42 +710,42 @@ static uint8_t learn_fold_byte(uint8_t bits[NP_NCHAN])
         ch_stats(buf, n, &dc, &rms, &pk);
         det = np_detect(raw > 1.f ? raw : rms, rms, g.cal.have ? g.cal.rms[c] : 0.f,
                         g.calm.have ? g.calm.rms[c] : 0.f, &rr);
-        if (g.algo != NP_ALGO_CUSTOM) {
-            bits[c] = (uint8_t)np_algo_bit(g.algo, buf, (int)n,
-                                           det == NP_DET_SIGNAL);
+        np_algo_bank_set_ex(b, c, buf, (int)n, det == NP_DET_SIGNAL);
+    }
+}
+
+static uint8_t learn_fold_byte(uint8_t bits[NP_NCHAN])
+{
+    struct np_algo_bank bank;
+    int c, ci, q, ch;
+    uint8_t fold = 0;
+    memset(bits, 0, NP_NCHAN);
+    fill_algo_bank(&bank);
+    for (c = 0; c < NP_NCHAN; c++) {
+        if (!g.active[c]) {
+            continue;
         }
+        bank.self = c;
+        bits[c] = (uint8_t)np_algo_custom_bank(alib_src(g.algo), &bank);
         if (bits[c]) {
             fold |= (uint8_t)(1u << c);
         }
     }
-    if (g.algo == NP_ALGO_CUSTOM) {
-        struct np_algo_bank bank;
-        int ci, q, ch;
-        fill_algo_bank(&bank);
-        for (c = 0; c < NP_NCHAN; c++) {
-            bank.self = c;
-            bits[c] = (uint8_t)np_algo_custom_bank(
-                g.algo_src[0] ? g.algo_src : NP_ALGO_SRC_DEFAULT, &bank);
-        }
-        for (ci = 0; ci < g.made_n && ci < 4; ci++) {
-            for (q = 0; q < 8; q++) {
-                const char *src;
-                ch = g.made[ci].ch[q];
-                if (ch < 1 || ch > NP_NCHAN) {
-                    continue;
-                }
-                src = g.made[ci].src[q][0] ? g.made[ci].src[q]
-                                           : (g.algo_src[0] ? g.algo_src
-                                                            : NP_ALGO_SRC_DEFAULT);
-                bank.self = ch - 1;
-                bits[ch - 1] = (uint8_t)np_algo_custom_bank(src, &bank);
+    for (ci = 0; ci < g.made_n && ci < 4; ci++) {
+        for (q = 0; q < 8; q++) {
+            ch = g.made[ci].ch[q];
+            if (ch < 1 || ch > NP_NCHAN) {
+                continue;
             }
+            bank.self = ch - 1;
+            bits[ch - 1] = (uint8_t)np_algo_custom_bank(
+                alib_src(g.made[ci].algo[q]), &bank);
         }
-        fold = 0;
-        for (c = 0; c < NP_NCHAN; c++) {
-            if (bits[c]) {
-                fold |= (uint8_t)(1u << c);
-            }
+    }
+    fold = 0;
+    for (c = 0; c < NP_NCHAN; c++) {
+        if (bits[c]) {
+            fold |= (uint8_t)(1u << c);
         }
     }
     return fold;
@@ -1263,6 +1279,26 @@ static int cfg_write_ex(const char *path, int with_map)
         }
         fputc('\n', f);
     }
+    fprintf(f, "alib_n=%d\n", g.alib_n);
+    fprintf(f, "alib_sel=%d\n", g.alib_sel);
+    {
+        int ai;
+        for (ai = 0; ai < g.alib_n && ai < NP_ALIB_N; ai++) {
+            const char *s = g.alib[ai].src;
+            fprintf(f, "alib%dname=%s\n", ai + 1, g.alib[ai].name);
+            fprintf(f, "alib%dsrc=", ai + 1);
+            for (; *s; s++) {
+                if (*s == '\n') {
+                    fputs("\\n", f);
+                } else if (*s == '\\') {
+                    fputs("\\\\", f);
+                } else if (*s != '\r') {
+                    fputc(*s, f);
+                }
+            }
+            fputc('\n', f);
+        }
+    }
     fprintf(f, "\n[cube]\n");
     fprintf(f, "yaw=%.4f\n", (double)g.cube_yaw);
     fprintf(f, "pitch=%.4f\n", (double)g.cube_pitch);
@@ -1277,22 +1313,8 @@ static int cfg_write_ex(const char *path, int with_map)
             fprintf(f, "made%drgb=%d,%d,%d\n", ci + 1, g.made[ci].rgb[0],
                     g.made[ci].rgb[1], g.made[ci].rgb[2]);
             for (q = 0; q < 8; q++) {
-                const char *s = g.made[ci].src[q];
                 fprintf(f, "made%dq%d=%d\n", ci + 1, q + 1, g.made[ci].ch[q]);
-                if (!s[0]) {
-                    continue;
-                }
-                fprintf(f, "made%dq%dsrc=", ci + 1, q + 1);
-                for (; *s; s++) {
-                    if (*s == '\n') {
-                        fputs("\\n", f);
-                    } else if (*s == '\\') {
-                        fputs("\\\\", f);
-                    } else if (*s != '\r') {
-                        fputc(*s, f);
-                    }
-                }
-                fputc('\n', f);
+                fprintf(f, "made%dq%dalgo=%d\n", ci + 1, q + 1, g.made[ci].algo[q]);
             }
         }
     }
@@ -1411,11 +1433,22 @@ static int cfg_read(const char *path)
         float fa, fb;
         char ename[24];
         char longv[64];
-        if (!strncmp(line, "made", 4) && strstr(line, "src=")) {
-            int ci = 0, q = 0;
+        if (!strncmp(line, "alib", 4) && strstr(line, "name=")) {
+            int ai = 0;
+            char nm[NP_ALIB_NAME];
+            if (sscanf(line, "alib%dname=%15s", &ai, nm) == 2 && ai >= 1 &&
+                ai <= NP_ALIB_N) {
+                snprintf(g.alib[ai - 1].name, sizeof(g.alib[ai - 1].name), "%s",
+                         nm);
+                if (ai > g.alib_n) {
+                    g.alib_n = ai;
+                }
+            }
+        } else if (!strncmp(line, "alib", 4) && strstr(line, "src=")) {
+            int ai = 0;
             const char *eq;
-            if (sscanf(line, "made%dq%dsrc=", &ci, &q) == 2 && ci >= 1 &&
-                ci <= 4 && q >= 1 && q <= 8) {
+            if (sscanf(line, "alib%dsrc=", &ai) == 1 && ai >= 1 &&
+                ai <= NP_ALIB_N) {
                 int o = 0;
                 eq = strchr(line, '=');
                 if (eq) {
@@ -1423,18 +1456,33 @@ static int cfg_read(const char *path)
                     while (*in && *in != '\n' && *in != '\r' &&
                            o < NP_ALGO_SRC - 1) {
                         if (in[0] == '\\' && in[1] == 'n') {
-                            g.made[ci - 1].src[q - 1][o++] = '\n';
+                            g.alib[ai - 1].src[o++] = '\n';
                             in += 2;
                         } else if (in[0] == '\\' && in[1] == '\\') {
-                            g.made[ci - 1].src[q - 1][o++] = '\\';
+                            g.alib[ai - 1].src[o++] = '\\';
                             in += 2;
                         } else {
-                            g.made[ci - 1].src[q - 1][o++] = *in++;
+                            g.alib[ai - 1].src[o++] = *in++;
                         }
                     }
-                    g.made[ci - 1].src[q - 1][o] = 0;
+                    g.alib[ai - 1].src[o] = 0;
+                }
+                if (ai > g.alib_n) {
+                    g.alib_n = ai;
                 }
             }
+        } else if (sscanf(line, "alib_n=%d", &v) == 1 && v >= 0 &&
+                   v <= NP_ALIB_N) {
+            g.alib_n = v;
+        } else if (sscanf(line, "alib_sel=%d", &v) == 1 && v >= 0 &&
+                   v < NP_ALIB_N) {
+            g.alib_sel = v;
+        } else if (sscanf(line, "made%dq%dalgo=%d", &ch, &i, &v) == 3 &&
+                   ch >= 1 && ch <= 4 && i >= 1 && i <= 8 && v >= 0 &&
+                   v < NP_ALIB_N) {
+            g.made[ch - 1].algo[i - 1] = v;
+        } else if (!strncmp(line, "made", 4) && strstr(line, "src=")) {
+            /* 2.70 per-bit source — Algos tab library is SoT now */
         } else if (!strncmp(line, "algo_src=", 9)) {
             const char *in = line + 9;
             int o = 0;
@@ -1688,16 +1736,14 @@ void cfg_load(void)
 {
     char path[NP_MAX_PATH];
     cfg_path(path, sizeof(path));
-    if (cfg_read(path) == 0) {
-        return;
-    }
-    {
+    if (cfg_read(path) != 0) {
         const char *h = getenv("HOME");
         if (h && h[0]) {
             snprintf(path, sizeof(path), "%s/.config/exg-c.conf", h);
             cfg_read(path);
         }
     }
+    alib_seed();
 }
 
 void prof_scan(void)
@@ -2155,7 +2201,7 @@ static void api_status_json(char *out, int n)
         }
     }
     snprintf(out, (size_t)n,
-             "{\"ok\":true,\"v\":\"2.70\",\"connected\":%s,\"paused\":%s,\"sps\":%.1f,"
+             "{\"ok\":true,\"v\":\"2.71\",\"connected\":%s,\"paused\":%s,\"sps\":%.1f,"
              "\"frames\":%u,\"status\":\"%s\",\"id\":\"%s\",\"id_best\":%d,"
              "\"notch\":%d,\"hp\":%d,\"lp\":%d,\"car\":%d,\"band\":%d,\"mask\":%u,"
              "\"api\":\"%s\"}",
@@ -5195,56 +5241,52 @@ int np_host_ch_clip(int ch)
 
 int np_host_algo(void)
 {
-    if (g.algo < 0 || g.algo >= NP_ALGO_N) {
+    alib_seed();
+    if (g.algo < 0 || g.algo >= g.alib_n) {
         return 0;
     }
     return g.algo;
 }
 void np_host_cycle_algo(void)
 {
-    g.algo = (g.algo + 1) % NP_ALGO_N;
-    if (g.algo == NP_ALGO_CUSTOM && !g.algo_src[0]) {
-        snprintf(g.algo_src, sizeof(g.algo_src), "%s", NP_ALGO_SRC_DEFAULT);
+    alib_seed();
+    if (g.alib_n < 1) {
+        return;
     }
+    g.algo = (g.algo + 1) % g.alib_n;
+    g.alib_sel = g.algo;
     cfg_save();
-    set_status(1, "algo %s  — cube node is 0 or 1", np_algo_name(g.algo));
+    set_status(1, "algo %s", g.alib[g.algo].name);
 }
 void np_host_set_algo(int id)
 {
-    if (id < 0 || id >= NP_ALGO_N) {
+    alib_seed();
+    if (id < 0 || id >= g.alib_n) {
         id = 0;
     }
     g.algo = id;
-    if (g.algo == NP_ALGO_CUSTOM && !g.algo_src[0]) {
-        snprintf(g.algo_src, sizeof(g.algo_src), "%s", NP_ALGO_SRC_DEFAULT);
-    }
+    g.alib_sel = id;
     cfg_save();
-    set_status(1, "algo %s  — cube node is 0 or 1", np_algo_name(g.algo));
+    set_status(1, "algo %s", g.alib[g.algo].name);
 }
 void np_host_algo_name(char *out, int n)
 {
-    snprintf(out, (size_t)n, "%s", np_algo_name(np_host_algo()));
-}
-
-static void algo_src_ensure(void)
-{
-    if (!g.algo_src[0]) {
-        snprintf(g.algo_src, sizeof(g.algo_src), "%s", NP_ALGO_SRC_DEFAULT);
+    alib_seed();
+    if (g.algo >= 0 && g.algo < g.alib_n && g.alib[g.algo].name[0]) {
+        snprintf(out, (size_t)n, "%s", g.alib[g.algo].name);
+    } else {
+        snprintf(out, (size_t)n, "%s", np_algo_name(np_host_algo()));
     }
 }
 
-void np_host_algo_rule(char *out, int n)
+static void algo_first_line(const char *s, char *out, int n)
 {
-    const char *s;
     if (!out || n < 1) {
         return;
     }
-    if (np_host_algo() != NP_ALGO_CUSTOM) {
-        snprintf(out, (size_t)n, "%s", np_algo_rule(np_host_algo()));
-        return;
+    if (!s) {
+        s = "";
     }
-    algo_src_ensure();
-    s = made_src_or_default(g.made_sel, np_host_made_qsel());
     while (*s == ' ' || *s == '\t' || *s == '\n' || *s == '\r') {
         s++;
     }
@@ -5256,7 +5298,7 @@ void np_host_algo_rule(char *out, int n)
             s++;
         }
     }
-    snprintf(out, (size_t)n, "%s", s[0] ? s : np_algo_rule(NP_ALGO_CUSTOM));
+    snprintf(out, (size_t)n, "%s", s);
     {
         char *nl = strchr(out, '\n');
         if (nl) {
@@ -5265,37 +5307,34 @@ void np_host_algo_rule(char *out, int n)
     }
 }
 
+void np_host_algo_rule(char *out, int n)
+{
+    int id;
+    if (!out || n < 1) {
+        return;
+    }
+    alib_seed();
+    id = g.alib_sel;
+    if (g.made_n > 0) {
+        id = g.made[g.made_sel].algo[np_host_made_qsel()];
+    }
+    if (id >= 0 && id < NP_ALGO_N &&
+        strcmp(alib_src(id), np_algo_def_src(id)) == 0) {
+        snprintf(out, (size_t)n, "%s", np_algo_rule(id));
+        return;
+    }
+    algo_first_line(alib_src(id), out, n);
+}
+
 void np_host_algo_src(char *out, int n)
 {
-    algo_src_ensure();
-    snprintf(out, (size_t)n, "%s", made_src_or_default(g.made_sel, np_host_made_qsel()));
+    alib_seed();
+    snprintf(out, (size_t)n, "%s", alib_src(g.alib_sel));
 }
 
 int np_host_set_algo_src(const char *s, char *err, int n)
 {
-    if (g.made_n > 0) {
-        return np_host_set_made_src(g.made_sel, np_host_made_qsel(), s, err, n);
-    }
-    {
-        char e[80];
-        if (!s) {
-            s = "";
-        }
-        if (np_algo_compile(s, e, (int)sizeof(e)) != 0) {
-            if (err && n > 0) {
-                snprintf(err, (size_t)n, "%s", e);
-            }
-            return -1;
-        }
-        snprintf(g.algo_src, sizeof(g.algo_src), "%s", s);
-        g.algo = NP_ALGO_CUSTOM;
-        cfg_save();
-        set_status(1, "algo custom  — cube node is 0 or 1");
-        if (err && n > 0) {
-            err[0] = 0;
-        }
-        return 0;
-    }
+    return np_host_alib_set_src(g.alib_sel, s, err, n);
 }
 
 unsigned int np_host_algo_fold(void)
@@ -5318,12 +5357,9 @@ unsigned int np_host_algo_fold(void)
 static const char *made_src_or_default(int cube, int q)
 {
     if (cube < 0 || cube >= g.made_n || q < 0 || q > 7) {
-        return g.algo_src[0] ? g.algo_src : NP_ALGO_SRC_DEFAULT;
+        return alib_src(g.algo);
     }
-    if (g.made[cube].src[q][0]) {
-        return g.made[cube].src[q];
-    }
-    return g.algo_src[0] ? g.algo_src : NP_ALGO_SRC_DEFAULT;
+    return alib_src(g.made[cube].algo[q]);
 }
 
 int np_host_made_qsel(void)
@@ -5349,10 +5385,96 @@ void np_host_made_src(int cube, int q, char *out, int n)
 
 int np_host_set_made_src(int cube, int q, const char *s, char *err, int n)
 {
-    char e[80];
+    int id;
     if (cube < 0 || cube >= g.made_n || q < 0 || q > 7) {
         if (err && n > 0) {
             snprintf(err, (size_t)n, "no cube bit");
+        }
+        return -1;
+    }
+    id = g.made[cube].algo[q];
+    return np_host_alib_set_src(id, s, err, n);
+}
+
+int np_host_made_algo(int cube, int q)
+{
+    if (cube < 0 || cube >= g.made_n || q < 0 || q > 7) {
+        return 0;
+    }
+    if (g.made[cube].algo[q] < 0 || g.made[cube].algo[q] >= g.alib_n) {
+        return 0;
+    }
+    return g.made[cube].algo[q];
+}
+
+int np_host_made_set_algo(int cube, int q, int id)
+{
+    alib_seed();
+    if (cube < 0 || cube >= g.made_n || q < 0 || q > 7) {
+        return -1;
+    }
+    if (id < 0 || id >= g.alib_n) {
+        return -1;
+    }
+    g.made[cube].algo[q] = id;
+    g.made_qsel = q;
+    cfg_save();
+    set_status(1, "bit %d  %s", q + 1, g.alib[id].name);
+    return 0;
+}
+
+int np_host_alib_n(void)
+{
+    alib_seed();
+    return g.alib_n;
+}
+
+int np_host_alib_sel(void)
+{
+    alib_seed();
+    return g.alib_sel;
+}
+
+void np_host_alib_set_sel(int i)
+{
+    alib_seed();
+    if (i >= 0 && i < g.alib_n) {
+        g.alib_sel = i;
+        g.algo = i;
+    }
+}
+
+void np_host_alib_name(int i, char *out, int n)
+{
+    alib_seed();
+    if (!out || n < 1) {
+        return;
+    }
+    if (i < 0 || i >= g.alib_n) {
+        out[0] = 0;
+        return;
+    }
+    snprintf(out, (size_t)n, "%s", g.alib[i].name);
+}
+
+void np_host_alib_src(int i, char *out, int n)
+{
+    alib_seed();
+    snprintf(out, (size_t)n, "%s", alib_src(i));
+}
+
+int np_host_alib_def(int i)
+{
+    return i >= 0 && i < NP_ALIB_DEF;
+}
+
+int np_host_alib_set_src(int i, const char *s, char *err, int n)
+{
+    char e[80];
+    alib_seed();
+    if (i < 0 || i >= g.alib_n) {
+        if (err && n > 0) {
+            snprintf(err, (size_t)n, "no algo");
         }
         return -1;
     }
@@ -5365,14 +5487,104 @@ int np_host_set_made_src(int cube, int q, const char *s, char *err, int n)
         }
         return -1;
     }
-    snprintf(g.made[cube].src[q], sizeof(g.made[cube].src[q]), "%s", s);
-    g.made_qsel = q;
-    g.algo = NP_ALGO_CUSTOM;
+    snprintf(g.alib[i].src, sizeof(g.alib[i].src), "%s", s);
+    g.alib_sel = i;
     cfg_save();
-    set_status(1, "bit %d custom", q + 1);
+    set_status(1, "algo %s", g.alib[i].name);
     if (err && n > 0) {
         err[0] = 0;
     }
+    return 0;
+}
+
+int np_host_alib_set_name(int i, const char *s)
+{
+    int k;
+    char name[NP_ALIB_NAME];
+    alib_seed();
+    if (i < 0 || i >= g.alib_n || i < NP_ALIB_DEF) {
+        return -1;
+    }
+    if (!s || !s[0]) {
+        return -1;
+    }
+    snprintf(name, sizeof(name), "%s", s);
+    for (k = 0; name[k]; k++) {
+        unsigned char c = (unsigned char)name[k];
+        if (!(isalnum(c) || c == '_' || c == '-')) {
+            name[k] = '_';
+        }
+    }
+    snprintf(g.alib[i].name, sizeof(g.alib[i].name), "%s", name);
+    cfg_save();
+    return 0;
+}
+
+int np_host_alib_add(void)
+{
+    int i;
+    alib_seed();
+    if (g.alib_n >= NP_ALIB_N) {
+        set_status(0, "algo list full");
+        return -1;
+    }
+    i = g.alib_n;
+    memset(&g.alib[i], 0, sizeof(g.alib[i]));
+    snprintf(g.alib[i].name, sizeof(g.alib[i].name), "user%d", i + 1);
+    snprintf(g.alib[i].src, sizeof(g.alib[i].src), "%s", NP_ALGO_SRC_DEFAULT);
+    g.alib_n++;
+    g.alib_sel = i;
+    cfg_save();
+    set_status(1, "algo %s", g.alib[i].name);
+    return i;
+}
+
+int np_host_alib_del(int i)
+{
+    int k, ci, q;
+    alib_seed();
+    if (i < NP_ALIB_DEF || i >= g.alib_n) {
+        set_status(0, "cannot delete a default");
+        return -1;
+    }
+    for (k = i; k < g.alib_n - 1; k++) {
+        g.alib[k] = g.alib[k + 1];
+    }
+    g.alib_n--;
+    memset(&g.alib[g.alib_n], 0, sizeof(g.alib[0]));
+    if (g.alib_sel >= g.alib_n) {
+        g.alib_sel = g.alib_n - 1;
+    }
+    if (g.algo == i) {
+        g.algo = 0;
+    } else if (g.algo > i) {
+        g.algo--;
+    }
+    for (ci = 0; ci < g.made_n && ci < 4; ci++) {
+        for (q = 0; q < 8; q++) {
+            if (g.made[ci].algo[q] == i) {
+                g.made[ci].algo[q] = 0;
+            } else if (g.made[ci].algo[q] > i) {
+                g.made[ci].algo[q]--;
+            }
+        }
+    }
+    cfg_save();
+    set_status(1, "algo removed");
+    return 0;
+}
+
+int np_host_alib_reset(int i)
+{
+    alib_seed();
+    if (i < 0 || i >= NP_ALIB_DEF) {
+        return -1;
+    }
+    snprintf(g.alib[i].name, sizeof(g.alib[i].name), "%s", np_algo_name(i));
+    snprintf(g.alib[i].src, sizeof(g.alib[i].src), "%s", np_algo_def_src(i));
+    g.alib_sel = i;
+    cfg_save();
+    set_status(1, "algo %s reset", g.alib[i].name);
     return 0;
 }
 
@@ -5383,16 +5595,6 @@ unsigned int np_host_made_fold(int cube)
     if (cube < 0 || cube >= g.made_n) {
         return 0;
     }
-    if (g.algo != NP_ALGO_CUSTOM) {
-        unsigned int chf = np_host_algo_fold();
-        for (q = 0; q < 8; q++) {
-            ch = g.made[cube].ch[q];
-            if (ch >= 1 && ch <= 8 && (chf & (1u << (ch - 1)))) {
-                fold |= 1u << q;
-            }
-        }
-        return fold;
-    }
     if (g.connected) {
         struct np_algo_bank bank;
         fill_algo_bank(&bank);
@@ -5402,7 +5604,7 @@ unsigned int np_host_made_fold(int cube)
                 continue;
             }
             bank.self = ch - 1;
-            if (np_algo_custom_bank(made_src_or_default(cube, q), &bank)) {
+            if (np_algo_custom_bank(alib_src(g.made[cube].algo[q]), &bank)) {
                 fold |= 1u << q;
             }
         }
@@ -5519,8 +5721,7 @@ int np_host_made_add(void)
                     break;
                 }
             }
-            snprintf(g.made[i].src[q], sizeof(g.made[i].src[q]), "%s",
-                     NP_ALGO_SRC_DEFAULT);
+            g.made[i].algo[q] = g.algo >= 0 ? g.algo : 0;
         }
     }
     g.made_n++;

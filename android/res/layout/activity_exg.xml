@@ -133,6 +133,15 @@
             android:textColor="@color/ink" />
 
         <Button
+            android:id="@+id/tabAlgos"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:backgroundTint="@color/btn"
+            android:text="Algos"
+            android:textColor="@color/ink" />
+
+        <Button
             android:id="@+id/tabPoses"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
@@ -207,12 +216,6 @@
                     android:text="color" />
 
                 <Button
-                    android:id="@+id/cubeAlgo"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="algo energy" />
-
-                <Button
                     android:id="@+id/cubeZoomOut"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
@@ -281,46 +284,8 @@
                     android:paddingRight="8dp"
                     android:paddingTop="2dp"
                     android:paddingBottom="2dp"
-                    android:text="each bit is that channel through this algo"
+                    android:text="tap a bit to pick its algo · hold for channel"
                     android:textColor="@color/muted" />
-
-                <EditText
-                    android:id="@+id/cubeSrc"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_margin="4dp"
-                    android:background="@color/bg"
-                    android:fontFamily="monospace"
-                    android:gravity="top|start"
-                    android:hint="if ch1 &lt; ch5 then 1&#10;else 0"
-                    android:inputType="textMultiLine|textNoSuggestions"
-                    android:minLines="4"
-                    android:padding="8dp"
-                    android:textColor="@color/ink"
-                    android:textColorHint="@color/muted"
-                    android:visibility="gone" />
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content">
-
-                    <Button
-                        android:id="@+id/cubeSrcApply"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="apply code"
-                        android:visibility="gone" />
-                </LinearLayout>
-
-                <TextView
-                    android:id="@+id/cubeSrcErr"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:paddingLeft="8dp"
-                    android:paddingRight="8dp"
-                    android:textColor="@color/crimson"
-                    android:visibility="gone" />
             </LinearLayout>
 
             <com.abysscore.exgc.CubeView
@@ -328,6 +293,100 @@
                 android:layout_width="match_parent"
                 android:layout_height="0dp"
                 android:layout_weight="1" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/algosPane"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@color/panel"
+                android:padding="8dp"
+                android:text="CubalC. ch last mean rms prev dxmean above pos signal. ch1..ch8 are jacks."
+                android:textColor="@color/muted" />
+
+            <HorizontalScrollView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@color/panel">
+
+                <LinearLayout
+                    android:id="@+id/algoList"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:padding="2dp" />
+            </HorizontalScrollView>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@color/panel"
+                android:padding="2dp">
+
+                <Button
+                    android:id="@+id/algoAdd"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="add" />
+
+                <Button
+                    android:id="@+id/algoDel"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="del" />
+
+                <Button
+                    android:id="@+id/algoReset"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="reset" />
+
+                <Button
+                    android:id="@+id/algoRename"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="name" />
+            </LinearLayout>
+
+            <EditText
+                android:id="@+id/algoSrc"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_margin="4dp"
+                android:layout_weight="1"
+                android:background="@color/bg"
+                android:fontFamily="monospace"
+                android:gravity="top|start"
+                android:hint="if ch1 &lt; ch5 then 1&#10;else 0"
+                android:inputType="textMultiLine|textNoSuggestions"
+                android:minLines="8"
+                android:padding="8dp"
+                android:textColor="@color/ink"
+                android:textColorHint="@color/muted" />
+
+            <Button
+                android:id="@+id/algoApply"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="apply CubalC" />
+
+            <TextView
+                android:id="@+id/algoErr"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:padding="8dp"
+                android:textColor="@color/crimson"
+                android:visibility="gone" />
         </LinearLayout>
 
         <ScrollView
@@ -557,7 +616,7 @@
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="algo detect" />
+                        android:text="Algos tab" />
                 </LinearLayout>
 
                 <TextView

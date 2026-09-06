@@ -119,15 +119,25 @@ void np_host_set_algo(int id);
 void np_host_algo_name(char *out, int n);
 void np_host_algo_rule(char *out, int n);
 void np_host_algo_src(char *out, int n);
-/* 0 ok. err is set on fail. Switching to a good src selects custom. */
 int np_host_set_algo_src(const char *s, char *err, int n);
-/* Live 0/1 per channel from the selected algo (not the 1 Hz SMX row). */
 unsigned int np_host_algo_fold(void);
+int np_host_alib_n(void);
+int np_host_alib_sel(void);
+void np_host_alib_set_sel(int i);
+void np_host_alib_name(int i, char *out, int n);
+void np_host_alib_src(int i, char *out, int n);
+int np_host_alib_def(int i);
+int np_host_alib_set_src(int i, const char *s, char *err, int n);
+int np_host_alib_set_name(int i, const char *s);
+int np_host_alib_add(void);
+int np_host_alib_del(int i);
+int np_host_alib_reset(int i);
 int np_host_made_qsel(void);
 void np_host_made_set_qsel(int q);
 void np_host_made_src(int cube, int q, char *out, int n);
 int np_host_set_made_src(int cube, int q, const char *s, char *err, int n);
-/* Live 0/1 per cube cell (bit 0 = cell 1). Custom uses that cell's source. */
+int np_host_made_algo(int cube, int q);
+int np_host_made_set_algo(int cube, int q, int id);
 unsigned int np_host_made_fold(int cube);
 
 int np_host_cube_view(void);

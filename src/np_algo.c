@@ -9,7 +9,7 @@
 const char *np_algo_name(int id)
 {
     static const char *n[NP_ALGO_N] = {"detect", "sign", "mean", "energy",
-                                       "delta",  "fold", "proton", "custom"};
+                                       "delta",  "fold", "proton", "compare"};
     if (id < 0 || id >= NP_ALGO_N) {
         return "detect";
     }
@@ -33,8 +33,8 @@ const char *np_algo_rule(int id)
         return "1 if majority of samples > 0";
     case NP_ALGO_PROTON:
         return "1 if +energy > half total";
-    case NP_ALGO_CUSTOM:
-        return "per-bit if/else — ch1..ch8 last µV";
+    case NP_ALGO_COMPARE:
+        return "1 if ch1 < ch5";
     default:
         return "1 if ID is SIGNAL";
     }
@@ -109,6 +109,24 @@ int np_algo_bit(int id, const float *x, int n, int detect_bit)
     return detect_bit ? 1 : 0;
 }
 
+const char *np_algo_def_src(int id)
+{
+    static const char *s[NP_ALGO_N] = {
+        "if signal == 1 then 1\nelse 0\n",
+        "if ch > 0 then 1\nelse 0\n",
+        "if abs(ch) > 0.85 * mean then 1\nelse 0\n",
+        "if rms > 1.05 * mean then 1\nelse 0\n",
+        "if abs(ch - prev) > 1.10 * dxmean then 1\nelse 0\n",
+        "if above > 0.5 then 1\nelse 0\n",
+        "if pos > 0.5 then 1\nelse 0\n",
+        "if ch1 < ch5 then 1\nelse 0\n",
+    };
+    if (id < 0 || id >= NP_ALGO_N) {
+        return s[NP_ALGO_COMPARE];
+    }
+    return s[id];
+}
+
 enum {
     OP_HALT = 0,
     OP_PUSHC,
@@ -121,6 +139,16 @@ enum {
     OP_PUSHMEANN,
     OP_PUSHRMSN,
     OP_PUSHNN,
+    OP_PUSHPREV,
+    OP_PUSHDX,
+    OP_PUSHABOVE,
+    OP_PUSHPOS,
+    OP_PUSHSIG,
+    OP_PUSHPREVN,
+    OP_PUSHDXN,
+    OP_PUSHABOVEN,
+    OP_PUSHPOSN,
+    OP_PUSHSIGN,
     OP_ABS,
     OP_NEG,
     OP_ADD,
@@ -304,9 +332,13 @@ static int reserved(const char *name)
            kw_eq(name, "rms") || kw_eq(name, "n") || kw_eq(name, "bit") ||
            kw_eq(name, "if") || kw_eq(name, "then") || kw_eq(name, "else") ||
            kw_eq(name, "elif") || kw_eq(name, "end") || kw_eq(name, "let") ||
-           kw_eq(name, "abs") || name_ix(name, "ch") >= 0 ||
+           kw_eq(name, "abs") || kw_eq(name, "prev") || kw_eq(name, "dxmean") ||
+           kw_eq(name, "above") || kw_eq(name, "pos") ||
+           kw_eq(name, "signal") || name_ix(name, "ch") >= 0 ||
            name_ix(name, "last") >= 0 || name_ix(name, "mean") >= 0 ||
-           name_ix(name, "rms") >= 0;
+           name_ix(name, "rms") >= 0 || name_ix(name, "prev") >= 0 ||
+           name_ix(name, "dxmean") >= 0 || name_ix(name, "above") >= 0 ||
+           name_ix(name, "pos") >= 0 || name_ix(name, "signal") >= 0;
 }
 
 static int parse_expr(struct np_lex *L, struct np_prog *P, char *err, int errn);
@@ -371,6 +403,26 @@ static int parse_unary(struct np_lex *L, struct np_prog *P, char *err, int errn)
             if (emit(P, OP_PUSHRMSN, 0, ix, err, errn, L->line) != 0) {
                 return -1;
             }
+        } else if ((ix = name_ix(L->tok, "prev")) >= 0) {
+            if (emit(P, OP_PUSHPREVN, 0, ix, err, errn, L->line) != 0) {
+                return -1;
+            }
+        } else if ((ix = name_ix(L->tok, "dxmean")) >= 0) {
+            if (emit(P, OP_PUSHDXN, 0, ix, err, errn, L->line) != 0) {
+                return -1;
+            }
+        } else if ((ix = name_ix(L->tok, "above")) >= 0) {
+            if (emit(P, OP_PUSHABOVEN, 0, ix, err, errn, L->line) != 0) {
+                return -1;
+            }
+        } else if ((ix = name_ix(L->tok, "pos")) >= 0) {
+            if (emit(P, OP_PUSHPOSN, 0, ix, err, errn, L->line) != 0) {
+                return -1;
+            }
+        } else if ((ix = name_ix(L->tok, "signal")) >= 0) {
+            if (emit(P, OP_PUSHSIGN, 0, ix, err, errn, L->line) != 0) {
+                return -1;
+            }
         } else if (kw_eq(L->tok, "ch") || kw_eq(L->tok, "last")) {
             if (emit(P, OP_PUSHCH, 0, 0, err, errn, L->line) != 0) {
                 return -1;
@@ -385,6 +437,26 @@ static int parse_unary(struct np_lex *L, struct np_prog *P, char *err, int errn)
             }
         } else if (kw_eq(L->tok, "n")) {
             if (emit(P, OP_PUSHN, 0, 0, err, errn, L->line) != 0) {
+                return -1;
+            }
+        } else if (kw_eq(L->tok, "prev")) {
+            if (emit(P, OP_PUSHPREV, 0, 0, err, errn, L->line) != 0) {
+                return -1;
+            }
+        } else if (kw_eq(L->tok, "dxmean")) {
+            if (emit(P, OP_PUSHDX, 0, 0, err, errn, L->line) != 0) {
+                return -1;
+            }
+        } else if (kw_eq(L->tok, "above")) {
+            if (emit(P, OP_PUSHABOVE, 0, 0, err, errn, L->line) != 0) {
+                return -1;
+            }
+        } else if (kw_eq(L->tok, "pos")) {
+            if (emit(P, OP_PUSHPOS, 0, 0, err, errn, L->line) != 0) {
+                return -1;
+            }
+        } else if (kw_eq(L->tok, "signal")) {
+            if (emit(P, OP_PUSHSIG, 0, 0, err, errn, L->line) != 0) {
                 return -1;
             }
         } else {
@@ -668,6 +740,7 @@ static int eval_prog(const struct np_prog *P, const struct np_algo_bank *bank)
     float st[NP_ALGO_STACK];
     float var[NP_ALGO_VARS];
     float ch = 0, ma = 0, rms = 0, nn = 0;
+    float prev = 0, dx = 0, above = 0, pos = 0, sig = 0;
     int sp = 0, pc = 0;
     int bit = 0;
     int self = bank ? bank->self : -1;
@@ -678,6 +751,11 @@ static int eval_prog(const struct np_prog *P, const struct np_algo_bank *bank)
         ma = bank->mean[self];
         rms = bank->rms[self];
         nn = bank->nn[self];
+        prev = bank->prev[self];
+        dx = bank->dxmean[self];
+        above = bank->above[self];
+        pos = bank->pos[self];
+        sig = bank->signal[self];
     }
     while (pc >= 0 && pc < P->n) {
         const struct np_op *o = &P->op[pc];
@@ -753,6 +831,76 @@ static int eval_prog(const struct np_prog *P, const struct np_algo_bank *bank)
                 return 0;
             }
             st[sp++] = bank ? bank_at(bank->nn, o->i) : 0.f;
+            pc++;
+            break;
+        case OP_PUSHPREV:
+            if (sp >= NP_ALGO_STACK) {
+                return 0;
+            }
+            st[sp++] = prev;
+            pc++;
+            break;
+        case OP_PUSHDX:
+            if (sp >= NP_ALGO_STACK) {
+                return 0;
+            }
+            st[sp++] = dx;
+            pc++;
+            break;
+        case OP_PUSHABOVE:
+            if (sp >= NP_ALGO_STACK) {
+                return 0;
+            }
+            st[sp++] = above;
+            pc++;
+            break;
+        case OP_PUSHPOS:
+            if (sp >= NP_ALGO_STACK) {
+                return 0;
+            }
+            st[sp++] = pos;
+            pc++;
+            break;
+        case OP_PUSHSIG:
+            if (sp >= NP_ALGO_STACK) {
+                return 0;
+            }
+            st[sp++] = sig;
+            pc++;
+            break;
+        case OP_PUSHPREVN:
+            if (sp >= NP_ALGO_STACK) {
+                return 0;
+            }
+            st[sp++] = bank ? bank_at(bank->prev, o->i) : 0.f;
+            pc++;
+            break;
+        case OP_PUSHDXN:
+            if (sp >= NP_ALGO_STACK) {
+                return 0;
+            }
+            st[sp++] = bank ? bank_at(bank->dxmean, o->i) : 0.f;
+            pc++;
+            break;
+        case OP_PUSHABOVEN:
+            if (sp >= NP_ALGO_STACK) {
+                return 0;
+            }
+            st[sp++] = bank ? bank_at(bank->above, o->i) : 0.f;
+            pc++;
+            break;
+        case OP_PUSHPOSN:
+            if (sp >= NP_ALGO_STACK) {
+                return 0;
+            }
+            st[sp++] = bank ? bank_at(bank->pos, o->i) : 0.f;
+            pc++;
+            break;
+        case OP_PUSHSIGN:
+            if (sp >= NP_ALGO_STACK) {
+                return 0;
+            }
+            st[sp++] = bank ? bank_at(bank->signal, o->i) : 0.f;
             pc++;
             break;
         case OP_ABS:
@@ -883,24 +1031,46 @@ void np_algo_bank_clear(struct np_algo_bank *b)
 
 void np_algo_bank_set(struct np_algo_bank *b, int ch, const float *x, int n)
 {
-    int i;
-    double e = 0;
+    np_algo_bank_set_ex(b, ch, x, n, 0);
+}
+
+void np_algo_bank_set_ex(struct np_algo_bank *b, int ch, const float *x, int n,
+                         int signal)
+{
+    int i, above = 0;
+    double e = 0, ep = 0, md = 0;
     if (!b || ch < 0 || ch > 7) {
         return;
     }
     b->nn[ch] = (float)n;
+    b->signal[ch] = signal ? 1.f : 0.f;
     if (!x || n < 1) {
         b->last[ch] = 0;
         b->mean[ch] = 0;
         b->rms[ch] = 0;
+        b->prev[ch] = 0;
+        b->dxmean[ch] = 0;
+        b->above[ch] = 0;
+        b->pos[ch] = 0;
         return;
     }
     b->last[ch] = x[n - 1];
+    b->prev[ch] = n >= 2 ? x[n - 2] : x[n - 1];
     b->mean[ch] = mean_abs(x, n);
     for (i = 0; i < n; i++) {
         e += (double)x[i] * (double)x[i];
+        if (x[i] > 0.f) {
+            above++;
+            ep += (double)x[i] * (double)x[i];
+        }
+        if (i > 0) {
+            md += fabs((double)x[i] - (double)x[i - 1]);
+        }
     }
     b->rms[ch] = (float)sqrt(e / (double)n);
+    b->dxmean[ch] = n > 1 ? (float)(md / (double)(n - 1)) : 0.f;
+    b->above[ch] = (float)above / (float)n;
+    b->pos[ch] = e > 1e-12 ? (float)(ep / e) : 0.f;
 }
 
 int np_algo_custom_bank(const char *src, const struct np_algo_bank *b)

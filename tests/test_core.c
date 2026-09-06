@@ -746,7 +746,7 @@ static void test_algo(void)
     expect(np_algo_bit(NP_ALGO_PROTON, hi, 32, 0) == 1, "algo proton +energy");
     expect(np_algo_bit(NP_ALGO_DELTA, z, 32, 0) == 0, "algo delta still");
     expect(strcmp(np_algo_name(NP_ALGO_FOLD), "fold") == 0, "algo name fold");
-    expect(strcmp(np_algo_name(NP_ALGO_CUSTOM), "custom") == 0, "algo name custom");
+    expect(strcmp(np_algo_name(NP_ALGO_COMPARE), "compare") == 0, "algo name compare");
     {
         char err[80];
         float lo[8], hi2[8];
@@ -782,6 +782,17 @@ static void test_algo(void)
                "custom abs(ch)>80");
         expect(np_algo_compile("if ch less 100 then 1\n", err, 80) != 0,
                "custom rejects prose");
+        {
+            int d;
+            for (d = 0; d < NP_ALGO_N; d++) {
+                expect(np_algo_compile(np_algo_def_src(d), err, 80) == 0,
+                       "default CubalC compiles");
+            }
+        }
+        expect(np_algo_custom(np_algo_def_src(NP_ALGO_SIGN), hi, 32) == 1,
+               "CubalC sign +");
+        expect(np_algo_custom(np_algo_def_src(NP_ALGO_SIGN), z, 32) == 0,
+               "CubalC sign flat");
         expect(np_algo_compile("if ch1 < ch5 then 1\nelse 0\n", err, 80) == 0,
                "custom ch1<ch5 compiles");
         {
@@ -1364,7 +1375,7 @@ static void test_api(void)
          strstr(body, "/stream") && strstr(body, "EXG1");
     expect(ok, "api GET / index lists stream");
     expect(strstr(body, "stream.json") == NULL, "api index has no NDJSON live path");
-    expect(strstr(body, "\"v\":\"2.70\"") != NULL, "api index version 2.70");
+    expect(strstr(body, "\"v\":\"2.71\"") != NULL, "api index version 2.71");
     expect(strstr(body, "/pair") != NULL, "api index lists /pair");
     expect(strstr(body, "\"ip\":\"127.0.0.1\"") != NULL, "api local ip is loopback");
     {

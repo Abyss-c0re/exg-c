@@ -1,4 +1,4 @@
-# App (2.70)
+# App (2.71)
 
 What the host does. The LAN wire is [API.md](API.md).
 
@@ -110,18 +110,24 @@ Profile load keeps the electrode map and **recooks** plates/takes from raw. It d
 
 The Cube tab **creates cubes**. One cube is a 2×2×2 of 8 bits, one cell per channel. 8 jacks → 1 cube; 16 → 2. Bit buttons 1–8 pick the channel. The voxel label is `N·chM`. Color tints the whole lattice.
 
-**algo** lives on this tab (Settings still has the same picker). That rule turns each mapped channel into 0 or 1. The line under the bits names the rule. A lit button is `1 ch3 ·1` — bit 1, channel 3, on.
+Tap a bit to pick its **algo** from the Algos tab. Long-press to pick its channel. A lit button is `1 sign ·1`.
 
-| Algo | 1 when |
+## Algos
+
+A separate tab. Defaults are CubalC you can read (and reset). Add your own. Cube bits pick from this list.
+
+| Name | CubalC |
 |------|--------|
-| detect | ID says SIGNAL |
-| sign | last sample > 0 |
-| mean | \|last\| > 0.85·mean\|x\| |
-| energy | rms > 1.05·mean\|x\| |
-| delta | \|step\| > 1.10·mean\|dx\| |
-| fold | majority of samples > 0 |
-| proton | +energy > half total |
-| custom | **each bit has its own code.** Tap a bit to edit it, long-press to pick its channel. `ch1`…`ch8` are last cooked µV of those jacks. Bare `ch` / `last` / `mean` / `rms` is this bit’s assigned channel. Example: `if ch1 < ch5 then 1` / `else 0`. CubalC `LET` / `IF` / `THEN` / `ELSE` / `END` still works. |
+| detect | `if signal == 1 then 1` |
+| sign | `if ch > 0 then 1` |
+| mean | `if abs(ch) > 0.85 * mean then 1` |
+| energy | `if rms > 1.05 * mean then 1` |
+| delta | `if abs(ch - prev) > 1.10 * dxmean then 1` |
+| fold | `if above > 0.5 then 1` |
+| proton | `if pos > 0.5 then 1` |
+| compare | `if ch1 < ch5 then 1` |
+
+Names: `ch`/`last`/`mean`/`rms`/`prev`/`dxmean`/`above`/`pos`/`signal` for this bit’s channel, and `ch1`…`ch8` for jacks. `LET` / `IF` / `THEN` / `ELSE` / `END` work.
 
 **float on** levitates; **float off** is manual drag-spin and +/− zoom. Sites live in Settings.
 
