@@ -248,6 +248,12 @@
                 android:orientation="horizontal"
                 android:padding="2dp" />
 
+            <Button
+                android:id="@+id/cubeAlgo"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="algo sign" />
+
             <LinearLayout
                 android:id="@+id/cubeBits"
                 android:layout_width="match_parent"
@@ -284,7 +290,7 @@
                     android:paddingRight="8dp"
                     android:paddingTop="2dp"
                     android:paddingBottom="2dp"
-                    android:text="tap a bit to pick its algo · hold for channel"
+                    android:text="algo is the whole cube. tap a bit for its channel."
                     android:textColor="@color/muted" />
             </LinearLayout>
 
@@ -399,11 +405,24 @@
                 android:textColor="@color/ink"
                 android:textColorHint="@color/muted" />
 
-            <Button
-                android:id="@+id/algoApply"
+            <LinearLayout
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="apply CubalC" />
+                android:layout_height="wrap_content">
+
+                <Button
+                    android:id="@+id/algoApply"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="save CubalC" />
+
+                <Button
+                    android:id="@+id/algoUseCube"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="use on cube" />
+            </LinearLayout>
 
             <TextView
                 android:id="@+id/algoErr"

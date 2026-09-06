@@ -2201,7 +2201,7 @@ static void api_status_json(char *out, int n)
         }
     }
     snprintf(out, (size_t)n,
-             "{\"ok\":true,\"v\":\"2.73\",\"connected\":%s,\"paused\":%s,\"sps\":%.1f,"
+             "{\"ok\":true,\"v\":\"2.74\",\"connected\":%s,\"paused\":%s,\"sps\":%.1f,"
              "\"frames\":%u,\"status\":\"%s\",\"id\":\"%s\",\"id_best\":%d,"
              "\"notch\":%d,\"hp\":%d,\"lp\":%d,\"car\":%d,\"band\":%d,\"mask\":%u,"
              "\"api\":\"%s\"}",
@@ -5420,6 +5420,41 @@ int np_host_made_set_algo(int cube, int q, int id)
     g.made_qsel = q;
     cfg_save();
     set_status(1, "bit %d  %s", q + 1, g.alib[id].name);
+    return 0;
+}
+
+int np_host_made_algo_all(int cube)
+{
+    int q, id;
+    if (cube < 0 || cube >= g.made_n) {
+        return -1;
+    }
+    id = np_host_made_algo(cube, 0);
+    for (q = 1; q < 8; q++) {
+        if (np_host_made_algo(cube, q) != id) {
+            return -1;
+        }
+    }
+    return id;
+}
+
+int np_host_made_set_algo_all(int cube, int id)
+{
+    int q;
+    alib_seed();
+    if (cube < 0 || cube >= g.made_n) {
+        return -1;
+    }
+    if (id < 0 || id >= g.alib_n) {
+        return -1;
+    }
+    for (q = 0; q < 8; q++) {
+        g.made[cube].algo[q] = id;
+    }
+    g.algo = id;
+    g.alib_sel = id;
+    cfg_save();
+    set_status(1, "cube  %s", g.alib[id].name);
     return 0;
 }
 

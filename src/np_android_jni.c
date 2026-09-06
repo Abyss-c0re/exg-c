@@ -991,6 +991,23 @@ Java_com_abysscore_exgc_ExgNative_madeSetAlgo(JNIEnv *env, jclass cls, jint cube
     return np_host_made_set_algo(cube, q, id);
 }
 
+JNIEXPORT jint JNICALL
+Java_com_abysscore_exgc_ExgNative_madeAlgoAll(JNIEnv *env, jclass cls, jint cube)
+{
+    (void)env;
+    (void)cls;
+    return np_host_made_algo_all(cube);
+}
+
+JNIEXPORT jint JNICALL
+Java_com_abysscore_exgc_ExgNative_madeSetAlgoAll(JNIEnv *env, jclass cls,
+                                                jint cube, jint id)
+{
+    (void)env;
+    (void)cls;
+    return np_host_made_set_algo_all(cube, id);
+}
+
 JNIEXPORT void JNICALL
 Java_com_abysscore_exgc_ExgNative_togglePause(JNIEnv *env, jclass cls)
 {

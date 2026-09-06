@@ -140,6 +140,9 @@ void np_host_made_src(int cube, int q, char *out, int n);
 int np_host_set_made_src(int cube, int q, const char *s, char *err, int n);
 int np_host_made_algo(int cube, int q);
 int np_host_made_set_algo(int cube, int q, int id);
+/* Common algo on all 8 bits, or -1 if mixed. */
+int np_host_made_algo_all(int cube);
+int np_host_made_set_algo_all(int cube, int id);
 unsigned int np_host_made_fold(int cube);
 
 int np_host_cube_view(void);

@@ -56,6 +56,8 @@ public final class ExgNative {
     public static native int alibReset(int i);
     public static native int madeAlgo(int cube, int q);
     public static native int madeSetAlgo(int cube, int q, int id);
+    public static native int madeAlgoAll(int cube);
+    public static native int madeSetAlgoAll(int cube, int id);
     public static native void setUiScale(int tenths);
     public static native void setBoardImu(boolean imu);
     public static native void setGain(int ch, int gain);
