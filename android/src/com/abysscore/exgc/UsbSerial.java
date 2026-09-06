@@ -117,6 +117,13 @@ public final class UsbSerial {
                 Log.e(TAG, "openDevice failed");
                 return -1;
             }
+            try {
+                if (dev.getConfigurationCount() > 0) {
+                    conn.setConfiguration(dev.getConfiguration(0));
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "setConfiguration: " + e.getMessage());
+            }
             if (!claim(dev)) {
                 close();
                 return -1;
@@ -166,8 +173,8 @@ public final class UsbSerial {
             for (int li = 0; li < loops && out < n; li++) {
                 int got = conn.bulkTransfer(epIn, tmp, tmp.length, li == 0 ? 80 : 2);
                 if (got < 0) {
-                    if (out == 0) {
-                        Log.w(TAG, "bulk IN " + got);
+                    if (out == 0 && sTick++ % 40 == 0) {
+                        Log.w(TAG, "bulk IN " + got + " (timeout — no FTDI packet)");
                     }
                     break;
                 }
@@ -363,19 +370,32 @@ public final class UsbSerial {
         return epIn != null && epOut != null;
     }
 
+    private static int ctrl(int req, int value, int index) {
+        int r = conn.controlTransfer(FTDI_HOST, req, value, index, null, 0, 200);
+        if (r < 0) {
+            Log.w(TAG, "ftdi ctrl req=" + req + " val=" + value + " -> " + r);
+        }
+        return r;
+    }
+
     private static boolean configure() {
         if (kind == 1) {
-            conn.controlTransfer(FTDI_HOST, FTDI_RESET, 0, 0, null, 0, 200);
-            conn.controlTransfer(FTDI_HOST, FTDI_RESET, 1, 0, null, 0, 200); /* purge RX */
-            conn.controlTransfer(FTDI_HOST, FTDI_RESET, 2, 0, null, 0, 200); /* purge TX */
-            conn.controlTransfer(FTDI_HOST, 9, 1, 0, null, 0, 200); /* latency 1 ms */
+            ctrl(FTDI_RESET, 0, 0);
+            ctrl(FTDI_RESET, 1, 0); /* purge RX */
+            ctrl(FTDI_RESET, 2, 0); /* purge TX */
+            if (ctrl(9, 1, 0) < 0) {
+                ctrl(9, 16, 0); /* latency 16 ms if 1 ms is refused */
+            }
             /* 115200 on FT232R: divisor 26 */
-            conn.controlTransfer(FTDI_HOST, FTDI_BAUD, 26, 0, null, 0, 200);
-            conn.controlTransfer(FTDI_HOST, FTDI_DATA, 8, 0, null, 0, 200);
-            conn.controlTransfer(FTDI_HOST, FTDI_FLOW, 0, 0, null, 0, 200);
-            /* Leave DTR/RTS as the chip has them. Toggling DTR here resets
-             * the Nano and the UI thread loses its GL surface. */
-            Log.i(TAG, "ftdi configured 115200 8N1 in=" + epIn + " out=" + epOut);
+            ctrl(FTDI_BAUD, 26, 0);
+            ctrl(FTDI_DATA, 8, 0);
+            ctrl(FTDI_FLOW, 0, 0);
+            /* Official serial open asserts DTR/RTS. Low DTR holds the Nano. */
+            ctrl(FTDI_MODEM, 0x0101, 0);
+            ctrl(FTDI_MODEM, 0x0202, 0);
+            Log.i(TAG, "ftdi configured 115200 8N1 DTR/RTS on in="
+                    + epIn.getAddress() + " out=" + epOut.getAddress()
+                    + " max=" + epIn.getMaxPacketSize());
             return true;
         }
         if (kind == 2) {

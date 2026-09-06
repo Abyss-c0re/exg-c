@@ -1961,7 +1961,7 @@ static void api_status_json(char *out, int n)
         }
     }
     snprintf(out, (size_t)n,
-             "{\"ok\":true,\"v\":\"2.62\",\"connected\":%s,\"paused\":%s,\"sps\":%.1f,"
+             "{\"ok\":true,\"v\":\"2.63\",\"connected\":%s,\"paused\":%s,\"sps\":%.1f,"
              "\"frames\":%u,\"status\":\"%s\",\"id\":\"%s\",\"id_best\":%d,"
              "\"notch\":%d,\"hp\":%d,\"lp\":%d,\"car\":%d,\"band\":%d,\"mask\":%u,"
              "\"api\":\"%s\"}",
@@ -3090,7 +3090,7 @@ void stream_recover(void)
     /* DTR reset loops keep the Nano in the bootloader. Never pulse
      * unless we already had frames (a real stall, not "never started"). */
     if (g.stall_tot < 10) {
-        set_status(0, "usb open, waiting for Knight frames...");
+        set_status(0, "USB open — no Knight bytes (not the cook)");
         return;
     }
 #endif

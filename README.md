@@ -4,7 +4,7 @@ A C host for a **[Knight](https://www.neuropawn.tech/)** ADS1299 board — or an
 
 Not a medical device. Not affiliated with NeuroPawn.
 
-Shipped app: **2.62** (`com.abysscore.exgc`, versionCode 70). One framework, two skins:
+Shipped app: **2.63** (`com.abysscore.exgc`, versionCode 71). One framework, two skins:
 
 | Piece | Role |
 |-------|------|
