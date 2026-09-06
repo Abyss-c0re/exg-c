@@ -18,25 +18,25 @@ src/np_core.c     cook on the USB reader thread
 
 Android does **not** compile `np_ui.c`. Java talks to `include/np_host.h` via `src/np_android_jni.c`.
 
-## Defaults (first load, then `set_gen=4`)
+## Defaults (first load, then `set_gen=5`)
 
 | Setting | Value | Why |
 |---------|--------|-----|
-| band | raw | board counts, official Knight scale. line-kill cooks after that |
-| notch | AUTO (−1) | idle until a desk plate locks a line |
-| hp | 2 Hz | drops DC/slow rail |
-| lp | off | does not squash EXG |
-| CAR | on | worn raw is lockstep millivolt |
-| envelope | off | envelope hid EXG |
-| detrend | on | plot is EXG, not the floor |
-| DC cut (`cal_cut`) | on | still-plate mean |
-| scale | ±1000 µV | EXG hundreds of µV, clench ~mV |
-| window | 2 s | 250 samples — **below** Wiener’s 256 |
+| band | raw | same as official Knight plot |
+| notch | off | official does not cook |
+| hp | off | off-head is a DC rail — keep it |
+| lp | off | |
+| CAR | off | CAR hides the common off-head rail |
+| envelope | off | |
+| detrend | off | |
+| DC cut (`cal_cut`) | off | |
+| scale | ±1000 µV | worn is hundreds of µV; off-head rails the plot |
+| window | 2 s | 250 samples |
 | API | **off** | turn on in Settings if you want LAN |
 
-After `set_gen=4`, saved ini wins. API is not forced on at boot. `set_gen=3` remounts the pair belt once. `set_gen=4` applies pair colors (white / yellow / cyan / red).
+After `set_gen=5`, saved ini wins. `set_gen=5` forces raw once so an old line-kill ini cannot hide the board. Line-kill / EEG / EMG stay as bands.
 
-Worn raw on this head is typically **200–300 µV**. Off-head / open inputs spike toward **1 mV**. That is contact vs antenna, not a stronger brain signal. After CAR+hp+notch, rest EXG is tens–hundreds of µV; a jaw clench is several times that.
+Official Knight scale is `4/(2^15-1)/gain*1e6` (~±333 mV at gain 12). Worn raw is hundreds of µV. Off-head rails toward tens of mV. **line-kill** (hp 2, CAR, detrend) is a cook. It is not the board.
 
 ## DC vs CLEAN
 
