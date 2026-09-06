@@ -64,6 +64,10 @@ public class CubeView extends View {
     private boolean spinning;
     private int onCount;
     private final boolean[] chOn = new boolean[NCHAN];
+    private int madeN;
+    private int madeSel;
+    private final int[][] madeCh = new int[4][4];
+    private final int[] madeRgb = new int[4];
 
     private final int[] siteSx = new int[MAX_SITE];
     private final int[] siteSy = new int[MAX_SITE];
@@ -160,6 +164,14 @@ public class CubeView extends View {
         }
         smxSeq = ExgNative.smxSeq();
         smxFold = ExgNative.smxFold();
+        madeN = Math.min(4, ExgNative.madeN());
+        madeSel = ExgNative.madeSel();
+        for (int i = 0; i < madeN; i++) {
+            madeRgb[i] = ExgNative.madeRgb(i);
+            for (int q = 0; q < 4; q++) {
+                madeCh[i][q] = ExgNative.madeCh(i, q);
+            }
+        }
         floating = ExgNative.cubeFloat();
         nsite = Math.min(MAX_SITE, ExgNative.siteN());
         siteFocus = ExgNative.siteFocus();
@@ -353,45 +365,124 @@ public class CubeView extends View {
         if (w < 8 || h < 8) {
             return;
         }
-        int mapH = mode == 1 ? Math.max(160, h / 4) : 0;
-        cubeB = h - mapH;
+        cubeB = h;
+        mode = 0;
+        tickViz();
+        drawHive(c, w, h);
+        postInvalidateOnAnimation();
+    }
+
+    private static int quarterOf(int x, int z) {
+        if (z >= 4) {
+            return x >= 4 ? 1 : 0;
+        }
+        return x >= 4 ? 3 : 2;
+    }
+
+    private void drawHive(Canvas c, int w, int h) {
         float cx = w * 0.5f;
-        float cy = cubeB * 0.52f;
-        float k = Math.min(w, cubeB) / 2.35f * zoom;
-        if (k < 50) {
-            k = 50;
+        float cy = h * 0.52f;
+        ink.setColor(SPIKE);
+        ink.setTextSize(26f * labelMul);
+        if (madeN < 1) {
+            c.drawText("add a cube — 4 channels each, " + ExgNative.madeMax() + " max", 16, 36, ink);
+            return;
         }
-        if (mode == 0) {
-            tickViz();
-            drawGlow(c, w, cubeB);
-            drawWire(c, cx, cy, k);
-            drawLattice(c, cx, cy, k);
-            drawPairs(c, cx, cy, k);
-            if (!ExgNative.pairMode()) {
-                drawElecResonance(c, cx, cy, k);
-            }
-            drawCore(c, cx, cy, k);
-            ink.setColor(SPIKE);
-            ink.setTextSize(28f * labelMul);
-            String bits = "";
-            for (int b = 0; b < 8; b++) {
-                bits += ((smxFold >> b) & 1) != 0 ? "1" : "0";
-            }
-            c.drawText("viz  seq " + smxSeq + "  " + bits + "  ·  drag", 16, 36, ink);
-            drawSot(c, w, h);
-            postInvalidateOnAnimation();
-        } else {
-            drawWire(c, cx, cy, k);
-            drawCells(c, cx, cy, k);
-            drawFocusCell(c, cx, cy, k);
-            drawSiteLabels(c, cx, cy, k);
-            ink.setColor(0xFFF22647);
-            ink.setTextSize(26f * labelMul);
-            c.drawText("map  tap ch, then a 10-10 site", 16, 36, ink);
+        float gap = madeN > 1 ? 2.4f : 0f;
+        for (int mi = 0; mi < madeN; mi++) {
+            float ox = madeN == 1 ? 0f : (mi - (madeN - 1) * 0.5f) * gap;
+            drawHiveOne(c, cx, cy, w, h, mi, ox);
         }
-        drawElecLabels(c, cx, cy, k);
-        if (mode == 1) {
-            drawScalp(c, w, h, mapH);
+        c.drawText(madeN + " cube" + (madeN == 1 ? "" : "s") + "  ·  drag", 16, 36, ink);
+    }
+
+    private void drawHiveOne(Canvas c, float cx, float cy, int w, int h, int mi, float ox) {
+        float scale = Math.min(w, h) * (madeN > 1 ? 0.72f : 1.05f) * zoom;
+        int rgb = madeRgb[mi] & 0x00FFFFFF;
+        int cr = (rgb >> 16) & 255, cg = (rgb >> 8) & 255, cb = rgb & 255;
+        java.util.ArrayList<float[]> cells = new java.util.ArrayList<>();
+        float origin = -8 * 0.45f / 2f;
+        for (int z = 0; z < 8; z++) {
+            for (int y = 0; y < 8; y++) {
+                for (int x = 0; x < 8; x++) {
+                    int q = quarterOf(x, z);
+                    int ch = madeCh[mi][q];
+                    boolean on = ch >= 1 && ch <= 8 && ((smxFold >> (ch - 1)) & 1) != 0;
+                    boolean scaf = ((x + y + z) % 4) == 0;
+                    if (!on && !scaf) {
+                        continue;
+                    }
+                    float wx = origin + x * 0.45f + ox;
+                    float wy = origin + y * 0.45f;
+                    float wz = origin + z * 0.45f;
+                    float[] p = new float[4];
+                    project(wx + 0.2f, wy + 0.2f, wz + 0.2f, cx, cy, scale / 3.6f, p);
+                    cells.add(new float[] {wx, wy, wz, on ? 1f : 0f, p[2], q});
+                }
+            }
+        }
+        cells.sort((a, b) -> Float.compare(a[4], b[4]));
+        for (int i = 0; i < cells.size(); i++) {
+            float[] cell = cells.get(i);
+            drawVoxel(c, cell[0], cell[1], cell[2], cell[3] > 0.5f, cr, cg, cb, cx, cy,
+                    scale / 3.6f);
+        }
+    }
+
+    private void drawVoxel(Canvas c, float x, float y, float z, boolean on,
+            int cr, int cg, int cb, float cx, float cy, float sc) {
+        float s = 0.42f;
+        float[][] corn = new float[8][4];
+        int n = 0;
+        for (int dz = 0; dz <= 1; dz++) {
+            for (int dy = 0; dy <= 1; dy++) {
+                for (int dx = 0; dx <= 1; dx++) {
+                    project(x + dx * s, y + dy * s, z + dz * s, cx, cy, sc, corn[n]);
+                    n++;
+                }
+            }
+        }
+        int[][] faces = {
+            {0, 1, 3, 2}, {4, 5, 7, 6}, {0, 1, 5, 4},
+            {2, 3, 7, 6}, {0, 2, 6, 4}, {1, 3, 7, 5}
+        };
+        int[] order = {0, 1, 2, 3, 4, 5};
+        float[] az = new float[6];
+        for (int f = 0; f < 6; f++) {
+            az[f] = (corn[faces[f][0]][2] + corn[faces[f][1]][2]
+                    + corn[faces[f][2]][2] + corn[faces[f][3]][2]) * 0.25f;
+        }
+        for (int i = 0; i < 6; i++) {
+            for (int j = i + 1; j < 6; j++) {
+                if (az[order[i]] > az[order[j]]) {
+                    int t = order[i];
+                    order[i] = order[j];
+                    order[j] = t;
+                }
+            }
+        }
+        int fill = on
+                ? (0xE0000000 | (cr << 16) | (cg << 8) | cb)
+                : (0x38000000 | ((cr / 3) << 16) | ((cg / 3) << 8) | (cb / 3));
+        int stroke = on
+                ? (0xF0000000 | (Math.min(255, cr + 40) << 16) | (Math.min(255, cg + 40) << 8)
+                        | Math.min(255, cb + 40))
+                : (0x55000000 | ((cr / 2) << 16) | ((cg / 2) << 8) | (cb / 2));
+        fill.setStyle(Paint.Style.FILL);
+        android.graphics.Path fp = new android.graphics.Path();
+        for (int oi = 0; oi < 6; oi++) {
+            int[] f = faces[order[oi]];
+            fp.reset();
+            fp.moveTo(corn[f[0]][0], corn[f[0]][1]);
+            for (int k = 1; k < 4; k++) {
+                fp.lineTo(corn[f[k]][0], corn[f[k]][1]);
+            }
+            fp.close();
+            this.fill.setColor(fill);
+            c.drawPath(fp, this.fill);
+            this.stroke.setColor(stroke);
+            this.stroke.setStrokeWidth(on ? 1.2f : 0.5f);
+            c.drawPath(fp, this.stroke);
         }
     }
 

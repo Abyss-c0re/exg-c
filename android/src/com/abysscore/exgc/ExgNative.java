@@ -136,6 +136,16 @@ public final class ExgNative {
     public static native void cubeFront();
     public static native boolean cubeFloat();
     public static native void toggleCubeFloat();
+    public static native int madeMax();
+    public static native int madeN();
+    public static native int madeSel();
+    public static native void madeSetSel(int i);
+    public static native int madeAdd();
+    public static native int madeDel(int i);
+    public static native int madeCh(int cube, int q);
+    public static native int madeSetCh(int cube, int q, int ch);
+    public static native int madeRgb(int cube);
+    public static native void madeSetRgb(int cube, int rgb);
     public static native int elecSel();
     public static native void setElecSel(int ch);
     public static native String elecLabel(int ch);

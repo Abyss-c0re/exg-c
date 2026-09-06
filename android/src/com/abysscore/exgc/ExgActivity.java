@@ -34,10 +34,9 @@ public class ExgActivity extends Activity {
     private View mainPane;
     private CubeView cube;
     private View cubePane;
-    private View cubeMapTools;
-    private LinearLayout cubeChRow;
-    private Button cubeViz, cubeMap, cubeAlgo, cubeFloat;
-    private TextView siteLabel;
+    private LinearLayout cubeList;
+    private Button cubeAdd, cubeDel, cubeColor, cubeFloat;
+    private Button[] cubeQ = new Button[4];
     private View settings;
     private View learnBar;
     private TextView status;
@@ -77,7 +76,6 @@ public class ExgActivity extends Activity {
     private Button algo;
     private Button uiScale;
     private Button board;
-    private Button pairMode;
     private TextView apiLine;
     private Button apiOn, apiBind, apiHz, apiHttp, apiUdp, apiTcp, apiToken, apiPush;
     private final float[] imu = new float[9];
@@ -135,13 +133,15 @@ public class ExgActivity extends Activity {
         mainPane = findViewById(R.id.mainPane);
         cube = findViewById(R.id.cube);
         cubePane = findViewById(R.id.cubePane);
-        cubeMapTools = findViewById(R.id.cubeMapTools);
-        cubeChRow = findViewById(R.id.cubeChRow);
-        cubeViz = findViewById(R.id.cubeViz);
-        cubeMap = findViewById(R.id.cubeMap);
-        cubeAlgo = findViewById(R.id.cubeAlgo);
+        cubeList = findViewById(R.id.cubeList);
+        cubeAdd = findViewById(R.id.cubeAdd);
+        cubeDel = findViewById(R.id.cubeDel);
+        cubeColor = findViewById(R.id.cubeColor);
         cubeFloat = findViewById(R.id.cubeFloat);
-        siteLabel = findViewById(R.id.siteLabel);
+        cubeQ[0] = findViewById(R.id.cubeQ1);
+        cubeQ[1] = findViewById(R.id.cubeQ2);
+        cubeQ[2] = findViewById(R.id.cubeQ3);
+        cubeQ[3] = findViewById(R.id.cubeQ4);
         settings = findViewById(R.id.settings);
         learnBar = findViewById(R.id.learnBar);
         status = findViewById(R.id.status);
@@ -187,7 +187,6 @@ public class ExgActivity extends Activity {
         algo = findViewById(R.id.algo);
         uiScale = findViewById(R.id.uiScale);
         board = findViewById(R.id.board);
-        pairMode = findViewById(R.id.pairMode);
         apiLine = findViewById(R.id.apiLine);
         apiOn = findViewById(R.id.apiOn);
         apiBind = findViewById(R.id.apiBind);
@@ -253,13 +252,27 @@ public class ExgActivity extends Activity {
         tabCube.setOnClickListener(v -> showTab(1));
         tabPoses.setOnClickListener(v -> showTab(2));
         tabSet.setOnClickListener(v -> showTab(3));
-        cubeViz.setOnClickListener(v -> {
-            ExgNative.setCubeView(0);
+        cubeAdd.setOnClickListener(v -> {
+            ExgNative.madeAdd();
             refreshCubeChrome();
+            refreshChrome();
         });
-        cubeMap.setOnClickListener(v -> {
-            ExgNative.setCubeView(1);
+        cubeDel.setOnClickListener(v -> {
+            int s = ExgNative.madeSel();
+            ExgNative.madeDel(s);
             refreshCubeChrome();
+            refreshChrome();
+        });
+        cubeColor.setOnClickListener(v -> {
+            int s = ExgNative.madeSel();
+            if (ExgNative.madeN() < 1) {
+                return;
+            }
+            ColorPick.show(this, "cube " + (s + 1) + " color",
+                    ExgNative.madeRgb(s), rgb -> {
+                        ExgNative.madeSetRgb(s, rgb);
+                        refreshCubeChrome();
+                    });
         });
         findViewById(R.id.cubeZoomOut).setOnClickListener(v -> {
             ExgNative.cubeZoom(-1);
@@ -277,19 +290,10 @@ public class ExgActivity extends Activity {
             ExgNative.toggleCubeFloat();
             refreshCubeChrome();
         });
-        findViewById(R.id.sitePrev).setOnClickListener(v -> {
-            ExgNative.siteStep(-1);
-            refreshCubeChrome();
-        });
-        findViewById(R.id.siteNext).setOnClickListener(v -> {
-            ExgNative.siteStep(1);
-            refreshCubeChrome();
-        });
-        findViewById(R.id.siteAssign).setOnClickListener(v -> {
-            ExgNative.assignSite(ExgNative.siteFocus());
-            refreshCubeChrome();
-        });
-        buildCubeChannels();
+        for (int qi = 0; qi < 4; qi++) {
+            final int q = qi;
+            cubeQ[qi].setOnClickListener(v -> pickQuarter(q));
+        }
         findViewById(R.id.calibrate).setOnClickListener(v -> {
             ExgNative.calStart();
             refreshChrome();
@@ -447,10 +451,7 @@ public class ExgActivity extends Activity {
                     ExgNative.setBoardImu(i == 0);
                     refreshChrome();
                 }));
-        pairMode.setOnClickListener(v -> {
-            ExgNative.setPairMode(!ExgNative.pairMode());
-            refreshChrome();
-        });
+
         apiOn.setOnClickListener(v -> {
             boolean on = !ExgNative.apiOn();
             ExgNative.setApiOn(on);
@@ -497,8 +498,8 @@ public class ExgActivity extends Activity {
                 pickPort();
             }
         });
-        cubeAlgo.setOnClickListener(v -> pickAlgo());
         buildChannels();
+        refreshCubeChrome();
         refreshProfiles();
         showTab(0);
         lastLearnN = -1;
@@ -620,49 +621,63 @@ public class ExgActivity extends Activity {
         }
     }
 
-    private void buildCubeChannels() {
-        cubeChRow.removeAllViews();
-        for (int c = 0; c < 8; c++) {
-            final int ch = c;
-            Button b = new Button(this);
-            b.setOnClickListener(v -> {
-                ExgNative.setElecSel(ch);
-                refreshCubeChrome();
-            });
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0,
-                    LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
-            cubeChRow.addView(b, lp);
+    private void pickQuarter(int q) {
+        int n = ExgNative.madeN();
+        if (n < 1) {
+            return;
         }
-        refreshCubeChrome();
-        applyUiScale();
+        int sel = ExgNative.madeSel();
+        int cur = ExgNative.madeCh(sel, q);
+        String[] names = new String[9];
+        names[0] = "empty";
+        for (int c = 1; c <= 8; c++) {
+            names[c] = "ch" + c + "  " + ExgNative.elecName(c - 1);
+        }
+        pick("quarter " + (q + 1), names, cur, i -> {
+            ExgNative.madeSetCh(sel, q, i);
+            refreshCubeChrome();
+            refreshChrome();
+        });
     }
 
     private void refreshCubeChrome() {
-        int map = ExgNative.cubeView();
-        cubeViz.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
-                map == 0 ? 0xFF5A1020 : 0xFF2A3038));
-        cubeMap.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
-                map == 1 ? 0xFF5A2810 : 0xFF2A3038));
-        cubeMapTools.setVisibility(map == 1 ? View.VISIBLE : View.GONE);
-        cubeAlgo.setText("algo " + ExgNative.algoName());
         boolean fl = ExgNative.cubeFloat();
         cubeFloat.setText(fl ? "float on" : "float off");
         cubeFloat.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
                 fl ? 0xFF2E8A58 : 0xFF2A3038));
-        siteLabel.setText(ExgNative.siteFocusLabel());
-        int sel = ExgNative.elecSel();
-        for (int i = 0; i < cubeChRow.getChildCount(); i++) {
-            Button b = (Button) cubeChRow.getChildAt(i);
-            if (!ExgNative.active(i)) {
-                b.setVisibility(View.GONE);
-                continue;
-            }
-            b.setVisibility(View.VISIBLE);
-            b.setText(ExgNative.elecLabel(i));
-            b.setTextColor(ExgNative.color(i) | 0xFF000000);
+        int n = ExgNative.madeN();
+        int sel = ExgNative.madeSel();
+        int max = ExgNative.madeMax();
+        cubeAdd.setEnabled(n < max);
+        cubeDel.setEnabled(n > 0);
+        cubeColor.setEnabled(n > 0);
+        cubeList.removeAllViews();
+        for (int i = 0; i < n; i++) {
+            final int ix = i;
+            Button b = new Button(this);
+            b.setText("cube " + (i + 1));
+            int rgb = ExgNative.madeRgb(i);
+            b.setTextColor(0xFF000000 | rgb);
             b.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
                     i == sel ? 0xFF5A1020 : 0xFF2A3038));
+            b.setOnClickListener(v -> {
+                ExgNative.madeSetSel(ix);
+                refreshCubeChrome();
+            });
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0,
+                    LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+            cubeList.addView(b, lp);
         }
+        for (int q = 0; q < 4; q++) {
+            cubeQ[q].setEnabled(n > 0);
+            if (n < 1) {
+                cubeQ[q].setText((q + 1) + " —");
+                continue;
+            }
+            int ch = ExgNative.madeCh(sel, q);
+            cubeQ[q].setText(ch < 1 ? ((q + 1) + " —") : ((q + 1) + "  ch" + ch));
+        }
+        applyUiScale();
     }
 
     private void refreshChrome() {
@@ -819,9 +834,6 @@ public class ExgActivity extends Activity {
         int us = ExgNative.uiScale();
         uiScale.setText("UI " + (us == 10 ? "1.0x" : (us == 20 ? "2.0x" : "1.5x")));
         board.setText(ExgNative.boardImu() ? "8-ch + IMU" : "8-ch EXG");
-        pairMode.setText(ExgNative.pairMode() ? "2 pairs" : "8 channels");
-        pairMode.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
-                ExgNative.pairMode() ? 0xFF2E8A58 : 0xFF2A3038));
         boolean apion = ExgNative.apiOn();
         apiOn.setText(apion ? "share EXG" : "share off");
         apiOn.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
@@ -1040,9 +1052,11 @@ public class ExgActivity extends Activity {
             row.setOrientation(LinearLayout.HORIZONTAL);
             Button lab = new Button(this);
             lab.setText(ExgNative.elecName(c));
-            lab.setOnClickListener(v -> {
-                String name = ExgNative.elecName(ch);
-                ColorPick.show(this, name + " color",
+            lab.setOnClickListener(v -> pickSite(ch));
+            Button colb = new Button(this);
+            colb.setText("color");
+            colb.setOnClickListener(v -> {
+                ColorPick.show(this, "ch" + (ch + 1) + " color",
                         ExgNative.color(ch), rgb -> {
                             ExgNative.setColor(ch, rgb);
                             refreshChannels();
@@ -1052,7 +1066,7 @@ public class ExgActivity extends Activity {
             Button rld = new Button(this);
             Button gn = new Button(this);
             LinearLayout.LayoutParams lpLab = new LinearLayout.LayoutParams(0,
-                    LinearLayout.LayoutParams.WRAP_CONTENT, 1.4f);
+                    LinearLayout.LayoutParams.WRAP_CONTENT, 1.3f);
             LinearLayout.LayoutParams lpBtn = new LinearLayout.LayoutParams(0,
                     LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
             on.setOnClickListener(v -> {
@@ -1072,6 +1086,7 @@ public class ExgActivity extends Activity {
                         refreshChannels();
                     }));
             row.addView(lab, lpLab);
+            row.addView(colb, lpBtn);
             row.addView(on, lpBtn);
             row.addView(rld, lpBtn);
             row.addView(gn, lpBtn);
@@ -1086,9 +1101,10 @@ public class ExgActivity extends Activity {
         for (int i = 0; i < chGrid.getChildCount(); i++) {
             LinearLayout row = (LinearLayout) chGrid.getChildAt(i);
             int ch = (Integer) row.getTag();
-            Button on = (Button) row.getChildAt(1);
-            Button rld = (Button) row.getChildAt(2);
-            Button gn = (Button) row.getChildAt(3);
+            Button colb = (Button) row.getChildAt(1);
+            Button on = (Button) row.getChildAt(2);
+            Button rld = (Button) row.getChildAt(3);
+            Button gn = (Button) row.getChildAt(4);
             boolean live = ExgNative.active(ch);
             boolean bias = ExgNative.rld(ch);
             on.setText(live ? "ON" : "off");
@@ -1099,12 +1115,13 @@ public class ExgActivity extends Activity {
                     bias ? 0xFF2E6A8A : 0xFF3A3030));
             gn.setText("g" + ExgNative.gain(ch));
             Button lab = (Button) row.getChildAt(0);
-            lab.setText(ExgNative.elecName(ch));
+            lab.setText((ch + 1) + "  " + ExgNative.elecName(ch));
             int col = ExgNative.color(ch) | 0xFF000000;
-            lab.setTextColor(col);
-            int r = (col >> 16) & 255, gc = (col >> 8) & 255, b = col & 255;
-            lab.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
-                    0xFF000000 | ((r / 4) << 16) | ((gc / 4) << 8) | (b / 4)));
+            colb.setTextColor(col);
+            colb.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
+                    0xFF000000 | ((((col >> 16) & 255) / 4) << 16)
+                            | ((((col >> 8) & 255) / 4) << 8)
+                            | ((col & 255) / 4)));
         }
         refreshCubeChrome();
     }
@@ -1337,6 +1354,28 @@ public class ExgActivity extends Activity {
         }
         d.show();
         e.requestFocus();
+    }
+
+    private void pickSite(int ch) {
+        int n = ExgNative.siteN();
+        if (n < 1) {
+            return;
+        }
+        String[] names = new String[n];
+        int cur = 0;
+        String have = ExgNative.elecName(ch);
+        for (int i = 0; i < n; i++) {
+            names[i] = ExgNative.siteName(i);
+            if (have != null && have.equals(names[i])) {
+                cur = i;
+            }
+        }
+        pick("ch" + (ch + 1) + " site", names, cur, i -> {
+            ExgNative.setElecSel(ch);
+            ExgNative.assignSite(i);
+            refreshChannels();
+            refreshChrome();
+        });
     }
 
     private void pick(String title, String[] items, int selected, java.util.function.IntConsumer on) {

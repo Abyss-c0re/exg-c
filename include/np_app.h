@@ -145,7 +145,13 @@ struct np_app {
     int virt_focus; /* IMU / plugin slot */
     struct np_elec elec[NP_NCHAN];
     int elec_sel; /* 0..7 or -1 */
-    int pair_mode; /* 1 = two +/− diffs on the motor square, not 8 singles */
+    int pair_mode; /* unused */
+    int made_n;
+    int made_sel;
+    struct {
+        int ch[4]; /* 0 empty, 1..NP_NCHAN */
+        unsigned char rgb[3];
+    } made[4];
     int algo;     /* NP_ALGO_* 0/1 fold for cube + learn */
     char prof[NP_PROF_NAME];
     char profiles[NP_MAX_PROF][NP_PROF_NAME];

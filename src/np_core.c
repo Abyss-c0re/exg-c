@@ -1182,7 +1182,6 @@ static int cfg_write_ex(const char *path, int with_map)
     fprintf(f, "car=%d\n", g.car ? 1 : 0);
     fprintf(f, "envelope=%d\n", g.envelope ? 1 : 0);
     fprintf(f, "band=%d\n", g.band);
-    fprintf(f, "pair_mode=%d\n", g.pair_mode ? 1 : 0);
     fprintf(f, "grid=%d\n", g.grid);
     fprintf(f, "show_uv=%d\n", g.show_uv);
     fprintf(f, "detrend=%d\n", g.detrend);
@@ -1196,6 +1195,18 @@ static int cfg_write_ex(const char *path, int with_map)
     fprintf(f, "zoom=%.2f\n", (double)g.cube_zoom);
     fprintf(f, "view=%d\n", g.cube_view ? 1 : 0);
     fprintf(f, "float=%d\n", g.cube_float ? 1 : 0);
+    fprintf(f, "made_n=%d\n", g.made_n);
+    fprintf(f, "made_sel=%d\n", g.made_sel);
+    {
+        int ci, q;
+        for (ci = 0; ci < g.made_n && ci < 4; ci++) {
+            fprintf(f, "made%drgb=%d,%d,%d\n", ci + 1, g.made[ci].rgb[0],
+                    g.made[ci].rgb[1], g.made[ci].rgb[2]);
+            for (q = 0; q < 4; q++) {
+                fprintf(f, "made%dq%d=%d\n", ci + 1, q + 1, g.made[ci].ch[q]);
+            }
+        }
+    }
     if (with_map) {
         fprintf(f, "\n[api]\n");
         fprintf(f, "on=%d\n", g.api_on ? 1 : 0);
@@ -1259,7 +1270,6 @@ static int cfg_write_kit(const char *path)
     fprintf(f, "car=%d\n", g.car ? 1 : 0);
     fprintf(f, "envelope=%d\n", g.envelope ? 1 : 0);
     fprintf(f, "band=%d\n", g.band);
-    fprintf(f, "pair_mode=%d\n", g.pair_mode ? 1 : 0);
     fprintf(f, "detrend=%d\n", g.detrend);
     fprintf(f, "cal_cut=%d\n", g.cal_cut);
     fprintf(f, "board=%d\n", (int)g.board);
@@ -1294,7 +1304,7 @@ static int cfg_read(const char *path)
         return -1;
     }
     while (fgets(line, sizeof(line), f)) {
-        int v;
+        int v, ch, i, r, gc, b;
         float fa, fb;
         char ename[24];
         char longv[64];
@@ -1319,7 +1329,19 @@ static int cfg_read(const char *path)
         } else if (sscanf(line, "band=%d", &v) == 1 && v >= 0 && v < NP_BAND_N) {
             g.band = v;
         } else if (sscanf(line, "pair_mode=%d", &v) == 1) {
-            g.pair_mode = v ? 1 : 0;
+            (void)v; /* 2.66 toggle — ignored */
+        } else if (sscanf(line, "made_n=%d", &v) == 1 && v >= 0 && v <= 4) {
+            g.made_n = v;
+        } else if (sscanf(line, "made_sel=%d", &v) == 1 && v >= 0 && v < 4) {
+            g.made_sel = v;
+        } else if (sscanf(line, "made%dq%d=%d", &ch, &i, &v) == 3 && ch >= 1 &&
+                   ch <= 4 && i >= 1 && i <= 4 && v >= 0 && v <= NP_NCHAN) {
+            g.made[ch - 1].ch[i - 1] = v;
+        } else if (sscanf(line, "made%drgb=%d,%d,%d", &ch, &r, &gc, &b) == 4 &&
+                   ch >= 1 && ch <= 4) {
+            g.made[ch - 1].rgb[0] = (unsigned char)(r < 0 ? 0 : (r > 255 ? 255 : r));
+            g.made[ch - 1].rgb[1] = (unsigned char)(gc < 0 ? 0 : (gc > 255 ? 255 : gc));
+            g.made[ch - 1].rgb[2] = (unsigned char)(b < 0 ? 0 : (b > 255 ? 255 : b));
         } else if (sscanf(line, "grid=%d", &v) == 1) {
             g.grid = v;
         } else if (sscanf(line, "show_uv=%d", &v) == 1) {
@@ -1465,6 +1487,25 @@ static int cfg_read(const char *path)
             }
             if (!ok) {
                 g.gain[c] = 12;
+            }
+        }
+    }
+    if (g.made_n < 0 || g.made_n > 4) {
+        g.made_n = 0;
+    }
+    if (g.made_n > np_host_made_max()) {
+        g.made_n = np_host_made_max();
+    }
+    if (g.made_sel < 0 || g.made_sel >= g.made_n) {
+        g.made_sel = g.made_n > 0 ? 0 : 0;
+    }
+    {
+        int ci;
+        for (ci = 0; ci < 4; ci++) {
+            if (g.made[ci].rgb[0] == 0 && g.made[ci].rgb[1] == 0 && g.made[ci].rgb[2] == 0) {
+                g.made[ci].rgb[0] = 255;
+                g.made[ci].rgb[1] = 20;
+                g.made[ci].rgb[2] = 40;
             }
         }
     }
@@ -1966,7 +2007,7 @@ static void api_status_json(char *out, int n)
         }
     }
     snprintf(out, (size_t)n,
-             "{\"ok\":true,\"v\":\"2.66\",\"connected\":%s,\"paused\":%s,\"sps\":%.1f,"
+             "{\"ok\":true,\"v\":\"2.67\",\"connected\":%s,\"paused\":%s,\"sps\":%.1f,"
              "\"frames\":%u,\"status\":\"%s\",\"id\":\"%s\",\"id_best\":%d,"
              "\"notch\":%d,\"hp\":%d,\"lp\":%d,\"car\":%d,\"band\":%d,\"mask\":%u,"
              "\"api\":\"%s\"}",
@@ -5074,6 +5115,157 @@ void np_host_cube_front(void)
     cfg_save();
     set_status(1, "front");
 }
+
+int np_host_made_max(void)
+{
+    return NP_NCHAN / 4;
+}
+
+int np_host_made_n(void)
+{
+    return g.made_n;
+}
+
+int np_host_made_sel(void)
+{
+    return g.made_sel;
+}
+
+void np_host_made_set_sel(int i)
+{
+    if (i >= 0 && i < g.made_n) {
+        g.made_sel = i;
+    }
+}
+
+static int made_ch_used(int ch, int skip)
+{
+    int i, q;
+    if (ch < 1 || ch > NP_NCHAN) {
+        return 0;
+    }
+    for (i = 0; i < g.made_n; i++) {
+        if (i == skip) {
+            continue;
+        }
+        for (q = 0; q < 4; q++) {
+            if (g.made[i].ch[q] == ch) {
+                return 1;
+            }
+        }
+    }
+    return 0;
+}
+
+int np_host_made_add(void)
+{
+    int i;
+    if (g.made_n >= np_host_made_max() || g.made_n >= 4) {
+        set_status(0, "board is full — %d cube%s max", np_host_made_max(),
+                   np_host_made_max() == 1 ? "" : "s");
+        return -1;
+    }
+    i = g.made_n;
+    memset(&g.made[i], 0, sizeof(g.made[i]));
+    g.made[i].rgb[0] = 255;
+    g.made[i].rgb[1] = 20;
+    g.made[i].rgb[2] = 40;
+    g.made_n++;
+    g.made_sel = i;
+    cfg_save();
+    set_status(1, "cube %d — assign 4 channels", i + 1);
+    return i;
+}
+
+int np_host_made_del(int i)
+{
+    int k;
+    if (i < 0 || i >= g.made_n) {
+        return -1;
+    }
+    for (k = i; k < g.made_n - 1; k++) {
+        g.made[k] = g.made[k + 1];
+    }
+    g.made_n--;
+    if (g.made_sel >= g.made_n) {
+        g.made_sel = g.made_n - 1;
+    }
+    if (g.made_sel < 0) {
+        g.made_sel = 0;
+    }
+    cfg_save();
+    set_status(1, g.made_n ? "cube removed" : "no cubes");
+    return 0;
+}
+
+int np_host_made_ch(int cube, int q)
+{
+    if (cube < 0 || cube >= g.made_n || q < 0 || q > 3) {
+        return 0;
+    }
+    return g.made[cube].ch[q];
+}
+
+int np_host_made_set_ch(int cube, int q, int ch)
+{
+    int old;
+    if (cube < 0 || cube >= g.made_n || q < 0 || q > 3) {
+        return -1;
+    }
+    if (ch < 0 || ch > NP_NCHAN) {
+        return -1;
+    }
+    old = g.made[cube].ch[q];
+    if (ch != 0 && ch != old && made_ch_used(ch, cube)) {
+        set_status(0, "ch%d already on a cube", ch);
+        return -1;
+    }
+    g.made[cube].ch[q] = ch;
+    cfg_save();
+    if (ch == 0) {
+        set_status(1, "cube %d  q%d empty", cube + 1, q + 1);
+    } else {
+        set_status(1, "cube %d  q%d = ch%d", cube + 1, q + 1, ch);
+    }
+    return 0;
+}
+
+void np_host_made_rgb(int cube, int *r, int *gch, int *b)
+{
+    if (cube < 0 || cube >= g.made_n) {
+        if (r) {
+            *r = 255;
+        }
+        if (gch) {
+            *gch = 20;
+        }
+        if (b) {
+            *b = 40;
+        }
+        return;
+    }
+    if (r) {
+        *r = g.made[cube].rgb[0];
+    }
+    if (gch) {
+        *gch = g.made[cube].rgb[1];
+    }
+    if (b) {
+        *b = g.made[cube].rgb[2];
+    }
+}
+
+void np_host_made_set_rgb(int cube, int r, int gch, int b)
+{
+    if (cube < 0 || cube >= g.made_n) {
+        return;
+    }
+    g.made[cube].rgb[0] = (unsigned char)(r < 0 ? 0 : (r > 255 ? 255 : r));
+    g.made[cube].rgb[1] = (unsigned char)(gch < 0 ? 0 : (gch > 255 ? 255 : gch));
+    g.made[cube].rgb[2] = (unsigned char)(b < 0 ? 0 : (b > 255 ? 255 : b));
+    cfg_save();
+}
+
 int np_host_elec_sel(void)
 {
     return g.elec_sel;

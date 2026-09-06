@@ -955,6 +955,88 @@ Java_com_abysscore_exgc_ExgNative_toggleCubeFloat(JNIEnv *env, jclass cls)
 }
 
 JNIEXPORT jint JNICALL
+Java_com_abysscore_exgc_ExgNative_madeMax(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    return np_host_made_max();
+}
+
+JNIEXPORT jint JNICALL
+Java_com_abysscore_exgc_ExgNative_madeN(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    return np_host_made_n();
+}
+
+JNIEXPORT jint JNICALL
+Java_com_abysscore_exgc_ExgNative_madeSel(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    return np_host_made_sel();
+}
+
+JNIEXPORT void JNICALL
+Java_com_abysscore_exgc_ExgNative_madeSetSel(JNIEnv *env, jclass cls, jint i)
+{
+    (void)env;
+    (void)cls;
+    np_host_made_set_sel(i);
+}
+
+JNIEXPORT jint JNICALL
+Java_com_abysscore_exgc_ExgNative_madeAdd(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    return np_host_made_add();
+}
+
+JNIEXPORT jint JNICALL
+Java_com_abysscore_exgc_ExgNative_madeDel(JNIEnv *env, jclass cls, jint i)
+{
+    (void)env;
+    (void)cls;
+    return np_host_made_del(i);
+}
+
+JNIEXPORT jint JNICALL
+Java_com_abysscore_exgc_ExgNative_madeCh(JNIEnv *env, jclass cls, jint cube, jint q)
+{
+    (void)env;
+    (void)cls;
+    return np_host_made_ch(cube, q);
+}
+
+JNIEXPORT jint JNICALL
+Java_com_abysscore_exgc_ExgNative_madeSetCh(JNIEnv *env, jclass cls, jint cube, jint q, jint ch)
+{
+    (void)env;
+    (void)cls;
+    return np_host_made_set_ch(cube, q, ch);
+}
+
+JNIEXPORT jint JNICALL
+Java_com_abysscore_exgc_ExgNative_madeRgb(JNIEnv *env, jclass cls, jint cube)
+{
+    int r = 255, gch = 20, b = 40;
+    (void)env;
+    (void)cls;
+    np_host_made_rgb(cube, &r, &gch, &b);
+    return (r << 16) | (gch << 8) | b;
+}
+
+JNIEXPORT void JNICALL
+Java_com_abysscore_exgc_ExgNative_madeSetRgb(JNIEnv *env, jclass cls, jint cube, jint rgb)
+{
+    (void)env;
+    (void)cls;
+    np_host_made_set_rgb(cube, (rgb >> 16) & 255, (rgb >> 8) & 255, rgb & 255);
+}
+
+JNIEXPORT jint JNICALL
 Java_com_abysscore_exgc_ExgNative_elecSel(JNIEnv *env, jclass cls)
 {
     (void)env;
