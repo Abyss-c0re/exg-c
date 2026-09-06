@@ -1435,16 +1435,15 @@ void cfg_save(void)
 
 void apply_readable_defaults(void)
 {
-    /* Worn head is 200–300 µV raw; off-head ~1 mV; lockstep floor hides
-     * actions. Line-kill EXG is what ID can name. */
-    g.band = 1;
-    g.notch_hz = -1;
-    g.hp_hz = 2;
+    /* Raw, same as the official Knight plot. Off-head rails. Line-kill is a band. */
+    g.band = 0;
+    g.notch_hz = 0;
+    g.hp_hz = 0;
     g.lp_hz = 0;
-    g.car = 1;
+    g.car = 0;
     g.envelope = 0;
-    g.detrend = 1;
-    g.cal_cut = 1;
+    g.detrend = 0;
+    g.cal_cut = 0;
     g.scale_uv = 1000;
     g.window_s = 2;
 }
@@ -1894,7 +1893,7 @@ static void api_status_json(char *out, int n)
         }
     }
     snprintf(out, (size_t)n,
-             "{\"ok\":true,\"v\":\"2.60\",\"connected\":%s,\"paused\":%s,\"sps\":%.1f,"
+             "{\"ok\":true,\"v\":\"2.61\",\"connected\":%s,\"paused\":%s,\"sps\":%.1f,"
              "\"frames\":%u,\"status\":\"%s\",\"id\":\"%s\",\"id_best\":%d,"
              "\"notch\":%d,\"hp\":%d,\"lp\":%d,\"car\":%d,\"band\":%d,\"mask\":%u,"
              "\"api\":\"%s\"}",
@@ -3816,6 +3815,12 @@ int np_host_start(const char *files_dir)
             g.chrgb[c][2] = CHCOL[c][2];
         }
         g.set_gen = 4;
+        cfg_save();
+    }
+    if (g.set_gen < 5) {
+        apply_readable_defaults();
+        g.set_gen = 5;
+        filt_reset();
         cfg_save();
     }
     if (g.api_http == 8788) {

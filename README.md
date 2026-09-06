@@ -4,7 +4,7 @@ A C host for a **[Knight](https://www.neuropawn.tech/)** ADS1299 board — or an
 
 Not a medical device. Not affiliated with NeuroPawn.
 
-Shipped app: **2.60** (`com.abysscore.exgc`, versionCode 68). One framework, two skins:
+Shipped app: **2.61** (`com.abysscore.exgc`, versionCode 69). One framework, two skins:
 
 | Piece | Role |
 |-------|------|
@@ -22,7 +22,7 @@ Quest / phone notes: [android/README.md](android/README.md).
 ## What it does
 
 - 8 channels at **125 SPS** (Knight ADS1299).
-- Default view is **line-kill EXG**: notch AUTO, hp 2 Hz, CAR on, detrend on, envelope off, ±1000 µV, 2 s window.
+- Default view is **raw** (same as the official Knight plot): no notch, no hp, no CAR, no detrend. Off-head rails. **line-kill** is a band if you want cooked EXG.
 - **Calibrate** — 5 s to put the headset down, 8 s desk plate, tap when worn, 8 s still plate.
 - **DC on / DC off** — subtracts the still-plate mean. That is not Wiener CLEAN.
 - **CLEAN on** — Wiener vs the desk noise plate. Only if a noise plate exists **and** the window is ≥ 3 s (256 samples). Default 2 s cannot run it.

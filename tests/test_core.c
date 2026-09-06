@@ -78,7 +78,7 @@ static void make_imu_frame(unsigned char *f, uint8_t seq, const int raw[NP_NCHAN
 
 static float scale_uv_ref(int raw, int gain)
 {
-    return (4.0f / 32767.0f / (float)gain) * 1000000.0f * (float)raw / 79.57f;
+    return (4.0f / 32767.0f / (float)gain) * 1000000.0f * (float)raw;
 }
 
 static void test_cmds(void)
@@ -118,6 +118,8 @@ static void test_parser(void)
     expect(s.seq == 7 && s.imu == 1, "parser seq imu");
     want = scale_uv_ref(1000, 12);
     expect(fabsf(s.uv[0] - want) < 0.02f * (fabsf(want) + 1.f), "parser ch1 scale");
+    expect(fabsf(scale_uv_ref(32767, 12) - (4.0f / 12.0f * 1000000.0f)) < 2.f,
+           "full-scale matches official Knight 4/gain V");
     expect(fabsf(s.acc[0] - 0.5f) < 1e-5f, "parser acc x");
 
     /* junk then a good frame — must resync */
@@ -1299,7 +1301,7 @@ static void test_api(void)
          strstr(body, "/stream") && strstr(body, "EXG1");
     expect(ok, "api GET / index lists stream");
     expect(strstr(body, "stream.json") == NULL, "api index has no NDJSON live path");
-    expect(strstr(body, "\"v\":\"2.60\"") != NULL, "api index version 2.60");
+    expect(strstr(body, "\"v\":\"2.61\"") != NULL, "api index version 2.61");
     expect(strstr(body, "/pair") != NULL, "api index lists /pair");
     expect(strstr(body, "\"ip\":\"127.0.0.1\"") != NULL, "api local ip is loopback");
     {

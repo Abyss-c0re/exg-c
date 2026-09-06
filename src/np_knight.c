@@ -19,7 +19,9 @@ static float scale_uv(int raw, int gain)
     if (gain < 1) {
         gain = 12;
     }
-    return (4.0f / 32767.0f / (float)gain) * 1000000.0f * (float)raw / 79.57f;
+    /* Same as NeuroPawn/brainflow knight.cpp: 4 / (2^15-1) / gain * 1e6.
+     * The old /79.57 made full-scale ~4 mV. Off-head is tens of mV. */
+    return (4.0f / 32767.0f / (float)gain) * 1000000.0f * (float)raw;
 }
 
 static float f32le(const unsigned char *b)

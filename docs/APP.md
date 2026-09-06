@@ -1,4 +1,4 @@
-# App (2.60)
+# App (2.61)
 
 What the host does. The LAN wire is [API.md](API.md).
 
@@ -22,7 +22,7 @@ Android does **not** compile `np_ui.c`. Java talks to `include/np_host.h` via `s
 
 | Setting | Value | Why |
 |---------|--------|-----|
-| band | line-kill | EXG after common mode |
+| band | raw | board counts, official Knight scale. line-kill cooks after that |
 | notch | AUTO (−1) | idle until a desk plate locks a line |
 | hp | 2 Hz | drops DC/slow rail |
 | lp | off | does not squash EXG |

@@ -37,7 +37,7 @@ A local 8-channel USB host for a Knight-class ADS1299 board. Pure C, SDL2 plot, 
 | Stability / hold flash | **PASS** | One DTR at connect; no second reset in enable; parser mutex; enable holds until commands drain |
 | Devices free | **PASS** | Runs local; cube offer defaults off; no account |
 | No affiliation theater | **PASS** | Window title `exg-c`; no vendor icon |
-| Integrity of numbers | **PASS** | `scale_uv` uses per-channel gain and `/79.57`; parser tests lock 57-byte IMU frames |
+| Integrity of numbers | **WAS WRONG** | `/79.57` made full-scale ~4 mV. Official Knight is `4/(2^15-1)/gain*1e6` (~±333 mV at gain 12). Fixed 2.61. |
 | Budget the hot path | **PASS** | Display AUTO is an IIR at the measured Hz, not a per-frame LS fit |
 | State matrix / Cube | **PASS** | Fixed 8³ (512 bits); shell = 10-10 headset; interior = IMU/plugins; glow uses channel color; budget ≤ 40 |
 
