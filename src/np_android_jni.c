@@ -1076,6 +1076,52 @@ Java_com_abysscore_exgc_ExgNative_madeSetRgb(JNIEnv *env, jclass cls, jint cube,
 }
 
 JNIEXPORT jint JNICALL
+Java_com_abysscore_exgc_ExgNative_madeQSel(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    return np_host_made_qsel();
+}
+
+JNIEXPORT void JNICALL
+Java_com_abysscore_exgc_ExgNative_madeSetQSel(JNIEnv *env, jclass cls, jint q)
+{
+    (void)env;
+    (void)cls;
+    np_host_made_set_qsel(q);
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_abysscore_exgc_ExgNative_madeSrc(JNIEnv *env, jclass cls, jint cube, jint q)
+{
+    char buf[NP_ALGO_SRC];
+    (void)cls;
+    np_host_made_src(cube, q, buf, sizeof(buf));
+    return jstr_from(env, buf);
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_abysscore_exgc_ExgNative_setMadeSrc(JNIEnv *env, jclass cls, jint cube,
+                                            jint q, jstring src)
+{
+    char buf[NP_ALGO_SRC], err[80];
+    (void)cls;
+    jstr_to(env, src, buf, sizeof(buf));
+    if (np_host_set_made_src(cube, q, buf, err, (int)sizeof(err)) != 0) {
+        return jstr_from(env, err);
+    }
+    return jstr_from(env, "");
+}
+
+JNIEXPORT jint JNICALL
+Java_com_abysscore_exgc_ExgNative_madeFold(JNIEnv *env, jclass cls, jint cube)
+{
+    (void)env;
+    (void)cls;
+    return (jint)np_host_made_fold(cube);
+}
+
+JNIEXPORT jint JNICALL
 Java_com_abysscore_exgc_ExgNative_elecSel(JNIEnv *env, jclass cls)
 {
     (void)env;

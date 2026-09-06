@@ -152,9 +152,11 @@ struct np_app {
     struct {
         int ch[8]; /* 0 empty, 1..NP_NCHAN — one bit per cell of the 2×2×2 */
         unsigned char rgb[3];
+        char src[8][NP_ALGO_SRC]; /* custom per bit; empty → default */
     } made[4];
+    int made_qsel; /* 0..7 bit being edited */
     int algo;     /* NP_ALGO_* 0/1 fold for cube + learn */
-    char algo_src[NP_ALGO_SRC]; /* custom if/else; ch = last µV */
+    char algo_src[NP_ALGO_SRC]; /* fallback custom if a bit has no src */
     char prof[NP_PROF_NAME];
     char profiles[NP_MAX_PROF][NP_PROF_NAME];
     int nprof;

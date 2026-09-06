@@ -1,4 +1,4 @@
-# App (2.69)
+# App (2.70)
 
 What the host does. The LAN wire is [API.md](API.md).
 
@@ -121,7 +121,7 @@ The Cube tab **creates cubes**. One cube is a 2×2×2 of 8 bits, one cell per ch
 | delta | \|step\| > 1.10·mean\|dx\| |
 | fold | majority of samples > 0 |
 | proton | +energy > half total |
-| custom | your if/else. `ch` / `last` is last cooked µV. `mean` `rms` `n` `abs()`. CubalC form: `IF ch < 100 THEN` / `LET bit = 1` / `ELSE` / `END`. Compact: `if ch < 100 then 1` / `else 0`. |
+| custom | **each bit has its own code.** Tap a bit to edit it, long-press to pick its channel. `ch1`…`ch8` are last cooked µV of those jacks. Bare `ch` / `last` / `mean` / `rms` is this bit’s assigned channel. Example: `if ch1 < ch5 then 1` / `else 0`. CubalC `LET` / `IF` / `THEN` / `ELSE` / `END` still works. |
 
 **float on** levitates; **float off** is manual drag-spin and +/− zoom. Sites live in Settings.
 

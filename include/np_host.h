@@ -123,6 +123,12 @@ void np_host_algo_src(char *out, int n);
 int np_host_set_algo_src(const char *s, char *err, int n);
 /* Live 0/1 per channel from the selected algo (not the 1 Hz SMX row). */
 unsigned int np_host_algo_fold(void);
+int np_host_made_qsel(void);
+void np_host_made_set_qsel(int q);
+void np_host_made_src(int cube, int q, char *out, int n);
+int np_host_set_made_src(int cube, int q, const char *s, char *err, int n);
+/* Live 0/1 per cube cell (bit 0 = cell 1). Custom uses that cell's source. */
+unsigned int np_host_made_fold(int cube);
 
 int np_host_cube_view(void);
 void np_host_set_cube_view(int map);

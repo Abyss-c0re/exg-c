@@ -53,6 +53,7 @@ public class CubeView extends View {
     private int smxSeq;
     private int smxFold;
     private int algoFold;
+    private final int[] madeFold = new int[4];
     private String algoName = "energy";
     private String algoRule = "";
     private float yaw = 0.55f, pitch = 0.40f, zoom = 1.0f;
@@ -179,6 +180,7 @@ public class CubeView extends View {
         madeSel = ExgNative.madeSel();
         for (int i = 0; i < madeN; i++) {
             madeRgb[i] = ExgNative.madeRgb(i);
+            madeFold[i] = ExgNative.madeFold(i);
             for (int q = 0; q < 8; q++) {
                 madeCh[i][q] = ExgNative.madeCh(i, q);
             }
@@ -420,7 +422,7 @@ public class CubeView extends View {
                 for (int x = 0; x < 2; x++) {
                     int q = x + 2 * y + 4 * z;
                     int ch = madeCh[mi][q];
-                    boolean on = ch >= 1 && ch <= 8 && ((algoFold >> (ch - 1)) & 1) != 0;
+                    boolean on = ((madeFold[mi] >> q) & 1) != 0;
                     float wx = (x - 0.5f) * step + ox;
                     float wy = (y - 0.5f) * step;
                     float wz = (z - 0.5f) * step;

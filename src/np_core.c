@@ -639,6 +639,32 @@ void atom_tick(void)
 static uint8_t rec_smx[NPL_SMX_SEC];
 static int rec_smx_n;
 
+static void fill_algo_bank(struct np_algo_bank *b)
+{
+    int c;
+    uint32_t want = (uint32_t)(2.f * design_sps());
+    np_algo_bank_clear(b);
+    if (want < 32) {
+        want = 32;
+    }
+    if (want > NP_RING) {
+        want = NP_RING;
+    }
+    for (c = 0; c < NP_NCHAN; c++) {
+        float buf[NP_RING];
+        uint32_t n;
+        if (!g.active[c]) {
+            continue;
+        }
+        n = np_ring_copy(&g.ring, c, buf, want);
+        if (n < 1) {
+            continue;
+        }
+        apply_filt(c, buf, n);
+        np_algo_bank_set(b, c, buf, (int)n);
+    }
+}
+
 static uint8_t learn_fold_byte(uint8_t bits[NP_NCHAN])
 {
     int c;
@@ -668,15 +694,42 @@ static uint8_t learn_fold_byte(uint8_t bits[NP_NCHAN])
         ch_stats(buf, n, &dc, &rms, &pk);
         det = np_detect(raw > 1.f ? raw : rms, rms, g.cal.have ? g.cal.rms[c] : 0.f,
                         g.calm.have ? g.calm.rms[c] : 0.f, &rr);
-        if (g.algo == NP_ALGO_CUSTOM) {
-            bits[c] = (uint8_t)np_algo_custom(
-                g.algo_src[0] ? g.algo_src : NP_ALGO_SRC_DEFAULT, buf, (int)n);
-        } else {
+        if (g.algo != NP_ALGO_CUSTOM) {
             bits[c] = (uint8_t)np_algo_bit(g.algo, buf, (int)n,
                                            det == NP_DET_SIGNAL);
         }
         if (bits[c]) {
             fold |= (uint8_t)(1u << c);
+        }
+    }
+    if (g.algo == NP_ALGO_CUSTOM) {
+        struct np_algo_bank bank;
+        int ci, q, ch;
+        fill_algo_bank(&bank);
+        for (c = 0; c < NP_NCHAN; c++) {
+            bank.self = c;
+            bits[c] = (uint8_t)np_algo_custom_bank(
+                g.algo_src[0] ? g.algo_src : NP_ALGO_SRC_DEFAULT, &bank);
+        }
+        for (ci = 0; ci < g.made_n && ci < 4; ci++) {
+            for (q = 0; q < 8; q++) {
+                const char *src;
+                ch = g.made[ci].ch[q];
+                if (ch < 1 || ch > NP_NCHAN) {
+                    continue;
+                }
+                src = g.made[ci].src[q][0] ? g.made[ci].src[q]
+                                           : (g.algo_src[0] ? g.algo_src
+                                                            : NP_ALGO_SRC_DEFAULT);
+                bank.self = ch - 1;
+                bits[ch - 1] = (uint8_t)np_algo_custom_bank(src, &bank);
+            }
+        }
+        fold = 0;
+        for (c = 0; c < NP_NCHAN; c++) {
+            if (bits[c]) {
+                fold |= (uint8_t)(1u << c);
+            }
         }
     }
     return fold;
@@ -1113,6 +1166,7 @@ void typing_set(int on)
 }
 
 void cfg_save(void);
+static const char *made_src_or_default(int cube, int q);
 static void cal_tick(void);
 static int cfg_write(const char *path);
 static int cfg_write_ex(const char *path, int with_map);
@@ -1223,7 +1277,22 @@ static int cfg_write_ex(const char *path, int with_map)
             fprintf(f, "made%drgb=%d,%d,%d\n", ci + 1, g.made[ci].rgb[0],
                     g.made[ci].rgb[1], g.made[ci].rgb[2]);
             for (q = 0; q < 8; q++) {
+                const char *s = g.made[ci].src[q];
                 fprintf(f, "made%dq%d=%d\n", ci + 1, q + 1, g.made[ci].ch[q]);
+                if (!s[0]) {
+                    continue;
+                }
+                fprintf(f, "made%dq%dsrc=", ci + 1, q + 1);
+                for (; *s; s++) {
+                    if (*s == '\n') {
+                        fputs("\\n", f);
+                    } else if (*s == '\\') {
+                        fputs("\\\\", f);
+                    } else if (*s != '\r') {
+                        fputc(*s, f);
+                    }
+                }
+                fputc('\n', f);
             }
         }
     }
@@ -1342,7 +1411,31 @@ static int cfg_read(const char *path)
         float fa, fb;
         char ename[24];
         char longv[64];
-        if (!strncmp(line, "algo_src=", 9)) {
+        if (!strncmp(line, "made", 4) && strstr(line, "src=")) {
+            int ci = 0, q = 0;
+            const char *eq;
+            if (sscanf(line, "made%dq%dsrc=", &ci, &q) == 2 && ci >= 1 &&
+                ci <= 4 && q >= 1 && q <= 8) {
+                int o = 0;
+                eq = strchr(line, '=');
+                if (eq) {
+                    const char *in = eq + 1;
+                    while (*in && *in != '\n' && *in != '\r' &&
+                           o < NP_ALGO_SRC - 1) {
+                        if (in[0] == '\\' && in[1] == 'n') {
+                            g.made[ci - 1].src[q - 1][o++] = '\n';
+                            in += 2;
+                        } else if (in[0] == '\\' && in[1] == '\\') {
+                            g.made[ci - 1].src[q - 1][o++] = '\\';
+                            in += 2;
+                        } else {
+                            g.made[ci - 1].src[q - 1][o++] = *in++;
+                        }
+                    }
+                    g.made[ci - 1].src[q - 1][o] = 0;
+                }
+            }
+        } else if (!strncmp(line, "algo_src=", 9)) {
             const char *in = line + 9;
             int o = 0;
             while (*in && *in != '\n' && *in != '\r' && o < NP_ALGO_SRC - 1) {
@@ -1547,6 +1640,9 @@ static int cfg_read(const char *path)
     }
     if (g.made_sel < 0 || g.made_sel >= g.made_n) {
         g.made_sel = g.made_n > 0 ? 0 : 0;
+    }
+    if (g.made_qsel < 0 || g.made_qsel > 7) {
+        g.made_qsel = 0;
     }
     if (!g.algo_src[0]) {
         snprintf(g.algo_src, sizeof(g.algo_src), "%s", NP_ALGO_SRC_DEFAULT);
@@ -2059,7 +2155,7 @@ static void api_status_json(char *out, int n)
         }
     }
     snprintf(out, (size_t)n,
-             "{\"ok\":true,\"v\":\"2.69\",\"connected\":%s,\"paused\":%s,\"sps\":%.1f,"
+             "{\"ok\":true,\"v\":\"2.70\",\"connected\":%s,\"paused\":%s,\"sps\":%.1f,"
              "\"frames\":%u,\"status\":\"%s\",\"id\":\"%s\",\"id_best\":%d,"
              "\"notch\":%d,\"hp\":%d,\"lp\":%d,\"car\":%d,\"band\":%d,\"mask\":%u,"
              "\"api\":\"%s\"}",
@@ -5148,7 +5244,7 @@ void np_host_algo_rule(char *out, int n)
         return;
     }
     algo_src_ensure();
-    s = g.algo_src;
+    s = made_src_or_default(g.made_sel, np_host_made_qsel());
     while (*s == ' ' || *s == '\t' || *s == '\n' || *s == '\r') {
         s++;
     }
@@ -5172,29 +5268,34 @@ void np_host_algo_rule(char *out, int n)
 void np_host_algo_src(char *out, int n)
 {
     algo_src_ensure();
-    snprintf(out, (size_t)n, "%s", g.algo_src);
+    snprintf(out, (size_t)n, "%s", made_src_or_default(g.made_sel, np_host_made_qsel()));
 }
 
 int np_host_set_algo_src(const char *s, char *err, int n)
 {
-    char e[80];
-    if (!s) {
-        s = "";
+    if (g.made_n > 0) {
+        return np_host_set_made_src(g.made_sel, np_host_made_qsel(), s, err, n);
     }
-    if (np_algo_compile(s, e, (int)sizeof(e)) != 0) {
-        if (err && n > 0) {
-            snprintf(err, (size_t)n, "%s", e);
+    {
+        char e[80];
+        if (!s) {
+            s = "";
         }
-        return -1;
+        if (np_algo_compile(s, e, (int)sizeof(e)) != 0) {
+            if (err && n > 0) {
+                snprintf(err, (size_t)n, "%s", e);
+            }
+            return -1;
+        }
+        snprintf(g.algo_src, sizeof(g.algo_src), "%s", s);
+        g.algo = NP_ALGO_CUSTOM;
+        cfg_save();
+        set_status(1, "algo custom  — cube node is 0 or 1");
+        if (err && n > 0) {
+            err[0] = 0;
+        }
+        return 0;
     }
-    snprintf(g.algo_src, sizeof(g.algo_src), "%s", s);
-    g.algo = NP_ALGO_CUSTOM;
-    cfg_save();
-    set_status(1, "algo custom  — cube node is 0 or 1");
-    if (err && n > 0) {
-        err[0] = 0;
-    }
-    return 0;
 }
 
 unsigned int np_host_algo_fold(void)
@@ -5209,6 +5310,101 @@ unsigned int np_host_algo_fold(void)
     for (c = 0; c < NP_NCHAN; c++) {
         if (bits[c]) {
             fold |= 1u << c;
+        }
+    }
+    return fold;
+}
+
+static const char *made_src_or_default(int cube, int q)
+{
+    if (cube < 0 || cube >= g.made_n || q < 0 || q > 7) {
+        return g.algo_src[0] ? g.algo_src : NP_ALGO_SRC_DEFAULT;
+    }
+    if (g.made[cube].src[q][0]) {
+        return g.made[cube].src[q];
+    }
+    return g.algo_src[0] ? g.algo_src : NP_ALGO_SRC_DEFAULT;
+}
+
+int np_host_made_qsel(void)
+{
+    if (g.made_qsel < 0 || g.made_qsel > 7) {
+        return 0;
+    }
+    return g.made_qsel;
+}
+
+void np_host_made_set_qsel(int q)
+{
+    if (q < 0 || q > 7) {
+        return;
+    }
+    g.made_qsel = q;
+}
+
+void np_host_made_src(int cube, int q, char *out, int n)
+{
+    snprintf(out, (size_t)n, "%s", made_src_or_default(cube, q));
+}
+
+int np_host_set_made_src(int cube, int q, const char *s, char *err, int n)
+{
+    char e[80];
+    if (cube < 0 || cube >= g.made_n || q < 0 || q > 7) {
+        if (err && n > 0) {
+            snprintf(err, (size_t)n, "no cube bit");
+        }
+        return -1;
+    }
+    if (!s) {
+        s = "";
+    }
+    if (np_algo_compile(s, e, (int)sizeof(e)) != 0) {
+        if (err && n > 0) {
+            snprintf(err, (size_t)n, "%s", e);
+        }
+        return -1;
+    }
+    snprintf(g.made[cube].src[q], sizeof(g.made[cube].src[q]), "%s", s);
+    g.made_qsel = q;
+    g.algo = NP_ALGO_CUSTOM;
+    cfg_save();
+    set_status(1, "bit %d custom", q + 1);
+    if (err && n > 0) {
+        err[0] = 0;
+    }
+    return 0;
+}
+
+unsigned int np_host_made_fold(int cube)
+{
+    unsigned int fold = 0;
+    int q, ch;
+    if (cube < 0 || cube >= g.made_n) {
+        return 0;
+    }
+    if (g.algo != NP_ALGO_CUSTOM) {
+        unsigned int chf = np_host_algo_fold();
+        for (q = 0; q < 8; q++) {
+            ch = g.made[cube].ch[q];
+            if (ch >= 1 && ch <= 8 && (chf & (1u << (ch - 1)))) {
+                fold |= 1u << q;
+            }
+        }
+        return fold;
+    }
+    if (g.connected) {
+        struct np_algo_bank bank;
+        fill_algo_bank(&bank);
+        for (q = 0; q < 8; q++) {
+            ch = g.made[cube].ch[q];
+            if (ch < 1 || ch > 8) {
+                continue;
+            }
+            bank.self = ch - 1;
+            if (np_algo_custom_bank(made_src_or_default(cube, q), &bank)) {
+                fold |= 1u << q;
+            }
         }
     }
     return fold;
@@ -5323,6 +5519,8 @@ int np_host_made_add(void)
                     break;
                 }
             }
+            snprintf(g.made[i].src[q], sizeof(g.made[i].src[q]), "%s",
+                     NP_ALGO_SRC_DEFAULT);
         }
     }
     g.made_n++;

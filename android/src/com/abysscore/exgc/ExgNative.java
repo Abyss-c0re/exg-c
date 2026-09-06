@@ -150,6 +150,11 @@ public final class ExgNative {
     public static native int madeSetCh(int cube, int q, int ch);
     public static native int madeRgb(int cube);
     public static native void madeSetRgb(int cube, int rgb);
+    public static native int madeQSel();
+    public static native void madeSetQSel(int q);
+    public static native String madeSrc(int cube, int q);
+    public static native String setMadeSrc(int cube, int q, String src);
+    public static native int madeFold(int cube);
     public static native int elecSel();
     public static native void setElecSel(int ch);
     public static native String elecLabel(int ch);

@@ -782,6 +782,24 @@ static void test_algo(void)
                "custom abs(ch)>80");
         expect(np_algo_compile("if ch less 100 then 1\n", err, 80) != 0,
                "custom rejects prose");
+        expect(np_algo_compile("if ch1 < ch5 then 1\nelse 0\n", err, 80) == 0,
+               "custom ch1<ch5 compiles");
+        {
+            struct np_algo_bank b;
+            np_algo_bank_clear(&b);
+            b.last[0] = 10.f;
+            b.last[4] = 50.f;
+            b.self = 0;
+            expect(np_algo_custom_bank("if ch1 < ch5 then 1\nelse 0\n", &b) == 1,
+                   "ch1<ch5 when 10<50");
+            b.last[0] = 80.f;
+            expect(np_algo_custom_bank("if ch1 < ch5 then 1\nelse 0\n", &b) == 0,
+                   "ch1<ch5 when 80<50 is 0");
+            b.last[2] = -5.f;
+            b.last[6] = 2.f;
+            expect(np_algo_custom_bank("if ch3 < ch7 then 1\nelse 0\n", &b) == 1,
+                   "ch3<ch7");
+        }
     }
 }
 
@@ -1346,7 +1364,7 @@ static void test_api(void)
          strstr(body, "/stream") && strstr(body, "EXG1");
     expect(ok, "api GET / index lists stream");
     expect(strstr(body, "stream.json") == NULL, "api index has no NDJSON live path");
-    expect(strstr(body, "\"v\":\"2.69\"") != NULL, "api index version 2.69");
+    expect(strstr(body, "\"v\":\"2.70\"") != NULL, "api index version 2.70");
     expect(strstr(body, "/pair") != NULL, "api index lists /pair");
     expect(strstr(body, "\"ip\":\"127.0.0.1\"") != NULL, "api local ip is loopback");
     {
