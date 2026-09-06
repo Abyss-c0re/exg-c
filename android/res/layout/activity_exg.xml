@@ -248,12 +248,6 @@
                 android:orientation="horizontal"
                 android:padding="2dp" />
 
-            <Button
-                android:id="@+id/cubeAlgo"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="algo sign" />
-
             <LinearLayout
                 android:id="@+id/cubeBits"
                 android:layout_width="match_parent"
@@ -290,7 +284,7 @@
                     android:paddingRight="8dp"
                     android:paddingTop="2dp"
                     android:paddingBottom="2dp"
-                    android:text="algo is the whole cube. tap a bit for its channel."
+                    android:text="tap the cube name for its algo. tap a channel to override (default = cube)."
                     android:textColor="@color/muted" />
             </LinearLayout>
 

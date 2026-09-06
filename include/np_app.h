@@ -152,7 +152,8 @@ struct np_app {
     struct {
         int ch[8]; /* 0 empty, 1..NP_NCHAN — one bit per cell of the 2×2×2 */
         unsigned char rgb[3];
-        int algo[8]; /* library index */
+        int cube_algo; /* library index for the whole cube */
+        int algo[8];   /* -1 inherit cube_algo, else override */
     } made[4];
     int made_qsel; /* 0..7 bit being edited */
     int algo;      /* default library index for new bits + learn */

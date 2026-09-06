@@ -757,10 +757,10 @@ static void test_algo(void)
         }
         expect(np_algo_compile("if ch < 100 then 1\nelse 0\n", err, 80) == 0,
                "custom compact compiles");
-        expect(np_algo_custom("if ch < 100 then 1\nelse 0\n", lo, 8) == 1,
-               "custom if ch<100 lo is 1");
-        expect(np_algo_custom("if ch < 100 then 1\nelse 0\n", hi2, 8) == 0,
-               "custom if ch<100 hi is 0");
+        expect(np_algo_custom("if ch < 100 then ON\nelse OFF\n", lo, 8) == 1,
+               "custom if ch<100 lo is ON");
+        expect(np_algo_custom("if ch < 100 then ON\nelse OFF\n", hi2, 8) == 0,
+               "custom if ch<100 hi is OFF");
         expect(np_algo_compile("LET thresh = 100\n"
                               "IF ch < thresh THEN\n"
                               "  LET bit = 1\n"
@@ -794,23 +794,24 @@ static void test_algo(void)
                "CubalC sign +");
         expect(np_algo_custom(np_algo_def_src(NP_ALGO_SIGN), z, 32) == 0,
                "CubalC sign flat");
-        expect(np_algo_compile("if ch1 < ch5 then 1\nelse 0\n", err, 80) == 0,
-               "custom ch1<ch5 compiles");
+        expect(np_algo_compile("if ch2 < ch5 then ch3 ON\nelse ch3 OFF\n", err, 80) == 0,
+               "custom ch3 ON compiles");
         {
             struct np_algo_bank b;
+            struct np_algo_out o;
             np_algo_bank_clear(&b);
-            b.last[0] = 10.f;
+            b.last[1] = 10.f;
             b.last[4] = 50.f;
             b.self = 0;
-            expect(np_algo_custom_bank("if ch1 < ch5 then 1\nelse 0\n", &b) == 1,
-                   "ch1<ch5 when 10<50");
-            b.last[0] = 80.f;
-            expect(np_algo_custom_bank("if ch1 < ch5 then 1\nelse 0\n", &b) == 0,
-                   "ch1<ch5 when 80<50 is 0");
+            np_algo_custom_out("if ch2 < ch5 then ch3 ON\nelse ch3 OFF\n", &b, &o);
+            expect(o.wrote[2] && o.bit[2] == 1, "ch2<ch5 lights ch3 ON");
+            b.last[1] = 80.f;
+            np_algo_custom_out("if ch2 < ch5 then ch3 ON\nelse ch3 OFF\n", &b, &o);
+            expect(o.wrote[2] && o.bit[2] == 0, "ch2>=ch5 lights ch3 OFF");
             b.last[2] = -5.f;
             b.last[6] = 2.f;
-            expect(np_algo_custom_bank("if ch3 < ch7 then 1\nelse 0\n", &b) == 1,
-                   "ch3<ch7");
+            expect(np_algo_custom_bank("if ch3 < ch7 then ON\nelse OFF\n", &b) == 1,
+                   "ch3<ch7 self ON");
         }
     }
 }
@@ -1376,7 +1377,7 @@ static void test_api(void)
          strstr(body, "/stream") && strstr(body, "EXG1");
     expect(ok, "api GET / index lists stream");
     expect(strstr(body, "stream.json") == NULL, "api index has no NDJSON live path");
-    expect(strstr(body, "\"v\":\"2.74\"") != NULL, "api index version 2.74");
+    expect(strstr(body, "\"v\":\"2.75\"") != NULL, "api index version 2.75");
     expect(strstr(body, "/pair") != NULL, "api index lists /pair");
     expect(strstr(body, "\"ip\":\"127.0.0.1\"") != NULL, "api local ip is loopback");
     {

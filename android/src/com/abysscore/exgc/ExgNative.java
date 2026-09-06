@@ -55,6 +55,7 @@ public final class ExgNative {
     public static native int alibDel(int i);
     public static native int alibReset(int i);
     public static native int madeAlgo(int cube, int q);
+    public static native int madeAlgoOwn(int cube, int q);
     public static native int madeSetAlgo(int cube, int q, int id);
     public static native int madeAlgoAll(int cube);
     public static native int madeSetAlgoAll(int cube, int id);

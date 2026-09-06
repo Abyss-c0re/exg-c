@@ -983,6 +983,15 @@ Java_com_abysscore_exgc_ExgNative_madeAlgo(JNIEnv *env, jclass cls, jint cube,
 }
 
 JNIEXPORT jint JNICALL
+Java_com_abysscore_exgc_ExgNative_madeAlgoOwn(JNIEnv *env, jclass cls, jint cube,
+                                             jint q)
+{
+    (void)env;
+    (void)cls;
+    return np_host_made_algo_own(cube, q);
+}
+
+JNIEXPORT jint JNICALL
 Java_com_abysscore_exgc_ExgNative_madeSetAlgo(JNIEnv *env, jclass cls, jint cube,
                                              jint q, jint id)
 {

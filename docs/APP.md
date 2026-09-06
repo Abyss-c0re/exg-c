@@ -1,4 +1,4 @@
-# App (2.74)
+# App (2.75)
 
 What the host does. The LAN wire is [API.md](API.md).
 
@@ -110,7 +110,7 @@ Profile load keeps the electrode map and **recooks** plates/takes from raw. It d
 
 The Cube tab **creates cubes**. One cube is a 2×2×2 of 8 bits, one cell per channel. 8 jacks → 1 cube; 16 → 2. Bit buttons 1–8 pick the channel. The voxel label is `N·chM`. Color tints the whole lattice.
 
-**algo** on this tab is the whole cube. Tap a bit to pick its channel. Hold a bit only to override that one cell. Buttons stay still. Only the lattice cells light.
+Tap the **cube name** (`cube 1 · sign`) to set the algo for the whole cube. Tap a **channel** to override that cell — first choice is **same as cube**. Hold a channel to pick its jack. Buttons stay still. Only lattice cells light. CubalC uses **ON** / **OFF**. A program can light a named channel: `if ch2 < ch5 then ch3 ON`.
 
 ## Algos
 
@@ -125,7 +125,7 @@ A separate tab. Defaults are CubalC you can read (and reset). Add your own. **us
 | delta | `if abs(ch - prev) > 1.10 * dxmean then 1` |
 | fold | `if above > 0.5 then 1` |
 | proton | `if pos > 0.5 then 1` |
-| compare | `if ch1 < ch5 then 1` |
+| compare | `if ch2 < ch5 then ch3 ON` |
 
 Names: `ch`/`last`/`mean`/`rms`/`prev`/`dxmean`/`above`/`pos`/`signal` for this bit’s channel, and `ch1`…`ch8` for jacks. `LET` / `IF` / `THEN` / `ELSE` / `END` work.
 

@@ -1,6 +1,8 @@
 #ifndef NP_ALGO_H
 #define NP_ALGO_H
 
+#include <stdint.h>
+
 /*
  * Resource-friendly 0/1 folds (Algocube / FOLDBITS style).
  * One pass over a short window. No heap, no FFT.
@@ -18,7 +20,7 @@
 #define NP_ALGO_CUSTOM 7  /* old name */
 #define NP_ALGO_N 8
 #define NP_ALGO_SRC 512
-#define NP_ALGO_SRC_DEFAULT "if ch1 < ch5 then 1\nelse 0\n"
+#define NP_ALGO_SRC_DEFAULT "if ch2 < ch5 then ch3 ON\nelse ch3 OFF\n"
 #define NP_ALIB_N 16
 #define NP_ALIB_NAME 16
 #define NP_ALIB_DEF 8
@@ -49,5 +51,13 @@ void np_algo_bank_set(struct np_algo_bank *b, int ch, const float *x, int n);
 void np_algo_bank_set_ex(struct np_algo_bank *b, int ch, const float *x, int n,
                          int signal);
 int np_algo_custom_bank(const char *src, const struct np_algo_bank *b);
+/* Per-channel ON/OFF. wrote[c]=1 if the program set ch(c+1). */
+struct np_algo_out {
+    uint8_t bit[8];
+    uint8_t wrote[8];
+    int self_bit;
+};
+int np_algo_custom_out(const char *src, const struct np_algo_bank *b,
+                       struct np_algo_out *o);
 
 #endif

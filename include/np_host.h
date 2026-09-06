@@ -139,6 +139,7 @@ void np_host_made_set_qsel(int q);
 void np_host_made_src(int cube, int q, char *out, int n);
 int np_host_set_made_src(int cube, int q, const char *s, char *err, int n);
 int np_host_made_algo(int cube, int q);
+int np_host_made_algo_own(int cube, int q); /* -1 = same as cube */
 int np_host_made_set_algo(int cube, int q, int id);
 /* Common algo on all 8 bits, or -1 if mixed. */
 int np_host_made_algo_all(int cube);

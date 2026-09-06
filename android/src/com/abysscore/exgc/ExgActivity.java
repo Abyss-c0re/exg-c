@@ -35,7 +35,7 @@ public class ExgActivity extends Activity {
     private CubeView cube;
     private View cubePane;
     private LinearLayout cubeList;
-    private Button cubeAdd, cubeDel, cubeColor, cubeFloat, cubeAlgo;
+    private Button cubeAdd, cubeDel, cubeColor, cubeFloat;
     private Button[] cubeQ = new Button[8];
     private TextView cubeRule;
     private View algosPane;
@@ -146,7 +146,6 @@ public class ExgActivity extends Activity {
         cubeAdd = findViewById(R.id.cubeAdd);
         cubeDel = findViewById(R.id.cubeDel);
         cubeColor = findViewById(R.id.cubeColor);
-        cubeAlgo = findViewById(R.id.cubeAlgo);
         cubeFloat = findViewById(R.id.cubeFloat);
         cubeRule = findViewById(R.id.cubeRule);
         algosPane = findViewById(R.id.algosPane);
@@ -164,9 +163,17 @@ public class ExgActivity extends Activity {
         algoErr = findViewById(R.id.algoErr);
         algoHelp.setText(
                 "CubalC for the cube. Save checks syntax. Broken source is not saved.\n"
-                + "Use on cube puts this algo on all 8 bits.\n"
-                + "On Cube: tap algo for the whole cube. Tap a bit for its channel.\n"
-                + "Hold a bit only if that one bit should differ.\n"
+                + "Tap the cube name to put an algo on all 8 cells.\n"
+                + "Tap a channel to override that cell (default is the cube algo).\n"
+                + "Hold a channel to pick its jack.\n"
+                + "\n"
+                + "ON / OFF  (1 / 0 still work)\n"
+                + "if ch > 0 then ON\n"
+                + "else OFF\n"
+                + "\n"
+                + "Light a named channel:\n"
+                + "if ch2 < ch5 then ch3 ON\n"
+                + "else ch3 OFF\n"
                 + "\n"
                 + "if EXPR then 1\n"
                 + "else 0\n"
@@ -362,7 +369,6 @@ public class ExgActivity extends Activity {
             ExgNative.toggleCubeFloat();
             refreshCubeChrome();
         });
-        cubeAlgo.setOnClickListener(v -> pickCubeAlgo());
         algoAdd.setOnClickListener(v -> {
             ExgNative.alibAdd();
             algoSrcLoaded = false;
@@ -438,9 +444,9 @@ public class ExgActivity extends Activity {
         });
         for (int qi = 0; qi < 8; qi++) {
             final int q = qi;
-            cubeQ[qi].setOnClickListener(v -> pickQuarterCh(q));
+            cubeQ[qi].setOnClickListener(v -> pickQuarterAlgo(q));
             cubeQ[qi].setOnLongClickListener(v -> {
-                pickQuarterAlgo(q);
+                pickQuarterCh(q);
                 return true;
             });
         }
@@ -813,12 +819,19 @@ public class ExgActivity extends Activity {
         }
         int sel = ExgNative.madeSel();
         ExgNative.madeSetQSel(q);
-        String[] names = algoNames();
-        if (names.length < 1) {
+        String[] lib = algoNames();
+        if (lib.length < 1) {
             return;
         }
-        pick("bit " + (q + 1) + " override", names, ExgNative.madeAlgo(sel, q), i -> {
-            ExgNative.madeSetAlgo(sel, q, i);
+        int all = ExgNative.madeAlgoAll(sel);
+        String cubeNm = all < 0 ? "cube" : ExgNative.alibName(all);
+        String[] names = new String[lib.length + 1];
+        names[0] = "same as cube (" + (cubeNm != null ? cubeNm : "?") + ")";
+        System.arraycopy(lib, 0, names, 1, lib.length);
+        int own = ExgNative.madeAlgoOwn(sel, q);
+        int cur = own < 0 ? 0 : own + 1;
+        pick("channel " + (q + 1) + " algo", names, cur, i -> {
+            ExgNative.madeSetAlgo(sel, q, i == 0 ? -1 : i - 1);
             refreshCubeChrome();
             refreshChrome();
         });
@@ -855,23 +868,13 @@ public class ExgActivity extends Activity {
         cubeAdd.setEnabled(n < max);
         cubeDel.setEnabled(n > 0);
         cubeColor.setEnabled(n > 0);
-        cubeAlgo.setEnabled(n > 0);
-        if (n < 1) {
-            cubeAlgo.setText("algo");
-        } else {
-            int all = ExgNative.madeAlgoAll(sel);
-            if (all < 0) {
-                cubeAlgo.setText("algo mixed");
-            } else {
-                String an = ExgNative.alibName(all);
-                cubeAlgo.setText("algo " + (an != null ? an : "?"));
-            }
-        }
         cubeList.removeAllViews();
         for (int i = 0; i < n; i++) {
             final int ix = i;
             Button b = new Button(this);
-            b.setText("cube " + (i + 1));
+            int all = ExgNative.madeAlgoAll(i);
+            String an = all < 0 ? "mixed" : ExgNative.alibName(all);
+            b.setText("cube " + (i + 1) + " · " + (an != null ? an : "?"));
             int rgb = ExgNative.madeRgb(i);
             b.setTextColor(0xFF000000 | rgb);
             b.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
@@ -879,6 +882,7 @@ public class ExgActivity extends Activity {
             b.setOnClickListener(v -> {
                 ExgNative.madeSetSel(ix);
                 refreshCubeChrome();
+                pickCubeAlgo();
             });
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0,
                     LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
@@ -932,15 +936,15 @@ public class ExgActivity extends Activity {
         int sel = ExgNative.madeSel();
         int qsel = ExgNative.madeQSel();
         if (n < 1) {
-            cubeRule.setText("add a cube. algo is the whole cube. tap a bit for its channel.");
+            cubeRule.setText("add a cube. tap its name for the cube algo. tap a channel to override.");
         } else {
             int all = ExgNative.madeAlgoAll(sel);
             if (all < 0) {
-                cubeRule.setText("mixed — hold a bit to override. tap a bit for its channel.");
+                cubeRule.setText("mixed — tap a channel to set its algo (default = cube). hold to pick jack.");
             } else {
                 String an = ExgNative.alibName(all);
                 cubeRule.setText((an != null ? an : "algo")
-                        + " on this cube. tap a bit for its channel.");
+                        + " on the cube. tap a channel to override. hold to pick jack.");
             }
         }
         for (int q = 0; q < 8; q++) {
@@ -951,11 +955,17 @@ public class ExgActivity extends Activity {
                 continue;
             }
             int ch = ExgNative.madeCh(sel, q);
+            int own = ExgNative.madeAlgoOwn(sel, q);
+            String lab;
             if (ch < 1) {
-                cubeQ[q].setText((q + 1) + " —");
+                lab = (q + 1) + " —";
+            } else if (own < 0) {
+                lab = (q + 1) + " ch" + ch;
             } else {
-                cubeQ[q].setText((q + 1) + " ch" + ch);
+                String an = ExgNative.alibName(own);
+                lab = (q + 1) + " ch" + ch + " " + (an != null ? an : "?");
             }
+            cubeQ[q].setText(lab);
             cubeQ[q].setBackgroundTintList(android.content.res.ColorStateList.valueOf(
                     q == qsel ? 0xFF3A4050 : 0xFF2A3038));
         }

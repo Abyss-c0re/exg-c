@@ -112,14 +112,14 @@ int np_algo_bit(int id, const float *x, int n, int detect_bit)
 const char *np_algo_def_src(int id)
 {
     static const char *s[NP_ALGO_N] = {
-        "if signal == 1 then 1\nelse 0\n",
-        "if ch > 0 then 1\nelse 0\n",
-        "if abs(ch) > 0.85 * mean then 1\nelse 0\n",
-        "if rms > 1.05 * mean then 1\nelse 0\n",
-        "if abs(ch - prev) > 1.10 * dxmean then 1\nelse 0\n",
-        "if above > 0.5 then 1\nelse 0\n",
-        "if pos > 0.5 then 1\nelse 0\n",
-        "if ch1 < ch5 then 1\nelse 0\n",
+        "if signal == ON then ON\nelse OFF\n",
+        "if ch > 0 then ON\nelse OFF\n",
+        "if abs(ch) > 0.85 * mean then ON\nelse OFF\n",
+        "if rms > 1.05 * mean then ON\nelse OFF\n",
+        "if abs(ch - prev) > 1.10 * dxmean then ON\nelse OFF\n",
+        "if above > 0.5 then ON\nelse OFF\n",
+        "if pos > 0.5 then ON\nelse OFF\n",
+        "if ch2 < ch5 then ch3 ON\nelse ch3 OFF\n",
     };
     if (id < 0 || id >= NP_ALGO_N) {
         return s[NP_ALGO_COMPARE];
@@ -164,7 +164,8 @@ enum {
     OP_JZ,
     OP_JMP,
     OP_STORE,
-    OP_BIT
+    OP_BIT,
+    OP_BITN
 };
 
 #define NP_ALGO_OPS 96
@@ -248,7 +249,15 @@ static void lex_next(struct np_lex *L)
         }
         memcpy(L->tok, p, (size_t)n);
         L->tok[n] = 0;
-        L->kind = TK_ID;
+        if (kw_eq(L->tok, "on")) {
+            L->kind = TK_NUM;
+            L->num = 1.f;
+        } else if (kw_eq(L->tok, "off")) {
+            L->kind = TK_NUM;
+            L->num = 0.f;
+        } else {
+            L->kind = TK_ID;
+        }
         return;
     }
     if (isdigit((unsigned char)L->s[0]) ||
@@ -552,6 +561,54 @@ static int parse_expr(struct np_lex *L, struct np_prog *P, char *err, int errn)
 }
 
 static int parse_stmt(struct np_lex *L, struct np_prog *P, char *err, int errn);
+static int parse_block(struct np_lex *L, struct np_prog *P, char *err, int errn);
+
+static int parse_onoff(struct np_lex *L, float *v, char *err, int errn)
+{
+    if (L->kind == TK_ID && kw_eq(L->tok, "is")) {
+        lex_next(L);
+    }
+    if (L->kind == TK_OP && L->tok[0] == '=' && L->tok[1] == 0) {
+        lex_next(L);
+    }
+    if (L->kind != TK_NUM) {
+        snprintf(err, (size_t)errn, "line %d: expected ON or OFF", L->line);
+        return -1;
+    }
+    *v = L->num;
+    lex_next(L);
+    return 0;
+}
+
+static int parse_set_ch(struct np_lex *L, struct np_prog *P, int ch, char *err,
+                        int errn)
+{
+    float v;
+    if (parse_onoff(L, &v, err, errn) != 0) {
+        return -1;
+    }
+    if (emit(P, OP_PUSHC, v, 0, err, errn, L->line) != 0) {
+        return -1;
+    }
+    if (ch < 0) {
+        return emit(P, OP_BIT, 0, 0, err, errn, L->line);
+    }
+    return emit(P, OP_BITN, 0, ch, err, errn, L->line);
+}
+
+static int parse_then_body(struct np_lex *L, struct np_prog *P, char *err,
+                           int errn)
+{
+    int ix;
+    if (L->kind == TK_NUM) {
+        return parse_set_ch(L, P, -1, err, errn);
+    }
+    if (L->kind == TK_ID && (ix = name_ix(L->tok, "ch")) >= 0) {
+        lex_next(L);
+        return parse_set_ch(L, P, ix, err, errn);
+    }
+    return parse_block(L, P, err, errn);
+}
 
 static int at_if_end(const struct np_lex *L)
 {
@@ -586,18 +643,8 @@ static int parse_if(struct np_lex *L, struct np_prog *P, char *err, int errn)
     if (emit(P, OP_JZ, 0, 0, err, errn, L->line) != 0) {
         return -1;
     }
-    if (L->kind == TK_NUM) {
-        if (emit(P, OP_PUSHC, L->num, 0, err, errn, L->line) != 0) {
-            return -1;
-        }
-        if (emit(P, OP_BIT, 0, 0, err, errn, L->line) != 0) {
-            return -1;
-        }
-        lex_next(L);
-    } else {
-        if (parse_block(L, P, err, errn) != 0) {
-            return -1;
-        }
+    if (parse_then_body(L, P, err, errn) != 0) {
+        return -1;
     }
     jmp = P->n;
     if (emit(P, OP_JMP, 0, 0, err, errn, L->line) != 0) {
@@ -613,18 +660,8 @@ static int parse_if(struct np_lex *L, struct np_prog *P, char *err, int errn)
     }
     if (L->kind == TK_ID && kw_eq(L->tok, "else")) {
         lex_next(L);
-        if (L->kind == TK_NUM) {
-            if (emit(P, OP_PUSHC, L->num, 0, err, errn, L->line) != 0) {
-                return -1;
-            }
-            if (emit(P, OP_BIT, 0, 0, err, errn, L->line) != 0) {
-                return -1;
-            }
-            lex_next(L);
-        } else {
-            if (parse_block(L, P, err, errn) != 0) {
-                return -1;
-            }
+        if (parse_then_body(L, P, err, errn) != 0) {
+            return -1;
         }
     }
     if (L->kind == TK_ID && kw_eq(L->tok, "end")) {
@@ -637,8 +674,13 @@ static int parse_if(struct np_lex *L, struct np_prog *P, char *err, int errn)
 
 static int parse_stmt(struct np_lex *L, struct np_prog *P, char *err, int errn)
 {
+    int ix;
     if (L->kind == TK_ID && kw_eq(L->tok, "if")) {
         return parse_if(L, P, err, errn);
+    }
+    if (L->kind == TK_ID && (ix = name_ix(L->tok, "ch")) >= 0) {
+        lex_next(L);
+        return parse_set_ch(L, P, ix, err, errn);
     }
     if (L->kind == TK_ID && kw_eq(L->tok, "let")) {
         char name[32];
@@ -660,6 +702,9 @@ static int parse_stmt(struct np_lex *L, struct np_prog *P, char *err, int errn)
         }
         if (kw_eq(name, "bit")) {
             return emit(P, OP_BIT, 0, 0, err, errn, L->line);
+        }
+        if ((ix = name_ix(name, "ch")) >= 0) {
+            return emit(P, OP_BITN, 0, ix, err, errn, L->line);
         }
         if (reserved(name)) {
             snprintf(err, (size_t)errn, "line %d: %s is reserved", L->line, name);
@@ -735,7 +780,8 @@ static float bank_at(const float *v, int i)
     return v[i];
 }
 
-static int eval_prog(const struct np_prog *P, const struct np_algo_bank *bank)
+static int eval_prog(const struct np_prog *P, const struct np_algo_bank *bank,
+                     struct np_algo_out *out)
 {
     float st[NP_ALGO_STACK];
     float var[NP_ALGO_VARS];
@@ -744,7 +790,12 @@ static int eval_prog(const struct np_prog *P, const struct np_algo_bank *bank)
     int sp = 0, pc = 0;
     int bit = 0;
     int self = bank ? bank->self : -1;
+    struct np_algo_out local;
 
+    if (!out) {
+        out = &local;
+    }
+    memset(out, 0, sizeof(*out));
     memset(var, 0, sizeof(var));
     if (bank && self >= 0 && self < 8) {
         ch = bank->last[self];
@@ -978,13 +1029,29 @@ static int eval_prog(const struct np_prog *P, const struct np_algo_bank *bank)
                 return 0;
             }
             bit = st[--sp] != 0.f ? 1 : 0;
+            out->self_bit = bit;
+            if (self >= 0 && self < 8) {
+                out->bit[self] = (uint8_t)bit;
+                out->wrote[self] = 1;
+            }
+            pc++;
+            break;
+        case OP_BITN:
+            if (sp < 1) {
+                return 0;
+            }
+            bit = st[--sp] != 0.f ? 1 : 0;
+            if (o->i >= 0 && o->i < 8) {
+                out->bit[o->i] = (uint8_t)bit;
+                out->wrote[o->i] = 1;
+            }
             pc++;
             break;
         default:
             return 0;
         }
     }
-    return bit ? 1 : 0;
+    return out->self_bit ? 1 : 0;
 }
 
 #define NP_ALGO_CACHE 16
@@ -1073,13 +1140,30 @@ void np_algo_bank_set_ex(struct np_algo_bank *b, int ch, const float *x, int n,
     b->pos[ch] = e > 1e-12 ? (float)(ep / e) : 0.f;
 }
 
-int np_algo_custom_bank(const char *src, const struct np_algo_bank *b)
+int np_algo_custom_out(const char *src, const struct np_algo_bank *b,
+                       struct np_algo_out *o)
 {
     const struct np_prog *P = prog_cached(src);
+    if (!o) {
+        return 0;
+    }
+    memset(o, 0, sizeof(*o));
     if (!P) {
         return 0;
     }
-    return eval_prog(P, b);
+    return eval_prog(P, b, o);
+}
+
+int np_algo_custom_bank(const char *src, const struct np_algo_bank *b)
+{
+    struct np_algo_out o;
+    int self;
+    np_algo_custom_out(src, b, &o);
+    self = b ? b->self : -1;
+    if (self >= 0 && self < 8 && o.wrote[self]) {
+        return o.bit[self] ? 1 : 0;
+    }
+    return o.self_bit ? 1 : 0;
 }
 
 int np_algo_custom(const char *src, const float *x, int n)
