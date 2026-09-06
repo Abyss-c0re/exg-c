@@ -35,8 +35,11 @@ public class ExgActivity extends Activity {
     private CubeView cube;
     private View cubePane;
     private LinearLayout cubeList;
-    private Button cubeAdd, cubeDel, cubeColor, cubeFloat;
+    private Button cubeAdd, cubeDel, cubeColor, cubeFloat, cubeAlgo, cubeSrcApply;
     private Button[] cubeQ = new Button[8];
+    private TextView cubeRule, cubeSrcErr;
+    private EditText cubeSrc;
+    private boolean cubeSrcLoaded;
     private View settings;
     private View learnBar;
     private TextView status;
@@ -109,6 +112,7 @@ public class ExgActivity extends Activity {
                 fft.pull();
             } else if (tab == 1) {
                 cube.pull();
+                refreshCubeBits();
             }
             h.postDelayed(this, 33);
         }
@@ -137,7 +141,12 @@ public class ExgActivity extends Activity {
         cubeAdd = findViewById(R.id.cubeAdd);
         cubeDel = findViewById(R.id.cubeDel);
         cubeColor = findViewById(R.id.cubeColor);
+        cubeAlgo = findViewById(R.id.cubeAlgo);
         cubeFloat = findViewById(R.id.cubeFloat);
+        cubeRule = findViewById(R.id.cubeRule);
+        cubeSrc = findViewById(R.id.cubeSrc);
+        cubeSrcApply = findViewById(R.id.cubeSrcApply);
+        cubeSrcErr = findViewById(R.id.cubeSrcErr);
         cubeQ[0] = findViewById(R.id.cubeQ1);
         cubeQ[1] = findViewById(R.id.cubeQ2);
         cubeQ[2] = findViewById(R.id.cubeQ3);
@@ -292,6 +301,21 @@ public class ExgActivity extends Activity {
         });
         cubeFloat.setOnClickListener(v -> {
             ExgNative.toggleCubeFloat();
+            refreshCubeChrome();
+        });
+        cubeAlgo.setOnClickListener(v -> pickAlgo());
+        cubeSrcApply.setOnClickListener(v -> {
+            String src = cubeSrc.getText() != null ? cubeSrc.getText().toString() : "";
+            String err = ExgNative.setAlgoSrc(src);
+            if (err != null && err.length() > 0) {
+                cubeSrcErr.setVisibility(View.VISIBLE);
+                cubeSrcErr.setText(err);
+                return;
+            }
+            cubeSrcErr.setVisibility(View.GONE);
+            cubeSrcErr.setText("");
+            cubeSrcLoaded = true;
+            refreshChrome();
             refreshCubeChrome();
         });
         for (int qi = 0; qi < 8; qi++) {
@@ -612,6 +636,7 @@ public class ExgActivity extends Activity {
         tabPoses.setBackgroundTintList(android.content.res.ColorStateList.valueOf(t == 2 ? 0xFF3A3020 : 0xFF2A3038));
         tabSet.setBackgroundTintList(android.content.res.ColorStateList.valueOf(t == 3 ? 0xFF243044 : 0xFF2A3038));
         if (t == 1) {
+            cubeSrcLoaded = ExgNative.algo() != 7;
             refreshCubeChrome();
         }
         if (t == 2) {
@@ -672,16 +697,53 @@ public class ExgActivity extends Activity {
                     LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
             cubeList.addView(b, lp);
         }
+        refreshCubeBits();
+        applyUiScale();
+    }
+
+    private void refreshCubeBits() {
+        if (cubeQ[0] == null || cubeRule == null) {
+            return;
+        }
+        int n = ExgNative.madeN();
+        int sel = ExgNative.madeSel();
+        int fold = ExgNative.algoFold();
+        String rule = ExgNative.algoRule();
+        if (rule == null) {
+            rule = "";
+        }
+        cubeRule.setText(n < 1
+                ? "add a cube — each bit is one channel through this algo"
+                : (ExgNative.algoName() + " — " + rule
+                        + "  ·  bit N = that channel"));
+        boolean custom = ExgNative.algo() == 7;
+        cubeSrc.setVisibility(custom ? View.VISIBLE : View.GONE);
+        cubeSrcApply.setVisibility(custom ? View.VISIBLE : View.GONE);
+        if (custom && !cubeSrcLoaded) {
+            String src = ExgNative.algoSrc();
+            cubeSrc.setText(src != null ? src : "if ch < 100 then 1\nelse 0\n");
+            cubeSrcLoaded = true;
+        }
+        if (!custom) {
+            cubeSrcErr.setVisibility(View.GONE);
+        }
         for (int q = 0; q < 8; q++) {
             cubeQ[q].setEnabled(n > 0);
             if (n < 1) {
                 cubeQ[q].setText((q + 1) + " —");
+                cubeQ[q].setBackgroundTintList(android.content.res.ColorStateList.valueOf(0xFF2A3038));
                 continue;
             }
             int ch = ExgNative.madeCh(sel, q);
-            cubeQ[q].setText(ch < 1 ? ((q + 1) + " —") : ((q + 1) + " ch" + ch));
+            boolean on = ch >= 1 && ch <= 8 && ((fold >> (ch - 1)) & 1) != 0;
+            if (ch < 1) {
+                cubeQ[q].setText((q + 1) + " —");
+            } else {
+                cubeQ[q].setText((q + 1) + " ch" + ch + (on ? " ·1" : " ·0"));
+            }
+            cubeQ[q].setBackgroundTintList(android.content.res.ColorStateList.valueOf(
+                    on ? 0xFF8A1828 : 0xFF2A3038));
         }
-        applyUiScale();
     }
 
     private void refreshChrome() {
@@ -835,6 +897,9 @@ public class ExgActivity extends Activity {
         env.setText(ExgNative.envelope() ? "envelope" : "wave");
         lp.setText(ExgNative.lp() == 0 ? "lp off" : "lp " + ExgNative.lp() + "Hz");
         algo.setText("algo " + ExgNative.algoName());
+        if (cubeAlgo != null) {
+            cubeAlgo.setText("algo " + ExgNative.algoName());
+        }
         int us = ExgNative.uiScale();
         uiScale.setText("UI " + (us == 10 ? "1.0x" : (us == 20 ? "2.0x" : "1.5x")));
         board.setText(ExgNative.boardImu() ? "8-ch + IMU" : "8-ch EXG");
@@ -1397,9 +1462,21 @@ public class ExgActivity extends Activity {
     }
 
     private void pickAlgo() {
-        String[] names = {"detect", "sign", "mean", "energy", "delta", "fold", "proton"};
-        pick("Cube algorithm", names, ExgNative.algo(), i -> {
+        String[] names = {
+                "detect — 1 if ID is SIGNAL",
+                "sign — 1 if last > 0",
+                "mean — 1 if |last| > 0.85·mean|x|",
+                "energy — 1 if rms > 1.05·mean|x|",
+                "delta — 1 if |step| > 1.10·mean|dx|",
+                "fold — 1 if majority of samples > 0",
+                "proton — 1 if +energy > half total",
+                "custom — write if/else (ch is last µV)"
+        };
+        pick("Cube algorithm — what turns a bit on", names, ExgNative.algo(), i -> {
             ExgNative.setAlgo(i);
+            if (i == 7) {
+                cubeSrcLoaded = false;
+            }
             refreshChrome();
             refreshCubeChrome();
         });

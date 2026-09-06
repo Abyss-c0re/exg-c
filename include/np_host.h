@@ -117,6 +117,12 @@ int np_host_algo(void);
 void np_host_cycle_algo(void);
 void np_host_set_algo(int id);
 void np_host_algo_name(char *out, int n);
+void np_host_algo_rule(char *out, int n);
+void np_host_algo_src(char *out, int n);
+/* 0 ok. err is set on fail. Switching to a good src selects custom. */
+int np_host_set_algo_src(const char *s, char *err, int n);
+/* Live 0/1 per channel from the selected algo (not the 1 Hz SMX row). */
+unsigned int np_host_algo_fold(void);
 
 int np_host_cube_view(void);
 void np_host_set_cube_view(int map);

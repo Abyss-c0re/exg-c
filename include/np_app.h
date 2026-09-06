@@ -3,6 +3,7 @@
 
 /* Internal core. Desktop UI may include this. Product API is np_host.h. */
 
+#include "np_algo.h"
 #include "np_api.h"
 #include "np_atom.h"
 #include "np_dsp.h"
@@ -153,6 +154,7 @@ struct np_app {
         unsigned char rgb[3];
     } made[4];
     int algo;     /* NP_ALGO_* 0/1 fold for cube + learn */
+    char algo_src[NP_ALGO_SRC]; /* custom if/else; ch = last µV */
     char prof[NP_PROF_NAME];
     char profiles[NP_MAX_PROF][NP_PROF_NAME];
     int nprof;

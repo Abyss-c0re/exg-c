@@ -1,4 +1,5 @@
 #ifdef NP_ANDROID_UI
+#include "np_algo.h"
 #include "np_host.h"
 #include "np_api.h"
 
@@ -823,6 +824,44 @@ Java_com_abysscore_exgc_ExgNative_algoName(JNIEnv *env, jclass cls)
     (void)cls;
     np_host_algo_name(buf, sizeof(buf));
     return jstr_from(env, buf);
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_abysscore_exgc_ExgNative_algoRule(JNIEnv *env, jclass cls)
+{
+    char buf[96];
+    (void)cls;
+    np_host_algo_rule(buf, sizeof(buf));
+    return jstr_from(env, buf);
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_abysscore_exgc_ExgNative_algoSrc(JNIEnv *env, jclass cls)
+{
+    char buf[NP_ALGO_SRC];
+    (void)cls;
+    np_host_algo_src(buf, sizeof(buf));
+    return jstr_from(env, buf);
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_abysscore_exgc_ExgNative_setAlgoSrc(JNIEnv *env, jclass cls, jstring src)
+{
+    char buf[NP_ALGO_SRC], err[80];
+    (void)cls;
+    jstr_to(env, src, buf, sizeof(buf));
+    if (np_host_set_algo_src(buf, err, (int)sizeof(err)) != 0) {
+        return jstr_from(env, err);
+    }
+    return jstr_from(env, "");
+}
+
+JNIEXPORT jint JNICALL
+Java_com_abysscore_exgc_ExgNative_algoFold(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    return (jint)np_host_algo_fold();
 }
 
 JNIEXPORT void JNICALL

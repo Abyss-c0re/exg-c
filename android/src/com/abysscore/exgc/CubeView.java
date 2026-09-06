@@ -11,8 +11,7 @@ import android.view.MotionEvent;
 import android.view.View;
 
 /**
- * viz — crimson 8³ Cube Experience (spike #FF141A). Mapped sites track EXG µV.
- * map — 10-10 assign: tap a channel, then a site on the scalp map or cube.
+ * viz — 2×2×2 cube, one bit per channel. Color tints the lattice.
  */
 public class CubeView extends View {
     private static final int NCHAN = 8;
@@ -53,6 +52,9 @@ public class CubeView extends View {
     private int siteFocus;
     private int smxSeq;
     private int smxFold;
+    private int algoFold;
+    private String algoName = "energy";
+    private String algoRule = "";
     private float yaw = 0.55f, pitch = 0.40f, zoom = 1.0f;
     private float labelMul = 1f;
     private float autoYaw;
@@ -164,6 +166,15 @@ public class CubeView extends View {
         }
         smxSeq = ExgNative.smxSeq();
         smxFold = ExgNative.smxFold();
+        algoFold = ExgNative.algoFold();
+        algoName = ExgNative.algoName();
+        algoRule = ExgNative.algoRule();
+        if (algoName == null) {
+            algoName = "?";
+        }
+        if (algoRule == null) {
+            algoRule = "";
+        }
         madeN = Math.min(4, ExgNative.madeN());
         madeSel = ExgNative.madeSel();
         for (int i = 0; i < madeN; i++) {
@@ -386,7 +397,15 @@ public class CubeView extends View {
             float ox = madeN == 1 ? 0f : (mi - (madeN - 1) * 0.5f) * gap;
             drawHiveOne(c, cx, cy, w, h, mi, ox);
         }
-        c.drawText(madeN + " cube" + (madeN == 1 ? "" : "s") + "  ·  drag", 16, 36, ink);
+        c.drawText(madeN + " cube" + (madeN == 1 ? "" : "s") + "  ·  " + algoName
+                + "  ·  drag", 16, 36, ink);
+        if (algoRule.length() > 0) {
+            ink.setTextSize(20f * labelMul);
+            ink.setColor(0xAAEEC8CE);
+            c.drawText(algoRule, 16, 58, ink);
+            ink.setColor(SPIKE);
+            ink.setTextSize(26f * labelMul);
+        }
     }
 
     private void drawHiveOne(Canvas c, float cx, float cy, int w, int h, int mi, float ox) {
@@ -401,7 +420,7 @@ public class CubeView extends View {
                 for (int x = 0; x < 2; x++) {
                     int q = x + 2 * y + 4 * z;
                     int ch = madeCh[mi][q];
-                    boolean on = ch >= 1 && ch <= 8 && ((smxFold >> (ch - 1)) & 1) != 0;
+                    boolean on = ch >= 1 && ch <= 8 && ((algoFold >> (ch - 1)) & 1) != 0;
                     float wx = (x - 0.5f) * step + ox;
                     float wy = (y - 0.5f) * step;
                     float wz = (z - 0.5f) * step;
@@ -419,9 +438,11 @@ public class CubeView extends View {
             float[] labp = new float[4];
             project(cell[0] + 0.48f, cell[1] + 0.48f, cell[2] + 0.48f, cx, cy, scale / 3.2f, labp);
             int ch = (int) cell[6];
+            int q = (int) cell[5];
             ink.setColor(cell[3] > 0.5f ? 0xFFFFFFFF : 0xAAEEC8CE);
             ink.setTextSize(22f * labelMul);
-            c.drawText(ch < 1 ? "—" : ("ch" + ch), labp[0] - 18, labp[1] + 6, ink);
+            String lab = ch < 1 ? ((q + 1) + " —") : ((q + 1) + "·ch" + ch);
+            c.drawText(lab, labp[0] - 22, labp[1] + 6, ink);
         }
     }
 
@@ -828,7 +849,7 @@ public class CubeView extends View {
             }
             int x = 16 + col * (cell + 6);
             col++;
-            boolean on = ((smxFold >> ch) & 1) != 0;
+            boolean on = ((algoFold >> ch) & 1) != 0;
             fill.setColor(on ? SPIKE : 0xFF2A0508);
             c.drawRect(x, y, x + cell, y + cell, fill);
             ink.setColor(0xFFFFFFFF);

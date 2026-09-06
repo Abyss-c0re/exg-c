@@ -38,6 +38,10 @@ public final class ExgNative {
     public static native void setLp(int hz);
     public static native void setBand(int band);
     public static native void setAlgo(int id);
+    public static native String algoRule();
+    public static native String algoSrc();
+    public static native String setAlgoSrc(String src);
+    public static native int algoFold();
     public static native void setUiScale(int tenths);
     public static native void setBoardImu(boolean imu);
     public static native void setGain(int ch, int gain);

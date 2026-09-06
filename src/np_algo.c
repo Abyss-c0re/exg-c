@@ -1,15 +1,43 @@
 #include "np_algo.h"
 
+#include <ctype.h>
 #include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 const char *np_algo_name(int id)
 {
     static const char *n[NP_ALGO_N] = {"detect", "sign", "mean", "energy",
-                                       "delta",  "fold", "proton"};
+                                       "delta",  "fold", "proton", "custom"};
     if (id < 0 || id >= NP_ALGO_N) {
         return "detect";
     }
     return n[id];
+}
+
+const char *np_algo_rule(int id)
+{
+    switch (id) {
+    case NP_ALGO_DETECT:
+        return "1 if ID is SIGNAL";
+    case NP_ALGO_SIGN:
+        return "1 if last > 0";
+    case NP_ALGO_MEAN:
+        return "1 if |last| > 0.85·mean|x|";
+    case NP_ALGO_ENERGY:
+        return "1 if rms > 1.05·mean|x|";
+    case NP_ALGO_DELTA:
+        return "1 if |step| > 1.10·mean|dx|";
+    case NP_ALGO_FOLD:
+        return "1 if majority of samples > 0";
+    case NP_ALGO_PROTON:
+        return "1 if +energy > half total";
+    case NP_ALGO_CUSTOM:
+        return "custom if/else — ch is last µV";
+    default:
+        return "1 if ID is SIGNAL";
+    }
 }
 
 static float mean_abs(const float *x, int n)
@@ -33,6 +61,9 @@ int np_algo_bit(int id, const float *x, int n, int detect_bit)
 
     if (id == NP_ALGO_DETECT) {
         return detect_bit ? 1 : 0;
+    }
+    if (id == NP_ALGO_CUSTOM) {
+        return 0;
     }
     if (!x || n < 2) {
         return 0;
@@ -76,4 +107,679 @@ int np_algo_bit(int id, const float *x, int n, int detect_bit)
         return (e > 1e-12 && ep > 0.50 * e) ? 1 : 0;
     }
     return detect_bit ? 1 : 0;
+}
+
+enum {
+    OP_HALT = 0,
+    OP_PUSHC,
+    OP_PUSHV,
+    OP_PUSHCH,
+    OP_PUSHMEAN,
+    OP_PUSHRMS,
+    OP_PUSHN,
+    OP_ABS,
+    OP_NEG,
+    OP_ADD,
+    OP_SUB,
+    OP_MUL,
+    OP_DIV,
+    OP_LT,
+    OP_GT,
+    OP_LE,
+    OP_GE,
+    OP_EQ,
+    OP_NE,
+    OP_JZ,
+    OP_JMP,
+    OP_STORE,
+    OP_BIT
+};
+
+#define NP_ALGO_OPS 96
+#define NP_ALGO_VARS 8
+#define NP_ALGO_STACK 16
+
+struct np_op {
+    unsigned char op;
+    float f;
+    int i;
+};
+
+struct np_prog {
+    struct np_op op[NP_ALGO_OPS];
+    int n;
+    char vname[NP_ALGO_VARS][12];
+    int nv;
+};
+
+enum { TK_EOF = 0, TK_ID, TK_NUM, TK_OP };
+
+struct np_lex {
+    const char *s;
+    int line;
+    int kind;
+    char tok[32];
+    float num;
+};
+
+static int kw_eq(const char *a, const char *b)
+{
+    while (*a && *b) {
+        if (tolower((unsigned char)*a) != tolower((unsigned char)*b)) {
+            return 0;
+        }
+        a++;
+        b++;
+    }
+    return *a == 0 && *b == 0;
+}
+
+static void lex_skip(struct np_lex *L)
+{
+    for (;;) {
+        while (*L->s == ' ' || *L->s == '\t' || *L->s == '\r') {
+            L->s++;
+        }
+        if (*L->s == '\n') {
+            L->line++;
+            L->s++;
+            continue;
+        }
+        if (L->s[0] == '#' || (L->s[0] == '/' && L->s[1] == '/')) {
+            while (*L->s && *L->s != '\n') {
+                L->s++;
+            }
+            continue;
+        }
+        return;
+    }
+}
+
+static void lex_next(struct np_lex *L)
+{
+    const char *p;
+    int n;
+    lex_skip(L);
+    if (!L->s[0]) {
+        L->kind = TK_EOF;
+        L->tok[0] = 0;
+        return;
+    }
+    if (isalpha((unsigned char)L->s[0]) || L->s[0] == '_') {
+        p = L->s;
+        while (isalnum((unsigned char)*L->s) || *L->s == '_') {
+            L->s++;
+        }
+        n = (int)(L->s - p);
+        if (n > 31) {
+            n = 31;
+        }
+        memcpy(L->tok, p, (size_t)n);
+        L->tok[n] = 0;
+        L->kind = TK_ID;
+        return;
+    }
+    if (isdigit((unsigned char)L->s[0]) ||
+        (L->s[0] == '.' && isdigit((unsigned char)L->s[1]))) {
+        char *end = NULL;
+        L->num = (float)strtod(L->s, &end);
+        snprintf(L->tok, sizeof(L->tok), "%s", "num");
+        L->s = end ? end : L->s + 1;
+        L->kind = TK_NUM;
+        return;
+    }
+    if ((L->s[0] == '<' || L->s[0] == '>' || L->s[0] == '=' || L->s[0] == '!') &&
+        L->s[1] == '=') {
+        L->tok[0] = L->s[0];
+        L->tok[1] = '=';
+        L->tok[2] = 0;
+        L->s += 2;
+        L->kind = TK_OP;
+        return;
+    }
+    L->tok[0] = L->s[0];
+    L->tok[1] = 0;
+    L->s++;
+    L->kind = TK_OP;
+}
+
+static int emit(struct np_prog *P, unsigned char op, float f, int i, char *err,
+                int errn, int line)
+{
+    if (P->n >= NP_ALGO_OPS) {
+        snprintf(err, (size_t)errn, "line %d: program too long", line);
+        return -1;
+    }
+    P->op[P->n].op = op;
+    P->op[P->n].f = f;
+    P->op[P->n].i = i;
+    P->n++;
+    return 0;
+}
+
+static int find_var(struct np_prog *P, const char *name, int create)
+{
+    int i;
+    for (i = 0; i < P->nv; i++) {
+        if (kw_eq(P->vname[i], name)) {
+            return i;
+        }
+    }
+    if (!create || P->nv >= NP_ALGO_VARS) {
+        return -1;
+    }
+    snprintf(P->vname[P->nv], sizeof(P->vname[0]), "%.11s", name);
+    return P->nv++;
+}
+
+static int reserved(const char *name)
+{
+    return kw_eq(name, "ch") || kw_eq(name, "last") || kw_eq(name, "mean") ||
+           kw_eq(name, "rms") || kw_eq(name, "n") || kw_eq(name, "bit") ||
+           kw_eq(name, "if") || kw_eq(name, "then") || kw_eq(name, "else") ||
+           kw_eq(name, "elif") || kw_eq(name, "end") || kw_eq(name, "let") ||
+           kw_eq(name, "abs");
+}
+
+static int parse_expr(struct np_lex *L, struct np_prog *P, char *err, int errn);
+
+static int parse_unary(struct np_lex *L, struct np_prog *P, char *err, int errn)
+{
+    if (L->kind == TK_OP && L->tok[0] == '-' && L->tok[1] == 0) {
+        lex_next(L);
+        if (parse_unary(L, P, err, errn) != 0) {
+            return -1;
+        }
+        return emit(P, OP_NEG, 0, 0, err, errn, L->line);
+    }
+    if (L->kind == TK_ID && kw_eq(L->tok, "abs")) {
+        lex_next(L);
+        if (!(L->kind == TK_OP && L->tok[0] == '(')) {
+            snprintf(err, (size_t)errn, "line %d: abs needs ()", L->line);
+            return -1;
+        }
+        lex_next(L);
+        if (parse_expr(L, P, err, errn) != 0) {
+            return -1;
+        }
+        if (!(L->kind == TK_OP && L->tok[0] == ')')) {
+            snprintf(err, (size_t)errn, "line %d: missing )", L->line);
+            return -1;
+        }
+        lex_next(L);
+        return emit(P, OP_ABS, 0, 0, err, errn, L->line);
+    }
+    if (L->kind == TK_NUM) {
+        if (emit(P, OP_PUSHC, L->num, 0, err, errn, L->line) != 0) {
+            return -1;
+        }
+        lex_next(L);
+        return 0;
+    }
+    if (L->kind == TK_OP && L->tok[0] == '(') {
+        lex_next(L);
+        if (parse_expr(L, P, err, errn) != 0) {
+            return -1;
+        }
+        if (!(L->kind == TK_OP && L->tok[0] == ')')) {
+            snprintf(err, (size_t)errn, "line %d: missing )", L->line);
+            return -1;
+        }
+        lex_next(L);
+        return 0;
+    }
+    if (L->kind == TK_ID) {
+        int slot;
+        if (kw_eq(L->tok, "ch") || kw_eq(L->tok, "last")) {
+            if (emit(P, OP_PUSHCH, 0, 0, err, errn, L->line) != 0) {
+                return -1;
+            }
+        } else if (kw_eq(L->tok, "mean")) {
+            if (emit(P, OP_PUSHMEAN, 0, 0, err, errn, L->line) != 0) {
+                return -1;
+            }
+        } else if (kw_eq(L->tok, "rms")) {
+            if (emit(P, OP_PUSHRMS, 0, 0, err, errn, L->line) != 0) {
+                return -1;
+            }
+        } else if (kw_eq(L->tok, "n")) {
+            if (emit(P, OP_PUSHN, 0, 0, err, errn, L->line) != 0) {
+                return -1;
+            }
+        } else {
+            slot = find_var(P, L->tok, 0);
+            if (slot < 0) {
+                snprintf(err, (size_t)errn, "line %d: unknown %s", L->line,
+                         L->tok);
+                return -1;
+            }
+            if (emit(P, OP_PUSHV, 0, slot, err, errn, L->line) != 0) {
+                return -1;
+            }
+        }
+        lex_next(L);
+        return 0;
+    }
+    snprintf(err, (size_t)errn, "line %d: expected value", L->line);
+    return -1;
+}
+
+static int parse_mul(struct np_lex *L, struct np_prog *P, char *err, int errn)
+{
+    if (parse_unary(L, P, err, errn) != 0) {
+        return -1;
+    }
+    while (L->kind == TK_OP && (L->tok[0] == '*' || L->tok[0] == '/') &&
+           L->tok[1] == 0) {
+        char op = L->tok[0];
+        lex_next(L);
+        if (parse_unary(L, P, err, errn) != 0) {
+            return -1;
+        }
+        if (emit(P, op == '*' ? OP_MUL : OP_DIV, 0, 0, err, errn, L->line) !=
+            0) {
+            return -1;
+        }
+    }
+    return 0;
+}
+
+static int parse_add(struct np_lex *L, struct np_prog *P, char *err, int errn)
+{
+    if (parse_mul(L, P, err, errn) != 0) {
+        return -1;
+    }
+    while (L->kind == TK_OP && (L->tok[0] == '+' || L->tok[0] == '-') &&
+           L->tok[1] == 0) {
+        char op = L->tok[0];
+        lex_next(L);
+        if (parse_mul(L, P, err, errn) != 0) {
+            return -1;
+        }
+        if (emit(P, op == '+' ? OP_ADD : OP_SUB, 0, 0, err, errn, L->line) !=
+            0) {
+            return -1;
+        }
+    }
+    return 0;
+}
+
+static int parse_expr(struct np_lex *L, struct np_prog *P, char *err, int errn)
+{
+    unsigned char op;
+    if (parse_add(L, P, err, errn) != 0) {
+        return -1;
+    }
+    while (L->kind == TK_OP &&
+           (strcmp(L->tok, "<") == 0 || strcmp(L->tok, ">") == 0 ||
+            strcmp(L->tok, "<=") == 0 || strcmp(L->tok, ">=") == 0 ||
+            strcmp(L->tok, "==") == 0 || strcmp(L->tok, "!=") == 0)) {
+        if (strcmp(L->tok, "<") == 0) {
+            op = OP_LT;
+        } else if (strcmp(L->tok, ">") == 0) {
+            op = OP_GT;
+        } else if (strcmp(L->tok, "<=") == 0) {
+            op = OP_LE;
+        } else if (strcmp(L->tok, ">=") == 0) {
+            op = OP_GE;
+        } else if (strcmp(L->tok, "==") == 0) {
+            op = OP_EQ;
+        } else {
+            op = OP_NE;
+        }
+        lex_next(L);
+        if (parse_add(L, P, err, errn) != 0) {
+            return -1;
+        }
+        if (emit(P, op, 0, 0, err, errn, L->line) != 0) {
+            return -1;
+        }
+    }
+    return 0;
+}
+
+static int parse_stmt(struct np_lex *L, struct np_prog *P, char *err, int errn);
+
+static int at_if_end(const struct np_lex *L)
+{
+    return L->kind == TK_EOF ||
+           (L->kind == TK_ID && (kw_eq(L->tok, "else") || kw_eq(L->tok, "elif") ||
+                                 kw_eq(L->tok, "end")));
+}
+
+static int parse_block(struct np_lex *L, struct np_prog *P, char *err, int errn)
+{
+    while (!at_if_end(L)) {
+        if (parse_stmt(L, P, err, errn) != 0) {
+            return -1;
+        }
+    }
+    return 0;
+}
+
+static int parse_if(struct np_lex *L, struct np_prog *P, char *err, int errn)
+{
+    int jz, jmp, endpc;
+    lex_next(L); /* skip IF / ELIF */
+    if (parse_expr(L, P, err, errn) != 0) {
+        return -1;
+    }
+    if (!(L->kind == TK_ID && kw_eq(L->tok, "then"))) {
+        snprintf(err, (size_t)errn, "line %d: expected THEN", L->line);
+        return -1;
+    }
+    lex_next(L);
+    jz = P->n;
+    if (emit(P, OP_JZ, 0, 0, err, errn, L->line) != 0) {
+        return -1;
+    }
+    if (L->kind == TK_NUM) {
+        if (emit(P, OP_PUSHC, L->num, 0, err, errn, L->line) != 0) {
+            return -1;
+        }
+        if (emit(P, OP_BIT, 0, 0, err, errn, L->line) != 0) {
+            return -1;
+        }
+        lex_next(L);
+    } else {
+        if (parse_block(L, P, err, errn) != 0) {
+            return -1;
+        }
+    }
+    jmp = P->n;
+    if (emit(P, OP_JMP, 0, 0, err, errn, L->line) != 0) {
+        return -1;
+    }
+    P->op[jz].i = P->n;
+    if (L->kind == TK_ID && kw_eq(L->tok, "elif")) {
+        if (parse_if(L, P, err, errn) != 0) {
+            return -1;
+        }
+        P->op[jmp].i = P->n;
+        return 0;
+    }
+    if (L->kind == TK_ID && kw_eq(L->tok, "else")) {
+        lex_next(L);
+        if (L->kind == TK_NUM) {
+            if (emit(P, OP_PUSHC, L->num, 0, err, errn, L->line) != 0) {
+                return -1;
+            }
+            if (emit(P, OP_BIT, 0, 0, err, errn, L->line) != 0) {
+                return -1;
+            }
+            lex_next(L);
+        } else {
+            if (parse_block(L, P, err, errn) != 0) {
+                return -1;
+            }
+        }
+    }
+    if (L->kind == TK_ID && kw_eq(L->tok, "end")) {
+        lex_next(L);
+    }
+    endpc = P->n;
+    P->op[jmp].i = endpc;
+    return 0;
+}
+
+static int parse_stmt(struct np_lex *L, struct np_prog *P, char *err, int errn)
+{
+    if (L->kind == TK_ID && kw_eq(L->tok, "if")) {
+        return parse_if(L, P, err, errn);
+    }
+    if (L->kind == TK_ID && kw_eq(L->tok, "let")) {
+        char name[32];
+        int slot;
+        lex_next(L);
+        if (L->kind != TK_ID) {
+            snprintf(err, (size_t)errn, "line %d: LET needs a name", L->line);
+            return -1;
+        }
+        snprintf(name, sizeof(name), "%s", L->tok);
+        lex_next(L);
+        if (!(L->kind == TK_OP && L->tok[0] == '=' && L->tok[1] == 0)) {
+            snprintf(err, (size_t)errn, "line %d: LET needs =", L->line);
+            return -1;
+        }
+        lex_next(L);
+        if (parse_expr(L, P, err, errn) != 0) {
+            return -1;
+        }
+        if (kw_eq(name, "bit")) {
+            return emit(P, OP_BIT, 0, 0, err, errn, L->line);
+        }
+        if (reserved(name)) {
+            snprintf(err, (size_t)errn, "line %d: %s is reserved", L->line, name);
+            return -1;
+        }
+        slot = find_var(P, name, 1);
+        if (slot < 0) {
+            snprintf(err, (size_t)errn, "line %d: too many names", L->line);
+            return -1;
+        }
+        return emit(P, OP_STORE, 0, slot, err, errn, L->line);
+    }
+    snprintf(err, (size_t)errn, "line %d: expected IF or LET", L->line);
+    return -1;
+}
+
+int np_algo_compile(const char *src, char *err, int errn)
+{
+    struct np_lex L;
+    struct np_prog P;
+    if (err && errn > 0) {
+        err[0] = 0;
+    }
+    if (!src || !src[0]) {
+        snprintf(err, (size_t)errn, "empty");
+        return -1;
+    }
+    memset(&P, 0, sizeof(P));
+    memset(&L, 0, sizeof(L));
+    L.s = src;
+    L.line = 1;
+    lex_next(&L);
+    if (L.kind == TK_EOF) {
+        snprintf(err, (size_t)errn, "empty");
+        return -1;
+    }
+    while (L.kind != TK_EOF) {
+        if (parse_stmt(&L, &P, err, errn) != 0) {
+            return -1;
+        }
+    }
+    if (emit(&P, OP_HALT, 0, 0, err, errn, L.line) != 0) {
+        return -1;
+    }
+    return 0;
+}
+
+static int compile_full(const char *src, struct np_prog *P, char *err, int errn)
+{
+    struct np_lex L;
+    memset(P, 0, sizeof(*P));
+    memset(&L, 0, sizeof(L));
+    L.s = src;
+    L.line = 1;
+    lex_next(&L);
+    if (L.kind == TK_EOF) {
+        snprintf(err, (size_t)errn, "empty");
+        return -1;
+    }
+    while (L.kind != TK_EOF) {
+        if (parse_stmt(&L, P, err, errn) != 0) {
+            return -1;
+        }
+    }
+    return emit(P, OP_HALT, 0, 0, err, errn, L.line);
+}
+
+static int eval_prog(const struct np_prog *P, const float *x, int n)
+{
+    float st[NP_ALGO_STACK];
+    float var[NP_ALGO_VARS];
+    float ch = 0, ma = 0, rms = 0;
+    int sp = 0, pc = 0, i;
+    int bit = 0;
+    double e = 0;
+
+    memset(var, 0, sizeof(var));
+    if (x && n > 0) {
+        ch = x[n - 1];
+        ma = mean_abs(x, n);
+        for (i = 0; i < n; i++) {
+            e += (double)x[i] * (double)x[i];
+        }
+        rms = (float)sqrt(e / (double)n);
+    }
+    while (pc >= 0 && pc < P->n) {
+        const struct np_op *o = &P->op[pc];
+        float a, b;
+        switch (o->op) {
+        case OP_HALT:
+            return bit ? 1 : 0;
+        case OP_PUSHC:
+            if (sp >= NP_ALGO_STACK) {
+                return 0;
+            }
+            st[sp++] = o->f;
+            pc++;
+            break;
+        case OP_PUSHV:
+            if (sp >= NP_ALGO_STACK || o->i < 0 || o->i >= NP_ALGO_VARS) {
+                return 0;
+            }
+            st[sp++] = var[o->i];
+            pc++;
+            break;
+        case OP_PUSHCH:
+            if (sp >= NP_ALGO_STACK) {
+                return 0;
+            }
+            st[sp++] = ch;
+            pc++;
+            break;
+        case OP_PUSHMEAN:
+            if (sp >= NP_ALGO_STACK) {
+                return 0;
+            }
+            st[sp++] = ma;
+            pc++;
+            break;
+        case OP_PUSHRMS:
+            if (sp >= NP_ALGO_STACK) {
+                return 0;
+            }
+            st[sp++] = rms;
+            pc++;
+            break;
+        case OP_PUSHN:
+            if (sp >= NP_ALGO_STACK) {
+                return 0;
+            }
+            st[sp++] = (float)n;
+            pc++;
+            break;
+        case OP_ABS:
+            if (sp < 1) {
+                return 0;
+            }
+            st[sp - 1] = fabsf(st[sp - 1]);
+            pc++;
+            break;
+        case OP_NEG:
+            if (sp < 1) {
+                return 0;
+            }
+            st[sp - 1] = -st[sp - 1];
+            pc++;
+            break;
+        case OP_ADD:
+        case OP_SUB:
+        case OP_MUL:
+        case OP_DIV:
+        case OP_LT:
+        case OP_GT:
+        case OP_LE:
+        case OP_GE:
+        case OP_EQ:
+        case OP_NE:
+            if (sp < 2) {
+                return 0;
+            }
+            b = st[--sp];
+            a = st[--sp];
+            if (o->op == OP_ADD) {
+                a = a + b;
+            } else if (o->op == OP_SUB) {
+                a = a - b;
+            } else if (o->op == OP_MUL) {
+                a = a * b;
+            } else if (o->op == OP_DIV) {
+                a = (b == 0.f) ? 0.f : a / b;
+            } else if (o->op == OP_LT) {
+                a = a < b ? 1.f : 0.f;
+            } else if (o->op == OP_GT) {
+                a = a > b ? 1.f : 0.f;
+            } else if (o->op == OP_LE) {
+                a = a <= b ? 1.f : 0.f;
+            } else if (o->op == OP_GE) {
+                a = a >= b ? 1.f : 0.f;
+            } else if (o->op == OP_EQ) {
+                a = a == b ? 1.f : 0.f;
+            } else {
+                a = a != b ? 1.f : 0.f;
+            }
+            st[sp++] = a;
+            pc++;
+            break;
+        case OP_JZ:
+            if (sp < 1) {
+                return 0;
+            }
+            a = st[--sp];
+            pc = (a == 0.f) ? o->i : pc + 1;
+            break;
+        case OP_JMP:
+            pc = o->i;
+            break;
+        case OP_STORE:
+            if (sp < 1 || o->i < 0 || o->i >= NP_ALGO_VARS) {
+                return 0;
+            }
+            var[o->i] = st[--sp];
+            pc++;
+            break;
+        case OP_BIT:
+            if (sp < 1) {
+                return 0;
+            }
+            bit = st[--sp] != 0.f ? 1 : 0;
+            pc++;
+            break;
+        default:
+            return 0;
+        }
+    }
+    return bit ? 1 : 0;
+}
+
+int np_algo_custom(const char *src, const float *x, int n)
+{
+    static char hold[NP_ALGO_SRC];
+    static struct np_prog P;
+    static int ok;
+    char err[80];
+    if (!src || !src[0]) {
+        src = NP_ALGO_SRC_DEFAULT;
+    }
+    if (!ok || strcmp(hold, src) != 0) {
+        if (compile_full(src, &P, err, (int)sizeof(err)) != 0) {
+            ok = 0;
+            return 0;
+        }
+        snprintf(hold, sizeof(hold), "%s", src);
+        ok = 1;
+    }
+    return eval_prog(&P, x, n);
 }

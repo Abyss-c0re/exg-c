@@ -207,6 +207,12 @@
                     android:text="color" />
 
                 <Button
+                    android:id="@+id/cubeAlgo"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="algo energy" />
+
+                <Button
                     android:id="@+id/cubeZoomOut"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
@@ -266,6 +272,55 @@
                     <Button android:id="@+id/cubeQ7" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="7 —" />
                     <Button android:id="@+id/cubeQ8" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="8 —" />
                 </LinearLayout>
+
+                <TextView
+                    android:id="@+id/cubeRule"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:paddingLeft="8dp"
+                    android:paddingRight="8dp"
+                    android:paddingTop="2dp"
+                    android:paddingBottom="2dp"
+                    android:text="each bit is that channel through this algo"
+                    android:textColor="@color/muted" />
+
+                <EditText
+                    android:id="@+id/cubeSrc"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_margin="4dp"
+                    android:background="@color/bg"
+                    android:fontFamily="monospace"
+                    android:gravity="top|start"
+                    android:hint="if ch &lt; 100 then 1&#10;else 0"
+                    android:inputType="textMultiLine|textNoSuggestions"
+                    android:minLines="4"
+                    android:padding="8dp"
+                    android:textColor="@color/ink"
+                    android:textColorHint="@color/muted"
+                    android:visibility="gone" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content">
+
+                    <Button
+                        android:id="@+id/cubeSrcApply"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="apply code"
+                        android:visibility="gone" />
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/cubeSrcErr"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:paddingLeft="8dp"
+                    android:paddingRight="8dp"
+                    android:textColor="@color/crimson"
+                    android:visibility="gone" />
             </LinearLayout>
 
             <com.abysscore.exgc.CubeView

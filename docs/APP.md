@@ -1,4 +1,4 @@
-# App (2.68)
+# App (2.69)
 
 What the host does. The LAN wire is [API.md](API.md).
 
@@ -108,7 +108,22 @@ Profile load keeps the electrode map and **recooks** plates/takes from raw. It d
 
 ## Cube
 
-Viz is the crimson 8³ lattice. One mapped 10-10 cell per channel tracks EXG µV — same color and millivolt as the traces. Pair EXG `A−B` draws a crimson link between the two sites. **float on** levitates; **float off** is manual drag-spin and +/− zoom. Map still assigns 10-10 sites.
+The Cube tab **creates cubes**. One cube is a 2×2×2 of 8 bits, one cell per channel. 8 jacks → 1 cube; 16 → 2. Bit buttons 1–8 pick the channel. The voxel label is `N·chM`. Color tints the whole lattice.
+
+**algo** lives on this tab (Settings still has the same picker). That rule turns each mapped channel into 0 or 1. The line under the bits names the rule. A lit button is `1 ch3 ·1` — bit 1, channel 3, on.
+
+| Algo | 1 when |
+|------|--------|
+| detect | ID says SIGNAL |
+| sign | last sample > 0 |
+| mean | \|last\| > 0.85·mean\|x\| |
+| energy | rms > 1.05·mean\|x\| |
+| delta | \|step\| > 1.10·mean\|dx\| |
+| fold | majority of samples > 0 |
+| proton | +energy > half total |
+| custom | your if/else. `ch` / `last` is last cooked µV. `mean` `rms` `n` `abs()`. CubalC form: `IF ch < 100 THEN` / `LET bit = 1` / `ELSE` / `END`. Compact: `if ch < 100 then 1` / `else 0`. |
+
+**float on** levitates; **float off** is manual drag-spin and +/− zoom. Sites live in Settings.
 
 ## Quest / handheld
 

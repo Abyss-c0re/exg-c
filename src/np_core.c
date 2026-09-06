@@ -668,7 +668,13 @@ static uint8_t learn_fold_byte(uint8_t bits[NP_NCHAN])
         ch_stats(buf, n, &dc, &rms, &pk);
         det = np_detect(raw > 1.f ? raw : rms, rms, g.cal.have ? g.cal.rms[c] : 0.f,
                         g.calm.have ? g.calm.rms[c] : 0.f, &rr);
-        bits[c] = (uint8_t)np_algo_bit(g.algo, buf, (int)n, det == NP_DET_SIGNAL);
+        if (g.algo == NP_ALGO_CUSTOM) {
+            bits[c] = (uint8_t)np_algo_custom(
+                g.algo_src[0] ? g.algo_src : NP_ALGO_SRC_DEFAULT, buf, (int)n);
+        } else {
+            bits[c] = (uint8_t)np_algo_bit(g.algo, buf, (int)n,
+                                           det == NP_DET_SIGNAL);
+        }
         if (bits[c]) {
             fold |= (uint8_t)(1u << c);
         }
@@ -1189,6 +1195,20 @@ static int cfg_write_ex(const char *path, int with_map)
     fprintf(f, "set_gen=%d\n", g.set_gen);
     fprintf(f, "board=%d\n", (int)g.board);
     fprintf(f, "algo=%d\n", g.algo);
+    {
+        const char *s = g.algo_src[0] ? g.algo_src : NP_ALGO_SRC_DEFAULT;
+        fprintf(f, "algo_src=");
+        for (; *s; s++) {
+            if (*s == '\n') {
+                fputs("\\n", f);
+            } else if (*s == '\\') {
+                fputs("\\\\", f);
+            } else if (*s != '\r') {
+                fputc(*s, f);
+            }
+        }
+        fputc('\n', f);
+    }
     fprintf(f, "\n[cube]\n");
     fprintf(f, "yaw=%.4f\n", (double)g.cube_yaw);
     fprintf(f, "pitch=%.4f\n", (double)g.cube_pitch);
@@ -1274,6 +1294,20 @@ static int cfg_write_kit(const char *path)
     fprintf(f, "cal_cut=%d\n", g.cal_cut);
     fprintf(f, "board=%d\n", (int)g.board);
     fprintf(f, "algo=%d\n", g.algo);
+    {
+        const char *s = g.algo_src[0] ? g.algo_src : NP_ALGO_SRC_DEFAULT;
+        fprintf(f, "algo_src=");
+        for (; *s; s++) {
+            if (*s == '\n') {
+                fputs("\\n", f);
+            } else if (*s == '\\') {
+                fputs("\\\\", f);
+            } else if (*s != '\r') {
+                fputc(*s, f);
+            }
+        }
+        fputc('\n', f);
+    }
     fprintf(f, "\n[cube]\n");
     fprintf(f, "float=%d\n", g.cube_float ? 1 : 0);
     for (i = 0; i < NP_NCHAN; i++) {
@@ -1295,7 +1329,7 @@ static int cfg_write_kit(const char *path)
 static int cfg_read(const char *path)
 {
     FILE *f;
-    char line[96];
+    char line[640];
     if (!path || !path[0]) {
         return -1;
     }
@@ -1308,7 +1342,22 @@ static int cfg_read(const char *path)
         float fa, fb;
         char ename[24];
         char longv[64];
-        if (sscanf(line, "window_s=%d", &v) == 1) {
+        if (!strncmp(line, "algo_src=", 9)) {
+            const char *in = line + 9;
+            int o = 0;
+            while (*in && *in != '\n' && *in != '\r' && o < NP_ALGO_SRC - 1) {
+                if (in[0] == '\\' && in[1] == 'n') {
+                    g.algo_src[o++] = '\n';
+                    in += 2;
+                } else if (in[0] == '\\' && in[1] == '\\') {
+                    g.algo_src[o++] = '\\';
+                    in += 2;
+                } else {
+                    g.algo_src[o++] = *in++;
+                }
+            }
+            g.algo_src[o] = 0;
+        } else if (sscanf(line, "window_s=%d", &v) == 1) {
             g.window_s = v;
         } else if (sscanf(line, "autoscale=%d", &v) == 1) {
             g.autoscale = v;
@@ -1498,6 +1547,9 @@ static int cfg_read(const char *path)
     }
     if (g.made_sel < 0 || g.made_sel >= g.made_n) {
         g.made_sel = g.made_n > 0 ? 0 : 0;
+    }
+    if (!g.algo_src[0]) {
+        snprintf(g.algo_src, sizeof(g.algo_src), "%s", NP_ALGO_SRC_DEFAULT);
     }
     {
         int ci;
@@ -2007,7 +2059,7 @@ static void api_status_json(char *out, int n)
         }
     }
     snprintf(out, (size_t)n,
-             "{\"ok\":true,\"v\":\"2.68\",\"connected\":%s,\"paused\":%s,\"sps\":%.1f,"
+             "{\"ok\":true,\"v\":\"2.69\",\"connected\":%s,\"paused\":%s,\"sps\":%.1f,"
              "\"frames\":%u,\"status\":\"%s\",\"id\":\"%s\",\"id_best\":%d,"
              "\"notch\":%d,\"hp\":%d,\"lp\":%d,\"car\":%d,\"band\":%d,\"mask\":%u,"
              "\"api\":\"%s\"}",
@@ -2767,7 +2819,9 @@ void smx_tick(void)
     }
     memset(bits, 0, sizeof(bits));
     {
+        uint8_t chbits[NP_NCHAN];
         uint64_t atom = 0;
+        learn_fold_byte(chbits);
         for (c = 0; c < NP_NCHAN; c++) {
             uint32_t n;
             float dc = 0, rms = 0, pk = 0, sc;
@@ -2788,7 +2842,7 @@ void smx_tick(void)
                 row = (uint8_t)(one & 0xffu);
             }
             atom |= (uint64_t)row << (8 * c);
-            bits[nch] = (row & 0x16u) ? 1 : 0;
+            bits[nch] = chbits[c];
             nch++;
         }
         np_atom_faces8(atom, g.cube_bits);
@@ -5053,6 +5107,9 @@ int np_host_algo(void)
 void np_host_cycle_algo(void)
 {
     g.algo = (g.algo + 1) % NP_ALGO_N;
+    if (g.algo == NP_ALGO_CUSTOM && !g.algo_src[0]) {
+        snprintf(g.algo_src, sizeof(g.algo_src), "%s", NP_ALGO_SRC_DEFAULT);
+    }
     cfg_save();
     set_status(1, "algo %s  — cube node is 0 or 1", np_algo_name(g.algo));
 }
@@ -5062,12 +5119,99 @@ void np_host_set_algo(int id)
         id = 0;
     }
     g.algo = id;
+    if (g.algo == NP_ALGO_CUSTOM && !g.algo_src[0]) {
+        snprintf(g.algo_src, sizeof(g.algo_src), "%s", NP_ALGO_SRC_DEFAULT);
+    }
     cfg_save();
     set_status(1, "algo %s  — cube node is 0 or 1", np_algo_name(g.algo));
 }
 void np_host_algo_name(char *out, int n)
 {
     snprintf(out, (size_t)n, "%s", np_algo_name(np_host_algo()));
+}
+
+static void algo_src_ensure(void)
+{
+    if (!g.algo_src[0]) {
+        snprintf(g.algo_src, sizeof(g.algo_src), "%s", NP_ALGO_SRC_DEFAULT);
+    }
+}
+
+void np_host_algo_rule(char *out, int n)
+{
+    const char *s;
+    if (!out || n < 1) {
+        return;
+    }
+    if (np_host_algo() != NP_ALGO_CUSTOM) {
+        snprintf(out, (size_t)n, "%s", np_algo_rule(np_host_algo()));
+        return;
+    }
+    algo_src_ensure();
+    s = g.algo_src;
+    while (*s == ' ' || *s == '\t' || *s == '\n' || *s == '\r') {
+        s++;
+    }
+    while (*s == '#' || (s[0] == '/' && s[1] == '/')) {
+        while (*s && *s != '\n') {
+            s++;
+        }
+        while (*s == ' ' || *s == '\t' || *s == '\n' || *s == '\r') {
+            s++;
+        }
+    }
+    snprintf(out, (size_t)n, "%s", s[0] ? s : np_algo_rule(NP_ALGO_CUSTOM));
+    {
+        char *nl = strchr(out, '\n');
+        if (nl) {
+            *nl = 0;
+        }
+    }
+}
+
+void np_host_algo_src(char *out, int n)
+{
+    algo_src_ensure();
+    snprintf(out, (size_t)n, "%s", g.algo_src);
+}
+
+int np_host_set_algo_src(const char *s, char *err, int n)
+{
+    char e[80];
+    if (!s) {
+        s = "";
+    }
+    if (np_algo_compile(s, e, (int)sizeof(e)) != 0) {
+        if (err && n > 0) {
+            snprintf(err, (size_t)n, "%s", e);
+        }
+        return -1;
+    }
+    snprintf(g.algo_src, sizeof(g.algo_src), "%s", s);
+    g.algo = NP_ALGO_CUSTOM;
+    cfg_save();
+    set_status(1, "algo custom  — cube node is 0 or 1");
+    if (err && n > 0) {
+        err[0] = 0;
+    }
+    return 0;
+}
+
+unsigned int np_host_algo_fold(void)
+{
+    uint8_t bits[NP_NCHAN];
+    unsigned int fold = 0;
+    int c;
+    if (!g.connected) {
+        return 0;
+    }
+    learn_fold_byte(bits);
+    for (c = 0; c < NP_NCHAN; c++) {
+        if (bits[c]) {
+            fold |= 1u << c;
+        }
+    }
+    return fold;
 }
 
 int np_host_cube_view(void)

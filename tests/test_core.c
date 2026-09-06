@@ -746,6 +746,43 @@ static void test_algo(void)
     expect(np_algo_bit(NP_ALGO_PROTON, hi, 32, 0) == 1, "algo proton +energy");
     expect(np_algo_bit(NP_ALGO_DELTA, z, 32, 0) == 0, "algo delta still");
     expect(strcmp(np_algo_name(NP_ALGO_FOLD), "fold") == 0, "algo name fold");
+    expect(strcmp(np_algo_name(NP_ALGO_CUSTOM), "custom") == 0, "algo name custom");
+    {
+        char err[80];
+        float lo[8], hi2[8];
+        int k;
+        for (k = 0; k < 8; k++) {
+            lo[k] = -20.f;
+            hi2[k] = 150.f;
+        }
+        expect(np_algo_compile("if ch < 100 then 1\nelse 0\n", err, 80) == 0,
+               "custom compact compiles");
+        expect(np_algo_custom("if ch < 100 then 1\nelse 0\n", lo, 8) == 1,
+               "custom if ch<100 lo is 1");
+        expect(np_algo_custom("if ch < 100 then 1\nelse 0\n", hi2, 8) == 0,
+               "custom if ch<100 hi is 0");
+        expect(np_algo_compile("LET thresh = 100\n"
+                              "IF ch < thresh THEN\n"
+                              "  LET bit = 1\n"
+                              "ELSE\n"
+                              "  LET bit = 0\n"
+                              "END\n",
+                              err, 80) == 0,
+               "custom CubalC LET/IF compiles");
+        expect(np_algo_custom("LET thresh = 100\n"
+                             "IF ch < thresh THEN\n"
+                             "  LET bit = 1\n"
+                             "ELSE\n"
+                             "  LET bit = 0\n"
+                             "END\n",
+                             lo, 8) == 1,
+               "custom CubalC lo is 1");
+        expect(np_algo_custom("IF abs(ch) > 80 THEN\n  LET bit = 1\nELSE\n  LET bit = 0\nEND\n",
+                             hi2, 8) == 1,
+               "custom abs(ch)>80");
+        expect(np_algo_compile("if ch less 100 then 1\n", err, 80) != 0,
+               "custom rejects prose");
+    }
 }
 
 static void test_profile_format(void)
@@ -1309,7 +1346,7 @@ static void test_api(void)
          strstr(body, "/stream") && strstr(body, "EXG1");
     expect(ok, "api GET / index lists stream");
     expect(strstr(body, "stream.json") == NULL, "api index has no NDJSON live path");
-    expect(strstr(body, "\"v\":\"2.68\"") != NULL, "api index version 2.68");
+    expect(strstr(body, "\"v\":\"2.69\"") != NULL, "api index version 2.69");
     expect(strstr(body, "/pair") != NULL, "api index lists /pair");
     expect(strstr(body, "\"ip\":\"127.0.0.1\"") != NULL, "api local ip is loopback");
     {
