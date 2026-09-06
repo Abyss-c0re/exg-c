@@ -161,6 +161,7 @@ static int live_sig = -1;
 static uint32_t live_wr;
 static float live_ch[NP_NCHAN][NP_RING];
 static int last_clip[NP_NCHAN];
+static int last_pair_clip[NP_BIPOLAR_N];
 static pthread_mutex_t live_mu = PTHREAD_MUTEX_INITIALIZER;
 static struct np_peers peers;
 static char pair_name[NP_PEER_NAME];
@@ -1181,6 +1182,7 @@ static int cfg_write_ex(const char *path, int with_map)
     fprintf(f, "car=%d\n", g.car ? 1 : 0);
     fprintf(f, "envelope=%d\n", g.envelope ? 1 : 0);
     fprintf(f, "band=%d\n", g.band);
+    fprintf(f, "pair_mode=%d\n", g.pair_mode ? 1 : 0);
     fprintf(f, "grid=%d\n", g.grid);
     fprintf(f, "show_uv=%d\n", g.show_uv);
     fprintf(f, "detrend=%d\n", g.detrend);
@@ -1257,6 +1259,7 @@ static int cfg_write_kit(const char *path)
     fprintf(f, "car=%d\n", g.car ? 1 : 0);
     fprintf(f, "envelope=%d\n", g.envelope ? 1 : 0);
     fprintf(f, "band=%d\n", g.band);
+    fprintf(f, "pair_mode=%d\n", g.pair_mode ? 1 : 0);
     fprintf(f, "detrend=%d\n", g.detrend);
     fprintf(f, "cal_cut=%d\n", g.cal_cut);
     fprintf(f, "board=%d\n", (int)g.board);
@@ -1315,6 +1318,8 @@ static int cfg_read(const char *path)
             g.envelope = v ? 1 : 0;
         } else if (sscanf(line, "band=%d", &v) == 1 && v >= 0 && v < NP_BAND_N) {
             g.band = v;
+        } else if (sscanf(line, "pair_mode=%d", &v) == 1) {
+            g.pair_mode = v ? 1 : 0;
         } else if (sscanf(line, "grid=%d", &v) == 1) {
             g.grid = v;
         } else if (sscanf(line, "show_uv=%d", &v) == 1) {
@@ -1961,7 +1966,7 @@ static void api_status_json(char *out, int n)
         }
     }
     snprintf(out, (size_t)n,
-             "{\"ok\":true,\"v\":\"2.65\",\"connected\":%s,\"paused\":%s,\"sps\":%.1f,"
+             "{\"ok\":true,\"v\":\"2.66\",\"connected\":%s,\"paused\":%s,\"sps\":%.1f,"
              "\"frames\":%u,\"status\":\"%s\",\"id\":\"%s\",\"id_best\":%d,"
              "\"notch\":%d,\"hp\":%d,\"lp\":%d,\"car\":%d,\"band\":%d,\"mask\":%u,"
              "\"api\":\"%s\"}",
@@ -4726,7 +4731,7 @@ void np_host_cook_uv(float uv[8])
 
 int np_host_pair_n(void)
 {
-    return np_pair_count();
+    return g.pair_mode ? np_bipolar_count() : np_pair_count();
 }
 
 void np_host_pair_label(int i, char *out, int n)
@@ -4734,12 +4739,72 @@ void np_host_pair_label(int i, char *out, int n)
     if (!out || n < 4) {
         return;
     }
+    if (g.pair_mode) {
+        snprintf(out, (size_t)n, "%s-%s", np_bipolar_site_a(i), np_bipolar_site_b(i));
+        return;
+    }
     snprintf(out, (size_t)n, "%s-%s", np_pair_site_a(i), np_pair_site_b(i));
 }
 
 int np_host_pair_chs(int i, int *a, int *b)
 {
+    if (g.pair_mode) {
+        return np_bipolar_chs(g.elec, i, a, b);
+    }
     return np_pair_chs(g.elec, i, a, b);
+}
+
+int np_host_pair_mode(void)
+{
+    return g.pair_mode ? 1 : 0;
+}
+
+void np_host_set_pair_mode(int on)
+{
+    g.pair_mode = on ? 1 : 0;
+    cfg_save();
+    set_status(1, g.pair_mode ? "2 pairs — diffs on the motor square" : "8 channels");
+}
+
+int np_host_copy_pair(int p, float *dst, int max)
+{
+    float a[NP_RING], b[NP_RING];
+    int ca, cb;
+    uint32_t na, nb, n, i, want;
+    if (!dst || max < 8 || np_host_pair_chs(p, &ca, &cb) != 0) {
+        return 0;
+    }
+    want = (uint32_t)(g.window_s * design_sps());
+    if (want < 32) {
+        want = 32;
+    }
+    if (want > (uint32_t)max) {
+        want = (uint32_t)max;
+    }
+    na = view_copy(ca, a, want);
+    nb = view_copy(cb, b, want);
+    n = na < nb ? na : nb;
+    if (n > want) {
+        n = want;
+    }
+    for (i = 0; i < n; i++) {
+        dst[i] = a[i] - b[i];
+    }
+    if (g.detrend && n > 4) {
+        np_detrend(dst, (int)n);
+    }
+    if (p >= 0 && p < NP_BIPOLAR_N) {
+        last_pair_clip[p] = np_window_clip(dst, (int)n);
+    }
+    return (int)n;
+}
+
+int np_host_pair_clip(int p)
+{
+    if (p < 0 || p >= NP_BIPOLAR_N) {
+        return 0;
+    }
+    return last_pair_clip[p];
 }
 
 void np_host_pair_uv(float uv[4])
@@ -4750,11 +4815,11 @@ void np_host_pair_uv(float uv[4])
         return;
     }
     memset(uv, 0, 4 * sizeof(float));
-    for (p = 0; p < NP_PAIR_N; p++) {
+    for (p = 0; p < np_host_pair_n(); p++) {
         int ca, cb;
         uint32_t na, nb, n, i;
         float dc = 0, rms = 0, pk = 0;
-        if (np_pair_chs(g.elec, p, &ca, &cb) != 0) {
+        if (np_host_pair_chs(p, &ca, &cb) != 0) {
             continue;
         }
         if (!g.active[ca] || !g.active[cb]) {

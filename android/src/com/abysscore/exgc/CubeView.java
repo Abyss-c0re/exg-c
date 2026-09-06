@@ -367,7 +367,9 @@ public class CubeView extends View {
             drawWire(c, cx, cy, k);
             drawLattice(c, cx, cy, k);
             drawPairs(c, cx, cy, k);
-            drawElecResonance(c, cx, cy, k);
+            if (!ExgNative.pairMode()) {
+                drawElecResonance(c, cx, cy, k);
+            }
             drawCore(c, cx, cy, k);
             ink.setColor(SPIKE);
             ink.setTextSize(28f * labelMul);

@@ -86,6 +86,10 @@ void np_host_pair_label(int i, char *out, int n);
 int np_host_pair_chs(int i, int *a, int *b);
 /* EXG RMS of A−B, same cook as the traces. 0 if a site is off. */
 void np_host_pair_uv(float uv[4]);
+int np_host_pair_mode(void);
+void np_host_set_pair_mode(int on);
+int np_host_copy_pair(int p, float *dst, int max);
+int np_host_pair_clip(int p);
 int np_host_notch(void);
 /* Effective notch Hz (AUTO → plate). 0 if idle. */
 int np_host_notch_eff(void);

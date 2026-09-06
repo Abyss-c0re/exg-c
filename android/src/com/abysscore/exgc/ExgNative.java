@@ -74,6 +74,10 @@ public final class ExgNative {
     public static native String pairLabel(int i);
     public static native void pairChs(int i, int[] dst);
     public static native void pairUv(float[] dst);
+    public static native boolean pairMode();
+    public static native void setPairMode(boolean on);
+    public static native int copyPair(int p, float[] dst);
+    public static native boolean pairClipped(int p);
     public static native void cycleNotch();
     public static native void cycleHp();
     public static native int notch();

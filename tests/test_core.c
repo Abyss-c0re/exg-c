@@ -578,6 +578,13 @@ static void test_elec_view(void)
             }
         }
         expect(ok, "each pair maps two distinct channels");
+        expect(np_bipolar_count() == 2, "two bipolar pairs");
+        expect(strcmp(np_bipolar_site_a(0), "FC4") == 0 && strcmp(np_bipolar_site_b(0), "FC3") == 0,
+               "bipolar 0 FC4-FC3");
+        expect(strcmp(np_bipolar_site_a(1), "CP4") == 0 && strcmp(np_bipolar_site_b(1), "CP3") == 0,
+               "bipolar 1 CP4-CP3");
+        expect(np_bipolar_chs(e, 0, &ca, &cb) == 0 && ca != cb, "bipolar 0 maps two channels");
+        expect(np_bipolar_chs(e, 1, &ca, &cb) == 0 && ca != cb, "bipolar 1 maps two channels");
     }
     np_elec_to_xyz(&e[0], 1.f, &x, &y, &z);
     expect(fabsf(x * x + y * y + z * z - 1.f) < 1e-5f, "site on unit sphere");
@@ -1302,7 +1309,7 @@ static void test_api(void)
          strstr(body, "/stream") && strstr(body, "EXG1");
     expect(ok, "api GET / index lists stream");
     expect(strstr(body, "stream.json") == NULL, "api index has no NDJSON live path");
-    expect(strstr(body, "\"v\":\"2.65\"") != NULL, "api index version 2.65");
+    expect(strstr(body, "\"v\":\"2.66\"") != NULL, "api index version 2.66");
     expect(strstr(body, "/pair") != NULL, "api index lists /pair");
     expect(strstr(body, "\"ip\":\"127.0.0.1\"") != NULL, "api local ip is loopback");
     {

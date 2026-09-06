@@ -79,23 +79,45 @@ public class TraceView extends View {
             }
         }
         scaleUv = Math.max(20, ExgNative.scaleUv());
-        for (int c = 0; c < NCHAN; c++) {
-            on[c] = ExgNative.active(c);
-            if (!on[c]) {
-                got[c] = 0;
-                continue;
+        if (ExgNative.pairMode()) {
+            int pn = Math.min(NCHAN, ExgNative.pairN());
+            for (int c = 0; c < NCHAN; c++) {
+                on[c] = c < pn;
+                if (!on[c]) {
+                    got[c] = 0;
+                    continue;
+                }
+                got[c] = ExgNative.copyPair(c, wave[c]);
+                col[c] = ExgNative.color(c);
+                clip[c] = ExgNative.pairClipped(c);
+                String n = ExgNative.pairLabel(c);
+                site[c] = (n == null || n.length() == 0) ? ("pair " + (c + 1)) : n;
+                float e = 0f;
+                int nSamp = got[c];
+                for (int i = 0; i < nSamp; i++) {
+                    e += wave[c][i] * wave[c][i];
+                }
+                rms[c] = nSamp > 0 ? (float) Math.sqrt(e / nSamp) : 0f;
             }
-            got[c] = ExgNative.copyWave(c, wave[c]);
-            col[c] = ExgNative.color(c);
-            clip[c] = ExgNative.clipped(c);
-            String n = ExgNative.elecName(c);
-            site[c] = (n == null || n.length() == 0) ? ("ch" + (c + 1)) : n;
-            float e = 0f;
-            int nSamp = got[c];
-            for (int i = 0; i < nSamp; i++) {
-                e += wave[c][i] * wave[c][i];
+        } else {
+            for (int c = 0; c < NCHAN; c++) {
+                on[c] = ExgNative.active(c);
+                if (!on[c]) {
+                    got[c] = 0;
+                    continue;
+                }
+                got[c] = ExgNative.copyWave(c, wave[c]);
+                col[c] = ExgNative.color(c);
+                clip[c] = ExgNative.clipped(c);
+                String n = ExgNative.elecName(c);
+                site[c] = (n == null || n.length() == 0) ? ("ch" + (c + 1)) : n;
+                float e = 0f;
+                int nSamp = got[c];
+                for (int i = 0; i < nSamp; i++) {
+                    e += wave[c][i] * wave[c][i];
+                }
+                rms[c] = nSamp > 0 ? (float) Math.sqrt(e / nSamp) : 0f;
             }
-            rms[c] = nSamp > 0 ? (float) Math.sqrt(e / nSamp) : 0f;
         }
         postInvalidateOnAnimation();
     }

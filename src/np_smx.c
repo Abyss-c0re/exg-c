@@ -624,6 +624,11 @@ static const char *k_pair[NP_PAIR_N][2] = {
     {"FC4", "CP3"},
     {"C3", "C4"},
 };
+/* Plus is right, minus is left. Four corners of one cube face. */
+static const char *k_bipolar[NP_BIPOLAR_N][2] = {
+    {"FC4", "FC3"},
+    {"CP4", "CP3"},
+};
 
 void np_elec_default(struct np_elec e[NP_NCHAN])
 {
@@ -686,6 +691,53 @@ int np_pair_chs(const struct np_elec e[NP_NCHAN], int pair, int *cha, int *chb)
     }
     a = ch_named(e, k_pair[pair][0]);
     b = ch_named(e, k_pair[pair][1]);
+    if (a < 0 || b < 0) {
+        return -1;
+    }
+    if (cha) {
+        *cha = a;
+    }
+    if (chb) {
+        *chb = b;
+    }
+    return 0;
+}
+
+int np_bipolar_count(void)
+{
+    return NP_BIPOLAR_N;
+}
+
+const char *np_bipolar_site_a(int pair)
+{
+    if (pair < 0 || pair >= NP_BIPOLAR_N) {
+        return "";
+    }
+    return k_bipolar[pair][0];
+}
+
+const char *np_bipolar_site_b(int pair)
+{
+    if (pair < 0 || pair >= NP_BIPOLAR_N) {
+        return "";
+    }
+    return k_bipolar[pair][1];
+}
+
+int np_bipolar_chs(const struct np_elec e[NP_NCHAN], int pair, int *cha, int *chb)
+{
+    int a, b;
+    if (cha) {
+        *cha = -1;
+    }
+    if (chb) {
+        *chb = -1;
+    }
+    if (!e || pair < 0 || pair >= NP_BIPOLAR_N) {
+        return -1;
+    }
+    a = ch_named(e, k_bipolar[pair][0]);
+    b = ch_named(e, k_bipolar[pair][1]);
     if (a < 0 || b < 0) {
         return -1;
     }

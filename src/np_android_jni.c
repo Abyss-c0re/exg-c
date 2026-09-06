@@ -621,6 +621,49 @@ Java_com_abysscore_exgc_ExgNative_pairUv(JNIEnv *env, jclass cls, jfloatArray ds
     (*env)->SetFloatArrayRegion(env, dst, 0, 4, uv);
 }
 
+JNIEXPORT jboolean JNICALL
+Java_com_abysscore_exgc_ExgNative_pairMode(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    return np_host_pair_mode() ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT void JNICALL
+Java_com_abysscore_exgc_ExgNative_setPairMode(JNIEnv *env, jclass cls, jboolean on)
+{
+    (void)env;
+    (void)cls;
+    np_host_set_pair_mode(on ? 1 : 0);
+}
+
+JNIEXPORT jint JNICALL
+Java_com_abysscore_exgc_ExgNative_copyPair(JNIEnv *env, jclass cls, jint p, jfloatArray dst)
+{
+    jfloat *buf;
+    int n, got;
+    (void)cls;
+    if (!dst) {
+        return 0;
+    }
+    n = (*env)->GetArrayLength(env, dst);
+    buf = (*env)->GetFloatArrayElements(env, dst, NULL);
+    if (!buf) {
+        return 0;
+    }
+    got = np_host_copy_pair(p, buf, n);
+    (*env)->ReleaseFloatArrayElements(env, dst, buf, 0);
+    return got;
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_abysscore_exgc_ExgNative_pairClipped(JNIEnv *env, jclass cls, jint p)
+{
+    (void)env;
+    (void)cls;
+    return np_host_pair_clip(p) ? JNI_TRUE : JNI_FALSE;
+}
+
 JNIEXPORT void JNICALL
 Java_com_abysscore_exgc_ExgNative_cycleNotch(JNIEnv *env, jclass cls)
 {

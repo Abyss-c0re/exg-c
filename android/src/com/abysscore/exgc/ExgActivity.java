@@ -77,6 +77,7 @@ public class ExgActivity extends Activity {
     private Button algo;
     private Button uiScale;
     private Button board;
+    private Button pairMode;
     private TextView apiLine;
     private Button apiOn, apiBind, apiHz, apiHttp, apiUdp, apiTcp, apiToken, apiPush;
     private final float[] imu = new float[9];
@@ -186,6 +187,7 @@ public class ExgActivity extends Activity {
         algo = findViewById(R.id.algo);
         uiScale = findViewById(R.id.uiScale);
         board = findViewById(R.id.board);
+        pairMode = findViewById(R.id.pairMode);
         apiLine = findViewById(R.id.apiLine);
         apiOn = findViewById(R.id.apiOn);
         apiBind = findViewById(R.id.apiBind);
@@ -445,6 +447,10 @@ public class ExgActivity extends Activity {
                     ExgNative.setBoardImu(i == 0);
                     refreshChrome();
                 }));
+        pairMode.setOnClickListener(v -> {
+            ExgNative.setPairMode(!ExgNative.pairMode());
+            refreshChrome();
+        });
         apiOn.setOnClickListener(v -> {
             boolean on = !ExgNative.apiOn();
             ExgNative.setApiOn(on);
@@ -813,6 +819,9 @@ public class ExgActivity extends Activity {
         int us = ExgNative.uiScale();
         uiScale.setText("UI " + (us == 10 ? "1.0x" : (us == 20 ? "2.0x" : "1.5x")));
         board.setText(ExgNative.boardImu() ? "8-ch + IMU" : "8-ch EXG");
+        pairMode.setText(ExgNative.pairMode() ? "2 pairs" : "8 channels");
+        pairMode.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
+                ExgNative.pairMode() ? 0xFF2E8A58 : 0xFF2A3038));
         boolean apion = ExgNative.apiOn();
         apiOn.setText(apion ? "share EXG" : "share off");
         apiOn.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
