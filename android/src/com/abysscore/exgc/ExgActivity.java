@@ -118,7 +118,6 @@ public class ExgActivity extends Activity {
                 fft.pull();
             } else if (tab == 1) {
                 cube.pull();
-                refreshCubeBits();
             }
             h.postDelayed(this, 33);
         }
@@ -875,7 +874,6 @@ public class ExgActivity extends Activity {
         int n = ExgNative.madeN();
         int sel = ExgNative.madeSel();
         int qsel = ExgNative.madeQSel();
-        int fold = n > 0 ? ExgNative.madeFold(sel) : 0;
         if (n < 1) {
             cubeRule.setText("add a cube — tap a bit to pick its algo · hold for channel");
         } else {
@@ -895,7 +893,6 @@ public class ExgActivity extends Activity {
                 continue;
             }
             int ch = ExgNative.madeCh(sel, q);
-            boolean on = ((fold >> q) & 1) != 0;
             String an = ExgNative.alibName(ExgNative.madeAlgo(sel, q));
             if (an == null || an.length() == 0) {
                 an = "?";
@@ -903,10 +900,10 @@ public class ExgActivity extends Activity {
             if (ch < 1) {
                 cubeQ[q].setText((q + 1) + " —");
             } else {
-                cubeQ[q].setText((q + 1) + " " + an + (on ? " ·1" : " ·0"));
+                cubeQ[q].setText((q + 1) + " ch" + ch + " " + an);
             }
             cubeQ[q].setBackgroundTintList(android.content.res.ColorStateList.valueOf(
-                    on ? 0xFF8A1828 : 0xFF2A3038));
+                    q == qsel ? 0xFF3A4050 : 0xFF2A3038));
         }
     }
 

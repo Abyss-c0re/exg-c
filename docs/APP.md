@@ -1,4 +1,4 @@
-# App (2.72)
+# App (2.73)
 
 What the host does. The LAN wire is [API.md](API.md).
 
@@ -110,7 +110,7 @@ Profile load keeps the electrode map and **recooks** plates/takes from raw. It d
 
 The Cube tab **creates cubes**. One cube is a 2×2×2 of 8 bits, one cell per channel. 8 jacks → 1 cube; 16 → 2. Bit buttons 1–8 pick the channel. The voxel label is `N·chM`. Color tints the whole lattice.
 
-Tap a bit to pick its **algo** from the Algos tab. Long-press to pick its channel. A lit button is `1 sign ·1`.
+Tap a bit to pick its **algo** from the Algos tab. Long-press to pick its channel. Buttons stay still (`1 ch3 sign`). Only the lattice cells light.
 
 ## Algos
 
