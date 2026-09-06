@@ -325,6 +325,11 @@ public class ExgActivity extends Activity {
             if (ExgNative.csvOn()) {
                 ExgNative.toggleCsv();
                 refreshChrome();
+                Intent it = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+                it.addCategory(Intent.CATEGORY_OPENABLE);
+                it.setType("text/csv");
+                it.putExtra(Intent.EXTRA_TITLE, csvPickName);
+                startActivityForResult(it, REQ_CSV);
                 return;
             }
             if (!ExgNative.connected()) {
@@ -334,11 +339,12 @@ public class ExgActivity extends Activity {
             csvPickName = "knight-" + new java.text.SimpleDateFormat(
                     "yyyyMMdd-HHmmss", java.util.Locale.US)
                     .format(new java.util.Date()) + ".csv";
-            Intent it = new Intent(Intent.ACTION_CREATE_DOCUMENT);
-            it.addCategory(Intent.CATEGORY_OPENABLE);
-            it.setType("text/csv");
-            it.putExtra(Intent.EXTRA_TITLE, csvPickName);
-            startActivityForResult(it, REQ_CSV);
+            java.io.File local = new java.io.File(getFilesDir(), csvPickName);
+            if (ExgNative.csvBegin(local.getAbsolutePath()) != 0) {
+                status.setText("cannot write CSV");
+                return;
+            }
+            refreshChrome();
         });
         pause.setOnClickListener(v -> {
             ExgNative.togglePause();
@@ -894,16 +900,13 @@ public class ExgActivity extends Activity {
         if (requestCode == REQ_CSV) {
             Uri dest = data.getData();
             try {
-                ParcelFileDescriptor pfd = getContentResolver().openFileDescriptor(dest, "w");
-                if (pfd == null) {
-                    status.setText("cannot write CSV");
+                java.io.File local = new java.io.File(getFilesDir(), csvPickName);
+                if (!local.isFile() || local.length() < 1) {
+                    status.setText("CSV empty — nothing to save");
                     return;
                 }
-                int fd = pfd.detachFd();
-                if (ExgNative.csvBeginFd(fd, csvPickName) != 0) {
-                    status.setText("cannot write CSV");
-                }
-                refreshChrome();
+                copyFileToUri(local, dest);
+                status.setText("saved " + csvPickName);
             } catch (Exception e) {
                 status.setText("CSV: " + e.getMessage());
             }

@@ -815,6 +815,15 @@ Java_com_abysscore_exgc_ExgNative_toggleCsv(JNIEnv *env, jclass cls)
 }
 
 JNIEXPORT jint JNICALL
+Java_com_abysscore_exgc_ExgNative_csvBegin(JNIEnv *env, jclass cls, jstring path)
+{
+    char buf[NP_MAX_PATH];
+    (void)cls;
+    jstr_to(env, path, buf, sizeof(buf));
+    return np_host_csv_begin(buf);
+}
+
+JNIEXPORT jint JNICALL
 Java_com_abysscore_exgc_ExgNative_csvBeginFd(JNIEnv *env, jclass cls, jint fd, jstring name)
 {
     char buf[80];

@@ -1961,7 +1961,7 @@ static void api_status_json(char *out, int n)
         }
     }
     snprintf(out, (size_t)n,
-             "{\"ok\":true,\"v\":\"2.63\",\"connected\":%s,\"paused\":%s,\"sps\":%.1f,"
+             "{\"ok\":true,\"v\":\"2.65\",\"connected\":%s,\"paused\":%s,\"sps\":%.1f,"
              "\"frames\":%u,\"status\":\"%s\",\"id\":\"%s\",\"id_best\":%d,"
              "\"notch\":%d,\"hp\":%d,\"lp\":%d,\"car\":%d,\"band\":%d,\"mask\":%u,"
              "\"api\":\"%s\"}",
@@ -2998,6 +2998,9 @@ static void *reader_thread(void *arg)
                             fprintf(g.csv, ",%.3f", s.uv[c]);
                         }
                         fprintf(g.csv, ",%u,%u\n", s.loff_p, s.loff_n);
+                        if ((s.seq % 125u) == 0u) {
+                            fflush(g.csv);
+                        }
                     }
                     pthread_mutex_unlock(&g.csv_mu);
                 }
@@ -3231,6 +3234,11 @@ static void csv_close(void)
     g.recording = 0;
     pthread_mutex_lock(&g.csv_mu);
     if (g.csv) {
+        int fd = fileno(g.csv);
+        fflush(g.csv);
+        if (fd >= 0) {
+            fsync(fd);
+        }
         fclose(g.csv);
         g.csv = NULL;
     }
@@ -3244,6 +3252,7 @@ static int csv_open(FILE *f, const char *label)
     }
     setvbuf(f, NULL, _IOFBF, 8192);
     fprintf(f, "time,seq,ch1,ch2,ch3,ch4,ch5,ch6,ch7,ch8,loff_p,loff_n\n");
+    fflush(f);
     pthread_mutex_lock(&g.csv_mu);
     if (g.csv) {
         fclose(g.csv);
