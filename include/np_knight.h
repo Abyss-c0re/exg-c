@@ -4,6 +4,9 @@
 #include "np_types.h"
 #include <stddef.h>
 
+/* Knight µV: 4/32767/gain*1e6 / this. CLIP, plot, plates, and ID use it. */
+#define NP_KNIGHT_DIV 79.57f
+
 struct np_sample {
     uint8_t seq;
     uint8_t loff_p;

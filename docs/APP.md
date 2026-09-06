@@ -1,4 +1,4 @@
-# App (2.63)
+# App (2.64)
 
 What the host does. The LAN wire is [API.md](API.md).
 
@@ -36,7 +36,7 @@ Android does **not** compile `np_ui.c`. Java talks to `include/np_host.h` via `s
 
 After `set_gen=5`, saved ini wins. `set_gen=5` forces raw once so an old line-kill ini cannot hide the board. Line-kill / EEG / EMG stay as bands.
 
-Official Knight scale is `4/(2^15-1)/gain*1e6` (~±333 mV at gain 12). Worn raw is hundreds of µV. Off-head rails toward tens of mV. **line-kill** (hp 2, CAR, detrend) is a cook. It is not the board.
+Scale is `4/(2^15-1)/gain*1e6/79.57` (~±4.2 mV at gain 12). That divisor is the product unit: CLIP, plot, plates, and ID. Worn raw is tens to hundreds of µV. Off-head approaches the 4 mV rail. **line-kill** (hp 2, CAR, detrend) is a cook. It is not the board.
 
 ## DC vs CLEAN
 
