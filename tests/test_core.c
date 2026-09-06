@@ -782,6 +782,7 @@ static void test_algo(void)
                "custom abs(ch)>80");
         expect(np_algo_compile("if ch less 100 then 1\n", err, 80) != 0,
                "custom rejects prose");
+        expect(err[0] != 0, "broken syntax names the error");
         {
             int d;
             for (d = 0; d < NP_ALGO_N; d++) {
@@ -1375,7 +1376,7 @@ static void test_api(void)
          strstr(body, "/stream") && strstr(body, "EXG1");
     expect(ok, "api GET / index lists stream");
     expect(strstr(body, "stream.json") == NULL, "api index has no NDJSON live path");
-    expect(strstr(body, "\"v\":\"2.71\"") != NULL, "api index version 2.71");
+    expect(strstr(body, "\"v\":\"2.72\"") != NULL, "api index version 2.72");
     expect(strstr(body, "/pair") != NULL, "api index lists /pair");
     expect(strstr(body, "\"ip\":\"127.0.0.1\"") != NULL, "api local ip is loopback");
     {

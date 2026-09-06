@@ -307,7 +307,7 @@
                 android:layout_height="wrap_content"
                 android:background="@color/panel"
                 android:padding="8dp"
-                android:text="CubalC. ch last mean rms prev dxmean above pos signal. ch1..ch8 are jacks."
+                android:text="CubalC. Help is the syntax. Apply checks it — broken source is not saved."
                 android:textColor="@color/muted" />
 
             <HorizontalScrollView
@@ -356,7 +356,32 @@
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:text="name" />
+
+                <Button
+                    android:id="@+id/algoHelpBtn"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="help" />
             </LinearLayout>
+
+            <ScrollView
+                android:id="@+id/algoHelpBox"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:background="@color/panel"
+                android:visibility="gone">
+
+                <TextView
+                    android:id="@+id/algoHelp"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:fontFamily="monospace"
+                    android:padding="10dp"
+                    android:textColor="@color/ink"
+                    android:textSize="13sp" />
+            </ScrollView>
 
             <EditText
                 android:id="@+id/algoSrc"

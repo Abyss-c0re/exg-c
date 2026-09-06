@@ -128,6 +128,8 @@ void np_host_alib_name(int i, char *out, int n);
 void np_host_alib_src(int i, char *out, int n);
 int np_host_alib_def(int i);
 int np_host_alib_set_src(int i, const char *s, char *err, int n);
+/* Compile only. 0 ok. Does not save. */
+int np_host_alib_check(const char *s, char *err, int n);
 int np_host_alib_set_name(int i, const char *s);
 int np_host_alib_add(void);
 int np_host_alib_del(int i);

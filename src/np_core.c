@@ -2201,7 +2201,7 @@ static void api_status_json(char *out, int n)
         }
     }
     snprintf(out, (size_t)n,
-             "{\"ok\":true,\"v\":\"2.71\",\"connected\":%s,\"paused\":%s,\"sps\":%.1f,"
+             "{\"ok\":true,\"v\":\"2.72\",\"connected\":%s,\"paused\":%s,\"sps\":%.1f,"
              "\"frames\":%u,\"status\":\"%s\",\"id\":\"%s\",\"id_best\":%d,"
              "\"notch\":%d,\"hp\":%d,\"lp\":%d,\"car\":%d,\"band\":%d,\"mask\":%u,"
              "\"api\":\"%s\"}",
@@ -5468,6 +5468,24 @@ int np_host_alib_def(int i)
     return i >= 0 && i < NP_ALIB_DEF;
 }
 
+int np_host_alib_check(const char *s, char *err, int n)
+{
+    char e[80];
+    if (!s) {
+        s = "";
+    }
+    if (np_algo_compile(s, e, (int)sizeof(e)) != 0) {
+        if (err && n > 0) {
+            snprintf(err, (size_t)n, "%s", e);
+        }
+        return -1;
+    }
+    if (err && n > 0) {
+        err[0] = 0;
+    }
+    return 0;
+}
+
 int np_host_alib_set_src(int i, const char *s, char *err, int n)
 {
     char e[80];
@@ -5481,7 +5499,7 @@ int np_host_alib_set_src(int i, const char *s, char *err, int n)
     if (!s) {
         s = "";
     }
-    if (np_algo_compile(s, e, (int)sizeof(e)) != 0) {
+    if (np_host_alib_check(s, e, (int)sizeof(e)) != 0) {
         if (err && n > 0) {
             snprintf(err, (size_t)n, "%s", e);
         }

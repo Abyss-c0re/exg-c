@@ -48,6 +48,7 @@ public final class ExgNative {
     public static native String alibName(int i);
     public static native String alibSrc(int i);
     public static native boolean alibDef(int i);
+    public static native String alibCheck(String src);
     public static native String alibSetSrc(int i, String src);
     public static native int alibSetName(int i, String name);
     public static native int alibAdd();

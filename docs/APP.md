@@ -1,4 +1,4 @@
-# App (2.71)
+# App (2.72)
 
 What the host does. The LAN wire is [API.md](API.md).
 
@@ -114,7 +114,7 @@ Tap a bit to pick its **algo** from the Algos tab. Long-press to pick its channe
 
 ## Algos
 
-A separate tab. Defaults are CubalC you can read (and reset). Add your own. Cube bits pick from this list.
+A separate tab. Defaults are CubalC you can read (and reset). Add your own. Cube bits pick from this list. **help** opens the syntax. **apply CubalC** compiles first — a broken program is not saved.
 
 | Name | CubalC |
 |------|--------|

@@ -41,9 +41,11 @@ public class ExgActivity extends Activity {
     private View algosPane;
     private LinearLayout algoList;
     private EditText algoSrc;
-    private Button algoAdd, algoDel, algoReset, algoRename, algoApply;
-    private TextView algoErr;
+    private Button algoAdd, algoDel, algoReset, algoRename, algoApply, algoHelpBtn;
+    private TextView algoErr, algoHelp;
+    private View algoHelpBox;
     private boolean algoSrcLoaded;
+    private boolean algoHelpOn;
     private View settings;
     private View learnBar;
     private TextView status;
@@ -154,8 +156,50 @@ public class ExgActivity extends Activity {
         algoDel = findViewById(R.id.algoDel);
         algoReset = findViewById(R.id.algoReset);
         algoRename = findViewById(R.id.algoRename);
+        algoHelpBtn = findViewById(R.id.algoHelpBtn);
+        algoHelpBox = findViewById(R.id.algoHelpBox);
+        algoHelp = findViewById(R.id.algoHelp);
         algoApply = findViewById(R.id.algoApply);
         algoErr = findViewById(R.id.algoErr);
+        algoHelp.setText(
+                "CubalC for one cube bit. Apply checks syntax. Broken source is not saved.\n"
+                + "\n"
+                + "if EXPR then 1\n"
+                + "else 0\n"
+                + "\n"
+                + "or a block:\n"
+                + "LET thresh = 80\n"
+                + "IF abs(ch) > thresh THEN\n"
+                + "  LET bit = 1\n"
+                + "ELSE\n"
+                + "  LET bit = 0\n"
+                + "END\n"
+                + "\n"
+                + "This bit's channel:\n"
+                + "  ch / last   last µV\n"
+                + "  mean        mean |x|\n"
+                + "  rms\n"
+                + "  prev        previous sample\n"
+                + "  dxmean      mean |step|\n"
+                + "  above       fraction of samples > 0\n"
+                + "  pos         +energy / energy\n"
+                + "  signal      1 if ID is SIGNAL\n"
+                + "  n           window length\n"
+                + "\n"
+                + "Jacks: ch1..ch8  last1  mean1  rms1  prev1 …\n"
+                + "Compare:  <  >  <=  >=  ==  !=\n"
+                + "Math:  +  -  *  /  abs()\n"
+                + "# comment   or   // comment\n"
+                + "\n"
+                + "Defaults (reset restores them):\n"
+                + "  detect   if signal == 1\n"
+                + "  sign     if ch > 0\n"
+                + "  mean     if abs(ch) > 0.85 * mean\n"
+                + "  energy   if rms > 1.05 * mean\n"
+                + "  delta    if abs(ch - prev) > 1.10 * dxmean\n"
+                + "  fold     if above > 0.5\n"
+                + "  proton   if pos > 0.5\n"
+                + "  compare  if ch1 < ch5");
         cubeQ[0] = findViewById(R.id.cubeQ1);
         cubeQ[1] = findViewById(R.id.cubeQ2);
         cubeQ[2] = findViewById(R.id.cubeQ3);
@@ -344,16 +388,31 @@ public class ExgActivity extends Activity {
                 refreshAlgos();
             });
         });
+        algoHelpBtn.setOnClickListener(v -> {
+            algoHelpOn = !algoHelpOn;
+            algoHelpBox.setVisibility(algoHelpOn ? View.VISIBLE : View.GONE);
+            algoHelpBtn.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
+                    algoHelpOn ? 0xFF3A3020 : 0xFF2A3038));
+        });
         algoApply.setOnClickListener(v -> {
             String src = algoSrc.getText() != null ? algoSrc.getText().toString() : "";
-            String err = ExgNative.alibSetSrc(ExgNative.alibSel(), src);
+            String err = ExgNative.alibCheck(src);
             if (err != null && err.length() > 0) {
                 algoErr.setVisibility(View.VISIBLE);
-                algoErr.setText(err);
+                algoErr.setTextColor(0xFFF22647);
+                algoErr.setText("not saved — " + err);
                 return;
             }
-            algoErr.setVisibility(View.GONE);
-            algoErr.setText("");
+            err = ExgNative.alibSetSrc(ExgNative.alibSel(), src);
+            if (err != null && err.length() > 0) {
+                algoErr.setVisibility(View.VISIBLE);
+                algoErr.setTextColor(0xFFF22647);
+                algoErr.setText("not saved — " + err);
+                return;
+            }
+            algoErr.setVisibility(View.VISIBLE);
+            algoErr.setTextColor(0xFF3CB46E);
+            algoErr.setText("saved — syntax ok");
             algoSrcLoaded = true;
             refreshAlgos();
             refreshChrome();
@@ -789,6 +848,7 @@ public class ExgActivity extends Activity {
             b.setOnClickListener(v -> {
                 ExgNative.alibSetSel(ix);
                 algoSrcLoaded = false;
+                algoErr.setVisibility(View.GONE);
                 refreshAlgos();
                 refreshChrome();
             });

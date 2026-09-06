@@ -915,6 +915,18 @@ Java_com_abysscore_exgc_ExgNative_alibDef(JNIEnv *env, jclass cls, jint i)
 }
 
 JNIEXPORT jstring JNICALL
+Java_com_abysscore_exgc_ExgNative_alibCheck(JNIEnv *env, jclass cls, jstring src)
+{
+    char buf[NP_ALGO_SRC], err[80];
+    (void)cls;
+    jstr_to(env, src, buf, sizeof(buf));
+    if (np_host_alib_check(buf, err, (int)sizeof(err)) != 0) {
+        return jstr_from(env, err);
+    }
+    return jstr_from(env, "");
+}
+
+JNIEXPORT jstring JNICALL
 Java_com_abysscore_exgc_ExgNative_alibSetSrc(JNIEnv *env, jclass cls, jint i,
                                             jstring src)
 {
