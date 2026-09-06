@@ -1202,7 +1202,7 @@ static int cfg_write_ex(const char *path, int with_map)
         for (ci = 0; ci < g.made_n && ci < 4; ci++) {
             fprintf(f, "made%drgb=%d,%d,%d\n", ci + 1, g.made[ci].rgb[0],
                     g.made[ci].rgb[1], g.made[ci].rgb[2]);
-            for (q = 0; q < 4; q++) {
+            for (q = 0; q < 8; q++) {
                 fprintf(f, "made%dq%d=%d\n", ci + 1, q + 1, g.made[ci].ch[q]);
             }
         }
@@ -1335,7 +1335,7 @@ static int cfg_read(const char *path)
         } else if (sscanf(line, "made_sel=%d", &v) == 1 && v >= 0 && v < 4) {
             g.made_sel = v;
         } else if (sscanf(line, "made%dq%d=%d", &ch, &i, &v) == 3 && ch >= 1 &&
-                   ch <= 4 && i >= 1 && i <= 4 && v >= 0 && v <= NP_NCHAN) {
+                   ch <= 4 && i >= 1 && i <= 8 && v >= 0 && v <= NP_NCHAN) {
             g.made[ch - 1].ch[i - 1] = v;
         } else if (sscanf(line, "made%drgb=%d,%d,%d", &ch, &r, &gc, &b) == 4 &&
                    ch >= 1 && ch <= 4) {
@@ -2007,7 +2007,7 @@ static void api_status_json(char *out, int n)
         }
     }
     snprintf(out, (size_t)n,
-             "{\"ok\":true,\"v\":\"2.67\",\"connected\":%s,\"paused\":%s,\"sps\":%.1f,"
+             "{\"ok\":true,\"v\":\"2.68\",\"connected\":%s,\"paused\":%s,\"sps\":%.1f,"
              "\"frames\":%u,\"status\":\"%s\",\"id\":\"%s\",\"id_best\":%d,"
              "\"notch\":%d,\"hp\":%d,\"lp\":%d,\"car\":%d,\"band\":%d,\"mask\":%u,"
              "\"api\":\"%s\"}",
@@ -5118,7 +5118,7 @@ void np_host_cube_front(void)
 
 int np_host_made_max(void)
 {
-    return NP_NCHAN / 4;
+    return NP_NCHAN / 8;
 }
 
 int np_host_made_n(void)
@@ -5148,7 +5148,7 @@ static int made_ch_used(int ch, int skip)
         if (i == skip) {
             continue;
         }
-        for (q = 0; q < 4; q++) {
+        for (q = 0; q < 8; q++) {
             if (g.made[i].ch[q] == ch) {
                 return 1;
             }
@@ -5170,10 +5170,21 @@ int np_host_made_add(void)
     g.made[i].rgb[0] = 255;
     g.made[i].rgb[1] = 20;
     g.made[i].rgb[2] = 40;
+    {
+        int q, ch;
+        for (q = 0; q < 8; q++) {
+            for (ch = 1; ch <= NP_NCHAN; ch++) {
+                if (!made_ch_used(ch, i)) {
+                    g.made[i].ch[q] = ch;
+                    break;
+                }
+            }
+        }
+    }
     g.made_n++;
     g.made_sel = i;
     cfg_save();
-    set_status(1, "cube %d — assign 4 channels", i + 1);
+    set_status(1, "cube %d — 8 bits", i + 1);
     return i;
 }
 
@@ -5200,7 +5211,7 @@ int np_host_made_del(int i)
 
 int np_host_made_ch(int cube, int q)
 {
-    if (cube < 0 || cube >= g.made_n || q < 0 || q > 3) {
+    if (cube < 0 || cube >= g.made_n || q < 0 || q > 7) {
         return 0;
     }
     return g.made[cube].ch[q];
@@ -5209,7 +5220,7 @@ int np_host_made_ch(int cube, int q)
 int np_host_made_set_ch(int cube, int q, int ch)
 {
     int old;
-    if (cube < 0 || cube >= g.made_n || q < 0 || q > 3) {
+    if (cube < 0 || cube >= g.made_n || q < 0 || q > 7) {
         return -1;
     }
     if (ch < 0 || ch > NP_NCHAN) {
@@ -5223,9 +5234,9 @@ int np_host_made_set_ch(int cube, int q, int ch)
     g.made[cube].ch[q] = ch;
     cfg_save();
     if (ch == 0) {
-        set_status(1, "cube %d  q%d empty", cube + 1, q + 1);
+        set_status(1, "cube %d  bit %d empty", cube + 1, q + 1);
     } else {
-        set_status(1, "cube %d  q%d = ch%d", cube + 1, q + 1, ch);
+        set_status(1, "cube %d  bit %d = ch%d", cube + 1, q + 1, ch);
     }
     return 0;
 }

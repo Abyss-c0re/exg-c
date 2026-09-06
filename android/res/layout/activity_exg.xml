@@ -240,39 +240,32 @@
                 android:padding="2dp" />
 
             <LinearLayout
-                android:id="@+id/cubeQuarters"
+                android:id="@+id/cubeBits"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:background="@color/panel"
+                android:orientation="vertical"
                 android:padding="2dp">
 
-                <Button
-                    android:id="@+id/cubeQ1"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="1 —" />
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content">
 
-                <Button
-                    android:id="@+id/cubeQ2"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="2 —" />
+                    <Button android:id="@+id/cubeQ1" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="1 —" />
+                    <Button android:id="@+id/cubeQ2" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="2 —" />
+                    <Button android:id="@+id/cubeQ3" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="3 —" />
+                    <Button android:id="@+id/cubeQ4" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="4 —" />
+                </LinearLayout>
 
-                <Button
-                    android:id="@+id/cubeQ3"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="3 —" />
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content">
 
-                <Button
-                    android:id="@+id/cubeQ4"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="4 —" />
+                    <Button android:id="@+id/cubeQ5" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="5 —" />
+                    <Button android:id="@+id/cubeQ6" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="6 —" />
+                    <Button android:id="@+id/cubeQ7" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="7 —" />
+                    <Button android:id="@+id/cubeQ8" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="8 —" />
+                </LinearLayout>
             </LinearLayout>
 
             <com.abysscore.exgc.CubeView

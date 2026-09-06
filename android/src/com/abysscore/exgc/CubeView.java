@@ -66,7 +66,7 @@ public class CubeView extends View {
     private final boolean[] chOn = new boolean[NCHAN];
     private int madeN;
     private int madeSel;
-    private final int[][] madeCh = new int[4][4];
+    private final int[][] madeCh = new int[4][8];
     private final int[] madeRgb = new int[4];
 
     private final int[] siteSx = new int[MAX_SITE];
@@ -168,7 +168,7 @@ public class CubeView extends View {
         madeSel = ExgNative.madeSel();
         for (int i = 0; i < madeN; i++) {
             madeRgb[i] = ExgNative.madeRgb(i);
-            for (int q = 0; q < 4; q++) {
+            for (int q = 0; q < 8; q++) {
                 madeCh[i][q] = ExgNative.madeCh(i, q);
             }
         }
@@ -372,20 +372,13 @@ public class CubeView extends View {
         postInvalidateOnAnimation();
     }
 
-    private static int quarterOf(int x, int z) {
-        if (z >= 4) {
-            return x >= 4 ? 1 : 0;
-        }
-        return x >= 4 ? 3 : 2;
-    }
-
     private void drawHive(Canvas c, int w, int h) {
         float cx = w * 0.5f;
         float cy = h * 0.52f;
         ink.setColor(SPIKE);
         ink.setTextSize(26f * labelMul);
         if (madeN < 1) {
-            c.drawText("add a cube — 4 channels each, " + ExgNative.madeMax() + " max", 16, 36, ink);
+            c.drawText("add a cube — 8 bits, one per channel", 16, 36, ink);
             return;
         }
         float gap = madeN > 1 ? 2.4f : 0f;
@@ -397,27 +390,24 @@ public class CubeView extends View {
     }
 
     private void drawHiveOne(Canvas c, float cx, float cy, int w, int h, int mi, float ox) {
-        float scale = Math.min(w, h) * (madeN > 1 ? 0.72f : 1.05f) * zoom;
+        float scale = Math.min(w, h) * (madeN > 1 ? 0.85f : 1.15f) * zoom;
         int rgb = madeRgb[mi] & 0x00FFFFFF;
         int cr = (rgb >> 16) & 255, cg = (rgb >> 8) & 255, cb = rgb & 255;
         java.util.ArrayList<float[]> cells = new java.util.ArrayList<>();
-        float origin = -8 * 0.45f / 2f;
-        for (int z = 0; z < 8; z++) {
-            for (int y = 0; y < 8; y++) {
-                for (int x = 0; x < 8; x++) {
-                    int q = quarterOf(x, z);
+        float step = 1.05f;
+        float s = 0.96f;
+        for (int z = 0; z < 2; z++) {
+            for (int y = 0; y < 2; y++) {
+                for (int x = 0; x < 2; x++) {
+                    int q = x + 2 * y + 4 * z;
                     int ch = madeCh[mi][q];
                     boolean on = ch >= 1 && ch <= 8 && ((smxFold >> (ch - 1)) & 1) != 0;
-                    boolean scaf = ((x + y + z) % 4) == 0;
-                    if (!on && !scaf) {
-                        continue;
-                    }
-                    float wx = origin + x * 0.45f + ox;
-                    float wy = origin + y * 0.45f;
-                    float wz = origin + z * 0.45f;
+                    float wx = (x - 0.5f) * step + ox;
+                    float wy = (y - 0.5f) * step;
+                    float wz = (z - 0.5f) * step;
                     float[] p = new float[4];
-                    project(wx + 0.2f, wy + 0.2f, wz + 0.2f, cx, cy, scale / 3.6f, p);
-                    cells.add(new float[] {wx, wy, wz, on ? 1f : 0f, p[2], q});
+                    project(wx + s * 0.5f, wy + s * 0.5f, wz + s * 0.5f, cx, cy, scale / 3.2f, p);
+                    cells.add(new float[] {wx, wy, wz, on ? 1f : 0f, p[2], q, ch});
                 }
             }
         }
@@ -425,13 +415,18 @@ public class CubeView extends View {
         for (int i = 0; i < cells.size(); i++) {
             float[] cell = cells.get(i);
             drawVoxel(c, cell[0], cell[1], cell[2], cell[3] > 0.5f, cr, cg, cb, cx, cy,
-                    scale / 3.6f);
+                    scale / 3.2f, 0.96f);
+            float[] labp = new float[4];
+            project(cell[0] + 0.48f, cell[1] + 0.48f, cell[2] + 0.48f, cx, cy, scale / 3.2f, labp);
+            int ch = (int) cell[6];
+            ink.setColor(cell[3] > 0.5f ? 0xFFFFFFFF : 0xAAEEC8CE);
+            ink.setTextSize(22f * labelMul);
+            c.drawText(ch < 1 ? "—" : ("ch" + ch), labp[0] - 18, labp[1] + 6, ink);
         }
     }
 
     private void drawVoxel(Canvas c, float x, float y, float z, boolean on,
-            int cr, int cg, int cb, float cx, float cy, float sc) {
-        float s = 0.42f;
+            int cr, int cg, int cb, float cx, float cy, float sc, float s) {
         float[][] corn = new float[8][4];
         int n = 0;
         for (int dz = 0; dz <= 1; dz++) {

@@ -36,7 +36,7 @@ public class ExgActivity extends Activity {
     private View cubePane;
     private LinearLayout cubeList;
     private Button cubeAdd, cubeDel, cubeColor, cubeFloat;
-    private Button[] cubeQ = new Button[4];
+    private Button[] cubeQ = new Button[8];
     private View settings;
     private View learnBar;
     private TextView status;
@@ -142,6 +142,10 @@ public class ExgActivity extends Activity {
         cubeQ[1] = findViewById(R.id.cubeQ2);
         cubeQ[2] = findViewById(R.id.cubeQ3);
         cubeQ[3] = findViewById(R.id.cubeQ4);
+        cubeQ[4] = findViewById(R.id.cubeQ5);
+        cubeQ[5] = findViewById(R.id.cubeQ6);
+        cubeQ[6] = findViewById(R.id.cubeQ7);
+        cubeQ[7] = findViewById(R.id.cubeQ8);
         settings = findViewById(R.id.settings);
         learnBar = findViewById(R.id.learnBar);
         status = findViewById(R.id.status);
@@ -290,7 +294,7 @@ public class ExgActivity extends Activity {
             ExgNative.toggleCubeFloat();
             refreshCubeChrome();
         });
-        for (int qi = 0; qi < 4; qi++) {
+        for (int qi = 0; qi < 8; qi++) {
             final int q = qi;
             cubeQ[qi].setOnClickListener(v -> pickQuarter(q));
         }
@@ -633,7 +637,7 @@ public class ExgActivity extends Activity {
         for (int c = 1; c <= 8; c++) {
             names[c] = "ch" + c + "  " + ExgNative.elecName(c - 1);
         }
-        pick("quarter " + (q + 1), names, cur, i -> {
+        pick("bit " + (q + 1), names, cur, i -> {
             ExgNative.madeSetCh(sel, q, i);
             refreshCubeChrome();
             refreshChrome();
@@ -668,14 +672,14 @@ public class ExgActivity extends Activity {
                     LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
             cubeList.addView(b, lp);
         }
-        for (int q = 0; q < 4; q++) {
+        for (int q = 0; q < 8; q++) {
             cubeQ[q].setEnabled(n > 0);
             if (n < 1) {
                 cubeQ[q].setText((q + 1) + " —");
                 continue;
             }
             int ch = ExgNative.madeCh(sel, q);
-            cubeQ[q].setText(ch < 1 ? ((q + 1) + " —") : ((q + 1) + "  ch" + ch));
+            cubeQ[q].setText(ch < 1 ? ((q + 1) + " —") : ((q + 1) + " ch" + ch));
         }
         applyUiScale();
     }

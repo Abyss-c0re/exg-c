@@ -149,7 +149,7 @@ struct np_app {
     int made_n;
     int made_sel;
     struct {
-        int ch[4]; /* 0 empty, 1..NP_NCHAN */
+        int ch[8]; /* 0 empty, 1..NP_NCHAN — one bit per cell of the 2×2×2 */
         unsigned char rgb[3];
     } made[4];
     int algo;     /* NP_ALGO_* 0/1 fold for cube + learn */
