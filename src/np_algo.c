@@ -150,6 +150,8 @@ enum {
     OP_PUSHPOSN,
     OP_PUSHSIGN,
     OP_ABS,
+    OP_MIN,
+    OP_MAX,
     OP_NEG,
     OP_ADD,
     OP_SUB,
@@ -365,7 +367,8 @@ static int reserved(const char *name)
            kw_eq(name, "rms") || kw_eq(name, "n") || kw_eq(name, "bit") ||
            kw_eq(name, "if") || kw_eq(name, "then") || kw_eq(name, "else") ||
            kw_eq(name, "elif") || kw_eq(name, "end") || kw_eq(name, "let") ||
-           kw_eq(name, "abs") || kw_eq(name, "and") || kw_eq(name, "or") ||
+           kw_eq(name, "abs") || kw_eq(name, "min") || kw_eq(name, "max") ||
+           kw_eq(name, "and") || kw_eq(name, "or") ||
            kw_eq(name, "not") || kw_eq(name, "prev") || kw_eq(name, "dxmean") ||
            kw_eq(name, "above") || kw_eq(name, "pos") ||
            kw_eq(name, "signal") || name_ix(name, "ch") >= 0 ||
@@ -410,6 +413,32 @@ static int parse_unary(struct np_lex *L, struct np_prog *P, char *err, int errn)
         }
         lex_next(L);
         return emit(P, OP_ABS, 0, 0, err, errn, L->line);
+    }
+    if (L->kind == TK_ID && (kw_eq(L->tok, "min") || kw_eq(L->tok, "max"))) {
+        unsigned char op = kw_eq(L->tok, "min") ? OP_MIN : OP_MAX;
+        lex_next(L);
+        if (!(L->kind == TK_OP && L->tok[0] == '(')) {
+            snprintf(err, (size_t)errn, "line %d: min/max needs (a, b)", L->line);
+            return -1;
+        }
+        lex_next(L);
+        if (parse_expr(L, P, err, errn) != 0) {
+            return -1;
+        }
+        if (!(L->kind == TK_OP && L->tok[0] == ',')) {
+            snprintf(err, (size_t)errn, "line %d: min/max needs a comma", L->line);
+            return -1;
+        }
+        lex_next(L);
+        if (parse_expr(L, P, err, errn) != 0) {
+            return -1;
+        }
+        if (!(L->kind == TK_OP && L->tok[0] == ')')) {
+            snprintf(err, (size_t)errn, "line %d: missing )", L->line);
+            return -1;
+        }
+        lex_next(L);
+        return emit(P, op, 0, 0, err, errn, L->line);
     }
     if (L->kind == TK_NUM) {
         if (emit(P, OP_PUSHC, L->num, 0, err, errn, L->line) != 0) {
@@ -666,14 +695,6 @@ static int parse_set_ch(struct np_lex *L, struct np_prog *P, int ch, char *err,
 static int parse_then_body(struct np_lex *L, struct np_prog *P, char *err,
                            int errn)
 {
-    int ix;
-    if (L->kind == TK_NUM) {
-        return parse_set_ch(L, P, -1, err, errn);
-    }
-    if (L->kind == TK_ID && (ix = name_ix(L->tok, "ch")) >= 0) {
-        lex_next(L);
-        return parse_set_ch(L, P, ix, err, errn);
-    }
     return parse_block(L, P, err, errn);
 }
 
@@ -727,6 +748,13 @@ static int parse_if(struct np_lex *L, struct np_prog *P, char *err, int errn)
     }
     if (L->kind == TK_ID && kw_eq(L->tok, "else")) {
         lex_next(L);
+        if (L->kind == TK_ID && kw_eq(L->tok, "if")) {
+            if (parse_if(L, P, err, errn) != 0) {
+                return -1;
+            }
+            P->op[jmp].i = P->n;
+            return 0;
+        }
         if (parse_then_body(L, P, err, errn) != 0) {
             return -1;
         }
@@ -744,6 +772,9 @@ static int parse_stmt(struct np_lex *L, struct np_prog *P, char *err, int errn)
     int ix;
     if (L->kind == TK_ID && kw_eq(L->tok, "if")) {
         return parse_if(L, P, err, errn);
+    }
+    if (L->kind == TK_NUM) {
+        return parse_set_ch(L, P, -1, err, errn);
     }
     if (L->kind == TK_ID && (ix = name_ix(L->tok, "ch")) >= 0) {
         lex_next(L);
@@ -784,7 +815,8 @@ static int parse_stmt(struct np_lex *L, struct np_prog *P, char *err, int errn)
         }
         return emit(P, OP_STORE, 0, slot, err, errn, L->line);
     }
-    snprintf(err, (size_t)errn, "line %d: expected IF or LET", L->line);
+    snprintf(err, (size_t)errn, "line %d: expected IF, LET, chN, ON or OFF",
+             L->line);
     return -1;
 }
 
@@ -1026,6 +1058,20 @@ static int eval_prog(const struct np_prog *P, const struct np_algo_bank *bank,
                 return 0;
             }
             st[sp - 1] = fabsf(st[sp - 1]);
+            pc++;
+            break;
+        case OP_MIN:
+        case OP_MAX:
+            if (sp < 2) {
+                return 0;
+            }
+            b = st[--sp];
+            a = st[--sp];
+            if (o->op == OP_MIN) {
+                st[sp++] = a < b ? a : b;
+            } else {
+                st[sp++] = a > b ? a : b;
+            }
             pc++;
             break;
         case OP_NEG:
