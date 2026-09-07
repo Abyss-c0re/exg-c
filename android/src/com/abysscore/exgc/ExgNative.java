@@ -29,9 +29,11 @@ public final class ExgNative {
     public static native boolean rld(int ch);
     public static native boolean negRail();
     public static native void setNegRail(boolean on);
-    public static native int negSite();
-    public static native void setNegSite(int site);
-    public static native String negName();
+    public static native int negSite(int ch);
+    public static native void setNegSite(int ch, int site);
+    public static native String negName(int ch);
+    public static native boolean negPick();
+    public static native void setNegPick(boolean on);
     public static native int gain(int ch);
     public static native int color(int ch);
     public static native void cycleColor(int ch);

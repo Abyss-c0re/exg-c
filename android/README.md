@@ -2,7 +2,7 @@
 
 Same C host as `./np-exg`. Serial is USB Host. UI is Java. Native library is `libexg.so` from `src/np_core.c` — not the desktop SDL file.
 
-App: **2.83**, package `com.abysscore.exgc`, min SDK 28, ABI `arm64-v8a`.
+App: **2.84**, package `com.abysscore.exgc`, min SDK 28, ABI `arm64-v8a`.
 Quest 3: `com.oculus.intent.category.2D` so it runs as a 2D panel.
 
 How the app behaves: [../docs/APP.md](../docs/APP.md).  
@@ -44,7 +44,7 @@ Do not hammer Disconnect / Connect. Each DTR pulse resets the Nano.
 |--------|---------|
 | **DC on / DC off** | still-plate mean. Teal = on. |
 | **bias ON / bias off** | RLD. Connect applies add and remove. |
-| **NEG RAIL** | Shared negative: bias off on every channel. Tap **− site** for the negative electrode. |
+| **NEG RAIL** | Bias off. Each channel's bias button becomes that channel's − site. |
 | **ID on** | take ID when takes exist |
 | **MATCH on** | names a unique Record pose, no cosine `%` |
 | FFT red mark | effective notch only (none if AUTO and no plate) |

@@ -92,13 +92,9 @@ static int rld_want(int ch)
     return (ch >= 0 && ch < NP_NCHAN && g.rld[ch]) ? 1 : 0;
 }
 
-static int neg_site_default(void)
+static int neg_site_ok(int s)
 {
-    int s = np_1010_find("A1");
-    if (s < 0) {
-        s = np_1010_find("T7");
-    }
-    return s < 0 ? 0 : s;
+    return s >= 0 && s < np_1010_count();
 }
 
 /* Do not cook filter poles from a lagged measured rate (46 SPS makes
@@ -1419,9 +1415,11 @@ static int cfg_write_ex(const char *path, int with_map)
         fprintf(f, "color%d=%d,%d,%d\n", i + 1, g.chrgb[i][0], g.chrgb[i][1], g.chrgb[i][2]);
         fprintf(f, "active%d=%d\n", i + 1, g.active[i] ? 1 : 0);
         fprintf(f, "rld%d=%d\n", i + 1, g.rld[i] ? 1 : 0);
+        if (neg_site_ok(g.neg_site[i])) {
+            fprintf(f, "neg%d=%s\n", i + 1, np_1010_name(g.neg_site[i]));
+        }
     }
     fprintf(f, "neg_rail=%d\n", g.neg_rail ? 1 : 0);
-    fprintf(f, "neg_site=%s\n", np_1010_name(g.neg_site));
     fclose(f);
     return 0;
 }
@@ -1477,9 +1475,11 @@ static int cfg_write_kit(const char *path)
         fprintf(f, "color%d=%d,%d,%d\n", i + 1, g.chrgb[i][0], g.chrgb[i][1], g.chrgb[i][2]);
         fprintf(f, "active%d=%d\n", i + 1, g.active[i] ? 1 : 0);
         fprintf(f, "rld%d=%d\n", i + 1, g.rld[i] ? 1 : 0);
+        if (neg_site_ok(g.neg_site[i])) {
+            fprintf(f, "neg%d=%s\n", i + 1, np_1010_name(g.neg_site[i]));
+        }
     }
     fprintf(f, "neg_rail=%d\n", g.neg_rail ? 1 : 0);
-    fprintf(f, "neg_site=%s\n", np_1010_name(g.neg_site));
     fclose(f);
     return 0;
 }
@@ -1673,10 +1673,22 @@ static int cfg_read(const char *path)
                 g.rld[ch - 1] = v ? 1 : 0;
             } else if (sscanf(line, "neg_rail=%d", &v) == 1) {
                 g.neg_rail = v ? 1 : 0;
-            } else if (sscanf(line, "neg_site=%7s", ename) == 1) {
+            } else if (sscanf(line, "neg%d=%7s", &ch, ename) == 2 && ch >= 1 &&
+                       ch <= NP_NCHAN) {
                 int s = np_1010_find(ename);
                 if (s >= 0) {
-                    g.neg_site = s;
+                    g.neg_site[ch - 1] = s;
+                }
+            } else if (sscanf(line, "neg_site=%7s", ename) == 1) {
+                /* 2.83 one shared site — copy onto any still-empty channel. */
+                int s = np_1010_find(ename);
+                if (s >= 0) {
+                    int c;
+                    for (c = 0; c < NP_NCHAN; c++) {
+                        if (!neg_site_ok(g.neg_site[c])) {
+                            g.neg_site[c] = s;
+                        }
+                    }
                 }
             } else if (sscanf(line, "on=%d", &v) == 1 && strstr(line, "token") == NULL) {
                 /* last on= wins; api section uses on= after channels */
@@ -1699,9 +1711,6 @@ static int cfg_read(const char *path)
         }
     }
     fclose(f);
-    if (g.neg_site < 0 || g.neg_site >= np_1010_count()) {
-        g.neg_site = neg_site_default();
-    }
     if (g.neg_rail) {
         int c;
         for (c = 0; c < NP_NCHAN; c++) {
@@ -2307,7 +2316,7 @@ static void api_status_json(char *out, int n)
         }
     }
     snprintf(out, (size_t)n,
-             "{\"ok\":true,\"v\":\"2.83\",\"connected\":%s,\"paused\":%s,\"sps\":%.1f,"
+             "{\"ok\":true,\"v\":\"2.84\",\"connected\":%s,\"paused\":%s,\"sps\":%.1f,"
              "\"frames\":%u,\"status\":\"%s\",\"id\":\"%s\",\"id_best\":%d,"
              "\"notch\":%d,\"hp\":%d,\"lp\":%d,\"car\":%d,\"band\":%d,\"mask\":%u,"
              "\"api\":\"%s\"}",
@@ -2331,7 +2340,8 @@ static void api_view_json(char *out, int n)
              "\"color\":[[%d,%d,%d],[%d,%d,%d],[%d,%d,%d],[%d,%d,%d],"
              "[%d,%d,%d],[%d,%d,%d],[%d,%d,%d],[%d,%d,%d]],"
              "\"elec\":[\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\"],"
-             "\"active\":[%d,%d,%d,%d,%d,%d,%d,%d],\"neg_rail\":%d,\"neg_site\":\"%s\","
+             "\"active\":[%d,%d,%d,%d,%d,%d,%d,%d],\"neg_rail\":%d,"
+             "\"neg\":[\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\",\"%s\"],"
              "\"id\":\"%s\"",
              g.notch_hz, g.hp_hz, g.lp_hz, g.car ? 1 : 0, g.detrend ? 1 : 0,
              g.envelope ? 1 : 0, g.band, g.scale_uv, g.window_s, g.chrgb[0][0],
@@ -2344,7 +2354,15 @@ static void api_view_json(char *out, int n)
              g.elec[7].name, g.active[0] ? 1 : 0, g.active[1] ? 1 : 0, g.active[2] ? 1 : 0,
              g.active[3] ? 1 : 0, g.active[4] ? 1 : 0, g.active[5] ? 1 : 0,
              g.active[6] ? 1 : 0, g.active[7] ? 1 : 0, g.neg_rail ? 1 : 0,
-             np_1010_name(g.neg_site), ide);
+             neg_site_ok(g.neg_site[0]) ? np_1010_name(g.neg_site[0]) : "",
+             neg_site_ok(g.neg_site[1]) ? np_1010_name(g.neg_site[1]) : "",
+             neg_site_ok(g.neg_site[2]) ? np_1010_name(g.neg_site[2]) : "",
+             neg_site_ok(g.neg_site[3]) ? np_1010_name(g.neg_site[3]) : "",
+             neg_site_ok(g.neg_site[4]) ? np_1010_name(g.neg_site[4]) : "",
+             neg_site_ok(g.neg_site[5]) ? np_1010_name(g.neg_site[5]) : "",
+             neg_site_ok(g.neg_site[6]) ? np_1010_name(g.neg_site[6]) : "",
+             neg_site_ok(g.neg_site[7]) ? np_1010_name(g.neg_site[7]) : "",
+             ide);
     (void)c;
 }
 
@@ -2417,19 +2435,30 @@ static void apply_link_cfg(const char *js)
             }
         }
     }
-    p = strstr(js, "\"neg_site\":\"");
+    p = strstr(js, "\"neg\":[");
     if (p) {
-        char name[8];
-        int i = 0;
-        p += 12;
-        while (*p && *p != '"' && i < 7) {
-            name[i++] = *p++;
-        }
-        name[i] = 0;
-        if (name[0]) {
-            int s = np_1010_find(name);
-            if (s >= 0) {
-                g.neg_site = s;
+        p = strchr(p, '[');
+        if (p) {
+            p++;
+            for (c = 0; c < NP_NCHAN; c++) {
+                char name[8];
+                const char *q = strchr(p, '"');
+                int i = 0;
+                if (!q) {
+                    break;
+                }
+                q++;
+                while (*q && *q != '"' && i < 7) {
+                    name[i++] = *q++;
+                }
+                name[i] = 0;
+                if (name[0]) {
+                    int s = np_1010_find(name);
+                    if (s >= 0) {
+                        g.neg_site[c] = s;
+                    }
+                }
+                p = q + 1;
             }
         }
     }
@@ -4171,8 +4200,8 @@ void cube_assign_focus(void)
     if (g.site_focus < 0 || g.site_focus >= np_1010_count()) {
         return;
     }
-    if (g.elec_sel == NP_ELEC_NEG) {
-        np_host_set_neg_site(g.site_focus);
+    if (g.neg_pick && g.elec_sel >= 0 && g.elec_sel < NP_NCHAN) {
+        np_host_set_neg_site(g.elec_sel, g.site_focus);
         return;
     }
     if (g.elec_sel < 0 || g.elec_sel >= NP_NCHAN) {
@@ -4238,11 +4267,12 @@ int np_host_start(const char *files_dir)
     snprintf(g.prof, sizeof(g.prof), "default");
     np_elec_default(g.elec);
     g.neg_rail = 0;
-    g.neg_site = neg_site_default();
+    g.neg_pick = 0;
     for (i = 0; i < NP_NCHAN; i++) {
         g.gain[i] = 12;
         g.active[i] = 1;
         g.rld[i] = 1;
+        g.neg_site[i] = -1;
         g.chrgb[i][0] = CHCOL[i][0];
         g.chrgb[i][1] = CHCOL[i][1];
         g.chrgb[i][2] = CHCOL[i][2];
@@ -4705,47 +4735,59 @@ void np_host_set_neg_rail(int on)
     int c;
     g.neg_rail = on ? 1 : 0;
     if (g.neg_rail) {
-        if (g.neg_site < 0 || g.neg_site >= np_1010_count()) {
-            g.neg_site = neg_site_default();
-        }
+        g.neg_pick = 1;
         for (c = 0; c < NP_NCHAN; c++) {
             g.rld[c] = 0;
             if (g.connected) {
                 cmd_push(CMD_RLDRM, c + 1, 0);
             }
         }
-        set_status(1, "neg rail — bias off  − @ %s", np_1010_name(g.neg_site));
+        set_status(1, "neg rail — bias off, pick − site per channel");
     } else {
+        g.neg_pick = 0;
         set_status(1, "bias RLD — per channel");
     }
     cfg_save();
 }
-int np_host_neg_site(void)
+int np_host_neg_site(int ch)
 {
-    if (g.neg_site < 0 || g.neg_site >= np_1010_count()) {
-        g.neg_site = neg_site_default();
+    if (ch < 0 || ch >= NP_NCHAN) {
+        return -1;
     }
-    return g.neg_site;
+    return neg_site_ok(g.neg_site[ch]) ? g.neg_site[ch] : -1;
 }
-void np_host_set_neg_site(int site)
+void np_host_set_neg_site(int ch, int site)
 {
-    if (site < 0 || site >= np_1010_count()) {
+    if (ch < 0 || ch >= NP_NCHAN || !neg_site_ok(site)) {
         return;
     }
-    g.neg_site = site;
+    g.neg_site[ch] = site;
+    g.elec_sel = ch;
+    g.neg_pick = 1;
     g.site_focus = site;
-    g.elec_sel = NP_ELEC_NEG;
     cfg_save();
-    set_status(1, "neg @ %s", np_1010_name(site));
+    set_status(1, "ch%d − @ %s", ch + 1, np_1010_name(site));
 }
-void np_host_neg_name(char *out, int n)
+void np_host_neg_name(int ch, char *out, int n)
 {
     const char *s;
     if (!out || n < 2) {
         return;
     }
-    s = np_1010_name(np_host_neg_site());
+    s = np_1010_name(np_host_neg_site(ch));
     snprintf(out, (size_t)n, "%s", s[0] ? s : "?");
+}
+int np_host_neg_pick(void)
+{
+    return g.neg_pick ? 1 : 0;
+}
+void np_host_set_neg_pick(int on)
+{
+    g.neg_pick = on ? 1 : 0;
+    if (g.neg_pick && g.elec_sel >= 0 && g.elec_sel < NP_NCHAN &&
+        neg_site_ok(g.neg_site[g.elec_sel])) {
+        g.site_focus = g.neg_site[g.elec_sel];
+    }
 }
 int np_host_gain(int ch)
 {
@@ -6096,19 +6138,13 @@ int np_host_elec_sel(void)
 }
 void np_host_set_elec_sel(int ch)
 {
-    if (ch == NP_ELEC_NEG) {
-        g.elec_sel = NP_ELEC_NEG;
-        if (g.neg_site >= 0) {
-            g.site_focus = g.neg_site;
-        }
-        set_status(1, "neg @ %s", np_1010_name(g.neg_site));
-        return;
-    }
     if (ch < 0 || ch >= NP_NCHAN) {
         return;
     }
     g.elec_sel = ch;
-    if (g.elec[ch].site >= 0) {
+    if (g.neg_pick && neg_site_ok(g.neg_site[ch])) {
+        g.site_focus = g.neg_site[ch];
+    } else if (g.elec[ch].site >= 0) {
         g.site_focus = g.elec[ch].site;
     }
     set_status(1, "ch%d %s", ch + 1, g.elec[ch].name[0] ? g.elec[ch].name : "?");

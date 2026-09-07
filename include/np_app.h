@@ -19,7 +19,6 @@
 #include <stdio.h>
 #include <time.h>
 
-#define NP_ELEC_NEG (-2)
 #define WIN_W 1280
 #define WIN_H 800
 #define SIDE_W 300
@@ -146,9 +145,10 @@ struct np_app {
     int site_focus; /* 10-10 index */
     int virt_focus; /* IMU / plugin slot */
     struct np_elec elec[NP_NCHAN];
-    int elec_sel; /* 0..7, NP_ELEC_NEG, or -1 */
-    int neg_rail; /* 1 = shared negative rail, bias/RLD off */
-    int neg_site; /* 10-10 index of the negative electrode */
+    int elec_sel; /* 0..7 or -1 */
+    int neg_rail; /* 1 = negative rails: bias off, per-channel − site */
+    int neg_site[NP_NCHAN]; /* 10-10 index of each channel's negative electrode, -1 unset */
+    int neg_pick; /* 1 = map Assign writes neg_site[elec_sel] */
     int pair_mode; /* unused */
     int made_n;
     int made_sel;

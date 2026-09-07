@@ -225,28 +225,44 @@ Java_com_abysscore_exgc_ExgNative_setNegRail(JNIEnv *env, jclass cls, jboolean o
 }
 
 JNIEXPORT jint JNICALL
-Java_com_abysscore_exgc_ExgNative_negSite(JNIEnv *env, jclass cls)
+Java_com_abysscore_exgc_ExgNative_negSite(JNIEnv *env, jclass cls, jint ch)
 {
     (void)env;
     (void)cls;
-    return np_host_neg_site();
+    return np_host_neg_site(ch);
 }
 
 JNIEXPORT void JNICALL
-Java_com_abysscore_exgc_ExgNative_setNegSite(JNIEnv *env, jclass cls, jint site)
+Java_com_abysscore_exgc_ExgNative_setNegSite(JNIEnv *env, jclass cls, jint ch, jint site)
 {
     (void)env;
     (void)cls;
-    np_host_set_neg_site(site);
+    np_host_set_neg_site(ch, site);
 }
 
 JNIEXPORT jstring JNICALL
-Java_com_abysscore_exgc_ExgNative_negName(JNIEnv *env, jclass cls)
+Java_com_abysscore_exgc_ExgNative_negName(JNIEnv *env, jclass cls, jint ch)
 {
     char buf[16];
     (void)cls;
-    np_host_neg_name(buf, sizeof(buf));
+    np_host_neg_name(ch, buf, sizeof(buf));
     return jstr_from(env, buf);
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_abysscore_exgc_ExgNative_negPick(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    return np_host_neg_pick() ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT void JNICALL
+Java_com_abysscore_exgc_ExgNative_setNegPick(JNIEnv *env, jclass cls, jboolean on)
+{
+    (void)env;
+    (void)cls;
+    np_host_set_neg_pick(on ? 1 : 0);
 }
 
 JNIEXPORT jint JNICALL

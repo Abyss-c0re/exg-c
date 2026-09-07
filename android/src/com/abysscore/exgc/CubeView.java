@@ -51,7 +51,7 @@ public class CubeView extends View {
     private int elecSel;
     private int siteFocus;
     private boolean negRail;
-    private int negSite;
+    private final int[] negSite = new int[NCHAN];
     private int smxSeq;
     private int smxFold;
     private int algoFold;
@@ -136,6 +136,18 @@ public class CubeView extends View {
         invalidate();
     }
 
+    private boolean siteIsNeg(int site) {
+        if (!negRail || site < 0) {
+            return false;
+        }
+        for (int c = 0; c < NCHAN; c++) {
+            if (negSite[c] == site) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public void pull() {
         mode = ExgNative.cubeView();
         ncell = ExgNative.vizCells(cellXyz, cellS, cellRgba);
@@ -192,7 +204,9 @@ public class CubeView extends View {
         siteFocus = ExgNative.siteFocus();
         elecSel = ExgNative.elecSel();
         negRail = ExgNative.negRail();
-        negSite = ExgNative.negSite();
+        for (int c = 0; c < NCHAN; c++) {
+            negSite[c] = ExgNative.negSite(c);
+        }
         float[] xyz = new float[3];
         float[] xy = new float[2];
         for (int i = 0; i < nsite; i++) {
@@ -770,7 +784,7 @@ public class CubeView extends View {
             project(siteX[i], siteY[i], siteZ[i], cx, cy, k, p);
             siteSx[i] = (int) p[0];
             siteSy[i] = (int) p[1];
-            boolean isNeg = negRail && i == negSite;
+            boolean isNeg = negRail && siteIsNeg(i);
             boolean show = i == siteFocus || siteCh[i] >= 0 || siteCore[i] || isNeg;
             if (!show || p[2] < -0.25f) {
                 continue;
@@ -821,7 +835,7 @@ public class CubeView extends View {
             mapSx[i] = sx;
             mapSy[i] = sy;
             int taken = siteCh[i];
-            boolean isNeg = negRail && i == negSite;
+            boolean isNeg = negRail && siteIsNeg(i);
             int r = i == siteFocus ? 10 : (taken >= 0 || isNeg || siteCore[i] ? 7 : 4);
             int col = i == siteFocus ? 0xFFFFD246
                     : (taken >= 0 ? elecCol[taken] : (isNeg ? 0xFFC8D0D8 : 0xFF5A1820));

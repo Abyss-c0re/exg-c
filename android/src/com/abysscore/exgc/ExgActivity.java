@@ -92,7 +92,6 @@ public class ExgActivity extends Activity {
     private Button learnName;
     private LinearLayout chGrid;
     private Button negRail;
-    private Button negSite;
     private LinearLayout profChips;
     private LinearLayout learnChips;
     private int lastLearnN = -1;
@@ -270,14 +269,12 @@ public class ExgActivity extends Activity {
         learnName = findViewById(R.id.learnName);
         chGrid = findViewById(R.id.chGrid);
         negRail = findViewById(R.id.negRail);
-        negSite = findViewById(R.id.negSite);
         profChips = findViewById(R.id.profChips);
         negRail.setOnClickListener(v -> {
             ExgNative.setNegRail(!ExgNative.negRail());
             refreshChannels();
             refreshChrome();
         });
-        negSite.setOnClickListener(v -> pickNegSite());
         learnChips = findViewById(R.id.learnChips);
 
         pairYes.setOnClickListener(v -> {
@@ -1367,6 +1364,7 @@ public class ExgActivity extends Activity {
             });
             rld.setOnClickListener(v -> {
                 if (ExgNative.negRail()) {
+                    pickNegSite(ch);
                     return;
                 }
                 ExgNative.setRld(ch, !ExgNative.rld(ch));
@@ -1405,10 +1403,20 @@ public class ExgActivity extends Activity {
             on.setText(live ? "ON" : "off");
             on.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
                     live ? 0xFF2E8A58 : 0xFF3A3030));
-            rld.setText(rail ? "bias off" : (bias ? "bias ON" : "bias off"));
-            rld.setEnabled(!rail);
-            rld.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
-                    bias ? 0xFF2E6A8A : 0xFF3A3030));
+            if (rail) {
+                String nn = ExgNative.negName(ch);
+                if (nn == null || nn.length() == 0) {
+                    nn = "?";
+                }
+                rld.setEnabled(true);
+                rld.setText("− " + nn);
+                rld.setBackgroundTintList(android.content.res.ColorStateList.valueOf(0xFF5A2830));
+            } else {
+                rld.setEnabled(true);
+                rld.setText(bias ? "bias ON" : "bias off");
+                rld.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
+                        bias ? 0xFF2E6A8A : 0xFF3A3030));
+            }
             gn.setText("g" + ExgNative.gain(ch));
             Button lab = (Button) row.getChildAt(0);
             lab.setText((ch + 1) + "  " + ExgNative.elecName(ch));
@@ -1421,18 +1429,9 @@ public class ExgActivity extends Activity {
         }
         if (negRail != null) {
             boolean rail = ExgNative.negRail();
-            String n = ExgNative.negName();
-            if (n == null || n.length() == 0) {
-                n = "?";
-            }
             negRail.setText(rail ? "NEG RAIL" : "bias RLD");
             negRail.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
                     rail ? 0xFF8A3038 : 0xFF2A3038));
-            if (negSite != null) {
-                negSite.setText("− " + n);
-                negSite.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
-                        rail ? 0xFF5A2830 : 0xFF2A3038));
-            }
         }
         refreshCubeChrome();
     }
@@ -1667,21 +1666,21 @@ public class ExgActivity extends Activity {
         e.requestFocus();
     }
 
-    private void pickNegSite() {
+    private void pickNegSite(int ch) {
         int n = ExgNative.siteN();
         if (n < 1) {
             return;
         }
         String[] names = new String[n];
-        int cur = ExgNative.negSite();
+        int cur = ExgNative.negSite(ch);
         for (int i = 0; i < n; i++) {
             names[i] = ExgNative.siteName(i);
         }
         if (cur < 0 || cur >= n) {
             cur = 0;
         }
-        pick("negative electrode", names, cur, i -> {
-            ExgNative.setNegSite(i);
+        pick("ch" + (ch + 1) + " − site", names, cur, i -> {
+            ExgNative.setNegSite(ch, i);
             refreshChannels();
             refreshChrome();
         });
@@ -1702,6 +1701,7 @@ public class ExgActivity extends Activity {
             }
         }
         pick("ch" + (ch + 1) + " site", names, cur, i -> {
+            ExgNative.setNegPick(false);
             ExgNative.setElecSel(ch);
             ExgNative.assignSite(i);
             refreshChannels();

@@ -807,34 +807,17 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:paddingTop="12dp"
-                    android:text="Locations — tap the site to assign 10-10. Color is its own button. ON = acquire. bias = RLD. gN = gain. NEG RAIL turns bias off and uses one negative electrode."
+                    android:text="Locations — tap the site to assign 10-10. Color is its own button. ON = acquire. bias = RLD. gN = gain. NEG RAIL turns bias off; the bias button becomes that channel's − site."
                     android:textColor="@color/muted" />
 
-                <LinearLayout
-                    android:id="@+id/negRow"
+                <Button
+                    android:id="@+id/negRail"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:paddingTop="8dp">
-
-                    <Button
-                        android:id="@+id/negRail"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:backgroundTint="@color/btn"
-                        android:text="bias RLD"
-                        android:textColor="@color/ink" />
-
-                    <Button
-                        android:id="@+id/negSite"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:backgroundTint="@color/btn"
-                        android:text="− A1"
-                        android:textColor="@color/ink" />
-                </LinearLayout>
+                    android:layout_marginTop="8dp"
+                    android:backgroundTint="@color/btn"
+                    android:text="bias RLD"
+                    android:textColor="@color/ink" />
 
                 <LinearLayout
                     android:id="@+id/chGrid"

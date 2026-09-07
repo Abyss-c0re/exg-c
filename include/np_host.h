@@ -32,12 +32,14 @@ void np_host_cycle_gain(int ch);
 void np_host_set_gain(int ch, int gain);
 int np_host_active(int ch);
 int np_host_rld(int ch);
-/* Shared negative rail: bias off on every channel. Location is 10-10. */
+/* Negative rails: bias off on every channel. Each channel has its own − site. */
 int np_host_neg_rail(void);
 void np_host_set_neg_rail(int on);
-int np_host_neg_site(void);
-void np_host_set_neg_site(int site);
-void np_host_neg_name(char *out, int n);
+int np_host_neg_site(int ch);
+void np_host_set_neg_site(int ch, int site);
+void np_host_neg_name(int ch, char *out, int n);
+int np_host_neg_pick(void);
+void np_host_set_neg_pick(int on);
 int np_host_gain(int ch);
 void np_host_color(int ch, int *r, int *g, int *b);
 void np_host_cycle_color(int ch);

@@ -1206,8 +1206,14 @@ static void draw_cube(int x, int y, int w, int h)
                     break;
                 }
             }
-            if (g.neg_rail && i == g.neg_site && taken < 0) {
-                taken = -2;
+            if (taken < 0 && g.neg_rail) {
+                int k;
+                for (k = 0; k < NP_NCHAN; k++) {
+                    if (g.neg_site[k] == i) {
+                        taken = -2;
+                        break;
+                    }
+                }
             }
             r = (i == g.site_focus) ? 5 : (taken != -1 || np_1010_core(i) ? 3 : 2);
             fill(sx - r, sy - r, r * 2, r * 2,
@@ -1279,16 +1285,10 @@ static int draw_channels(int x, int y)
     char line[8], gn[8];
     text(x + 12, y, "Channels 1-8", 140, 148, 160, 1);
     y += NP_TOUCH ? 18 : 14;
-    {
-        char nb[24];
-        btn(x + 10, y, 110, bh, g.neg_rail ? "NEG RAIL" : "bias RLD", g.neg_rail, 72, 0,
-            g.neg_rail ? 90 : 40, g.neg_rail ? 28 : 42, g.neg_rail ? 32 : 52);
-        snprintf(nb, sizeof(nb), "− %s", np_1010_name(g.neg_site));
-        btn(x + 124, y, 164, bh, nb, g.elec_sel == NP_ELEC_NEG, 73, 0,
-            g.elec_sel == NP_ELEC_NEG ? 80 : 36, g.elec_sel == NP_ELEC_NEG ? 24 : 40,
-            g.elec_sel == NP_ELEC_NEG ? 28 : 48);
-        y += rh;
-    }
+    btn(x + 10, y, 278, bh, g.neg_rail ? "NEG RAIL  (bias off, − per ch)" : "bias RLD",
+        g.neg_rail, 72, 0,
+        g.neg_rail ? 90 : 40, g.neg_rail ? 28 : 42, g.neg_rail ? 32 : 52);
+    y += rh;
     for (c = 0; c < NP_NCHAN; c++) {
         int col = c / 4;
         int row = c % 4;
@@ -1299,7 +1299,13 @@ static int draw_channels(int x, int y)
         btn(bx + 26, by, 36, bh, g.active[c] ? "ON" : "off", g.active[c], 6, c,
             g.active[c] ? 28 : 40, g.active[c] ? 90 : 42, g.active[c] ? 60 : 50);
         if (g.neg_rail) {
-            btn(bx + 64, by, 36, bh, "off", 0, 7, c, 36, 32, 32);
+            char nb[8];
+            const char *nn = np_1010_name(g.neg_site[c]);
+            snprintf(nb, sizeof(nb), "−%s", nn[0] ? nn : "?");
+            btn(bx + 64, by, 36, bh, nb, g.neg_pick && g.elec_sel == c, 73, c,
+                g.neg_pick && g.elec_sel == c ? 90 : 50,
+                g.neg_pick && g.elec_sel == c ? 28 : 36,
+                g.neg_pick && g.elec_sel == c ? 32 : 42);
         } else {
             btn(bx + 64, by, 36, bh, g.rld[c] ? "RLD" : "rld", g.rld[c], 7, c,
                 g.rld[c] ? 50 : 40, g.rld[c] ? 70 : 42, g.rld[c] ? 110 : 50);
@@ -1499,14 +1505,6 @@ static void draw_side(int x)
         }
         y += 4 * rh + 8;
         {
-            char nb[24];
-            snprintf(nb, sizeof(nb), "− %s", np_1010_name(g.neg_site));
-            btn(x + 12, y, sidew() - 24, bh, nb, g.elec_sel == NP_ELEC_NEG, 73, 0,
-                g.elec_sel == NP_ELEC_NEG ? 80 : 36, g.elec_sel == NP_ELEC_NEG ? 24 : 40,
-                g.elec_sel == NP_ELEC_NEG ? 28 : 48);
-            y += rh;
-        }
-        {
             char zb[24];
             snprintf(zb, sizeof(zb), "zoom %.1fx", (double)g.cube_zoom);
             btn(x + 12, y, 88, bh, "-", 0, 47, 0, 36, 40, 48);
@@ -1525,7 +1523,7 @@ static void draw_side(int x)
         }
         y += rh;
         btn(x + 12, y, sidew() - 24, bh,
-            g.elec_sel == NP_ELEC_NEG ? "Assign to negative electrode" : "Assign to selected ch",
+            g.neg_pick ? "Assign to selected ch −" : "Assign to selected ch +",
             0, 51, 0, 28, 80, 48);
         y += rh;
         {
@@ -1910,7 +1908,9 @@ static void click(int x, int y)
             np_host_set_neg_rail(!g.neg_rail);
             break;
         case 73:
-            np_host_set_elec_sel(NP_ELEC_NEG);
+            g.neg_pick = 1;
+            np_host_set_elec_sel(hits[i].ch);
+            np_host_set_neg_pick(1);
             break;
         case 8:
             next_gain(hits[i].ch);
@@ -2108,6 +2108,7 @@ static void click(int x, int y)
             side_clamp();
             break;
         case 37:
+            g.neg_pick = 0;
             g.elec_sel = hits[i].ch;
             if (g.elec[g.elec_sel].site >= 0) {
                 g.site_focus = g.elec[g.elec_sel].site;
