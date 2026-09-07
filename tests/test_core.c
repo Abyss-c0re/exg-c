@@ -613,6 +613,14 @@ static void test_elec_view(void)
     expect(np_1010_find("A1") >= 0 && np_1010_find("A2") >= 0
                && np_1010_find("M1") >= 0 && np_1010_find("M2") >= 0,
            "negative electrode sites A1 A2 M1 M2 exist");
+    {
+        struct np_elec none;
+        memset(&none, 0, sizeof none);
+        np_elec_set_site(&none, np_1010_find("C3"));
+        expect(none.site >= 0 && none.name[0], "set C3");
+        np_elec_set_site(&none, -1);
+        expect(none.site < 0 && none.name[0] == 0, "NONE clears + site");
+    }
     expect(!np_1010_core(np_1010_find("A1")) && !np_1010_core(np_1010_find("M2")),
            "ear/mastoid refs are not headset core");
     expect(np_1010_core(np_1010_find("Fp1")) && np_1010_core(np_1010_find("Cz")),
@@ -1039,8 +1047,8 @@ static void test_profile_format(void)
     }
     fprintf(f, "[ui]\nscale=20\nprofile=motor\n");
     fprintf(f, "[view]\nnotch_hz=50\nhp_hz=1\n");
-    fprintf(f, "[cube]\nelec1=Fp1\nelec8=O2\n");
-    fprintf(f, "[channels]\ngain1=8\nactive3=0\nrld2=1\nneg_rail=1\nneg1=A1\nneg2=M1\n");
+    fprintf(f, "[cube]\nelec1=Fp1\nelec8=NONE\n");
+    fprintf(f, "[channels]\ngain1=8\nactive3=0\nrld2=1\nneg_rail=1\nneg1=A1\nneg2=NONE\n");
     fclose(f);
     f = fopen(path, "r");
     expect(f != NULL, "profile mock file reads");
@@ -1076,11 +1084,11 @@ static void test_profile_format(void)
     fclose(f);
     expect(scale == 20 && notch == 50, "profile keeps UI and filter");
     expect(strcmp(prof, "motor") == 0, "profile name stored");
-    expect(strcmp(elec1, "Fp1") == 0 && strcmp(elec8, "O2") == 0,
-           "profile keeps electrode sites");
+    expect(strcmp(elec1, "Fp1") == 0 && strcmp(elec8, "NONE") == 0,
+           "profile keeps electrode sites including NONE");
     expect(gain1 == 8 && active3 == 0 && rld2 == 1, "profile keeps gain on/rld");
-    expect(neg_rail == 1 && strcmp(neg1, "A1") == 0 && strcmp(neg2, "M1") == 0,
-           "profile keeps per-channel − sites");
+    expect(neg_rail == 1 && strcmp(neg1, "A1") == 0 && strcmp(neg2, "NONE") == 0,
+           "profile keeps per-channel − sites including NONE");
 }
 
 static void test_id_event(void)
@@ -1593,7 +1601,7 @@ static void test_api(void)
          strstr(body, "/stream") && strstr(body, "EXG1");
     expect(ok, "api GET / index lists stream");
     expect(strstr(body, "stream.json") == NULL, "api index has no NDJSON live path");
-    expect(strstr(body, "\"v\":\"2.84\"") != NULL, "api index version 2.84");
+    expect(strstr(body, "\"v\":\"2.85\"") != NULL, "api index version 2.85");
     expect(strstr(body, "/pair") != NULL, "api index lists /pair");
     expect(strstr(body, "\"ip\":\"127.0.0.1\"") != NULL, "api local ip is loopback");
     {

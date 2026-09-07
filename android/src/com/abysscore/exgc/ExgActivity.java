@@ -1406,7 +1406,7 @@ public class ExgActivity extends Activity {
             if (rail) {
                 String nn = ExgNative.negName(ch);
                 if (nn == null || nn.length() == 0) {
-                    nn = "?";
+                    nn = "NONE";
                 }
                 rld.setEnabled(true);
                 rld.setText("− " + nn);
@@ -1671,16 +1671,18 @@ public class ExgActivity extends Activity {
         if (n < 1) {
             return;
         }
-        String[] names = new String[n];
-        int cur = ExgNative.negSite(ch);
+        String[] names = new String[n + 1];
+        names[0] = "NONE";
+        int cur = 0;
+        int have = ExgNative.negSite(ch);
         for (int i = 0; i < n; i++) {
-            names[i] = ExgNative.siteName(i);
-        }
-        if (cur < 0 || cur >= n) {
-            cur = 0;
+            names[i + 1] = ExgNative.siteName(i);
+            if (have == i) {
+                cur = i + 1;
+            }
         }
         pick("ch" + (ch + 1) + " − site", names, cur, i -> {
-            ExgNative.setNegSite(ch, i);
+            ExgNative.setNegSite(ch, i == 0 ? -1 : i - 1);
             refreshChannels();
             refreshChrome();
         });
@@ -1691,19 +1693,20 @@ public class ExgActivity extends Activity {
         if (n < 1) {
             return;
         }
-        String[] names = new String[n];
+        String[] names = new String[n + 1];
+        names[0] = "NONE";
         int cur = 0;
         String have = ExgNative.elecName(ch);
         for (int i = 0; i < n; i++) {
-            names[i] = ExgNative.siteName(i);
-            if (have != null && have.equals(names[i])) {
-                cur = i;
+            names[i + 1] = ExgNative.siteName(i);
+            if (have != null && have.equals(names[i + 1])) {
+                cur = i + 1;
             }
         }
-        pick("ch" + (ch + 1) + " site", names, cur, i -> {
+        pick("ch" + (ch + 1) + " + site", names, cur, i -> {
             ExgNative.setNegPick(false);
             ExgNative.setElecSel(ch);
-            ExgNative.assignSite(i);
+            ExgNative.assignSite(i == 0 ? -1 : i - 1);
             refreshChannels();
             refreshChrome();
         });

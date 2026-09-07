@@ -1294,14 +1294,14 @@ static int draw_channels(int x, int y)
         int row = c % 4;
         int bx = x + 10 + col * 145;
         int by = y + row * rh;
-        snprintf(line, sizeof(line), "%s", g.elec[c].name[0] ? g.elec[c].name : "?");
+        snprintf(line, sizeof(line), "%s", g.elec[c].name[0] ? g.elec[c].name : "NONE");
         text(bx, by + (bh - 7) / 2, line, g.chrgb[c][0], g.chrgb[c][1], g.chrgb[c][2], 1);
         btn(bx + 26, by, 36, bh, g.active[c] ? "ON" : "off", g.active[c], 6, c,
             g.active[c] ? 28 : 40, g.active[c] ? 90 : 42, g.active[c] ? 60 : 50);
         if (g.neg_rail) {
             char nb[8];
             const char *nn = np_1010_name(g.neg_site[c]);
-            snprintf(nb, sizeof(nb), "−%s", nn[0] ? nn : "?");
+            snprintf(nb, sizeof(nb), "−%s", nn[0] ? nn : "NONE");
             btn(bx + 64, by, 36, bh, nb, g.neg_pick && g.elec_sel == c, 73, c,
                 g.neg_pick && g.elec_sel == c ? 90 : 50,
                 g.neg_pick && g.elec_sel == c ? 28 : 36,
@@ -1498,7 +1498,7 @@ static void draw_side(int x)
             int col = c / 4, row = c % 4;
             int bx = x + 12 + col * 140;
             int by = y + row * rh;
-            snprintf(b, sizeof(b), "%d %s", c + 1, g.elec[c].name[0] ? g.elec[c].name : "?");
+            snprintf(b, sizeof(b), "%d %s", c + 1, g.elec[c].name[0] ? g.elec[c].name : "NONE");
             btn(bx, by, 132, bh, b, g.elec_sel == c, 37, c,
                 g.elec_sel == c ? 80 : 28, g.elec_sel == c ? 20 : 32,
                 g.elec_sel == c ? 34 : 42);
@@ -1522,9 +1522,11 @@ static void draw_side(int x)
             btn(x + 220, y, 56, bh, ">", 0, 50, 0, 36, 40, 48);
         }
         y += rh;
-        btn(x + 12, y, sidew() - 24, bh,
-            g.neg_pick ? "Assign to selected ch −" : "Assign to selected ch +",
+        btn(x + 12, y, (sidew() - 32) / 2, bh,
+            g.neg_pick ? "Assign −" : "Assign +",
             0, 51, 0, 28, 80, 48);
+        btn(x + 16 + (sidew() - 32) / 2, y, (sidew() - 32) / 2, bh, "NONE", 0, 74, 0,
+            36, 40, 48);
         y += rh;
         {
             int vs = cube_virt_slot(g.virt_focus);
@@ -2139,6 +2141,9 @@ static void click(int x, int y)
             break;
         case 51:
             cube_assign_focus();
+            break;
+        case 74:
+            np_host_assign_site(-1);
             break;
         case 52:
             cube_virt_by(-1);

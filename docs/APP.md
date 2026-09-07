@@ -1,4 +1,4 @@
-# App (2.84)
+# App (2.85)
 
 What the host does. The LAN wire is [API.md](API.md).
 
@@ -110,7 +110,7 @@ Per-channel **bias ON** (teal) / **bias off** (dark). Connect sends `RLDADD` or 
 
 ## Negative rails
 
-**NEG RAIL** turns bias off on every channel (`rldremove_` on Connect and while the mode is on). The per-channel **bias** button becomes that channel's **− site** picker (A1/A2/M1/M2 or any 10-10 name). Each negative rail has its own electrode. The cube map marks those sites in silver. Leave the mode to use per-channel RLD again — bias stays off until you turn it back on.
+**NEG RAIL** turns bias off on every channel (`rldremove_` on Connect and while the mode is on). The per-channel **bias** button becomes that channel's **− site** picker (NONE, A1/A2/M1/M2, or any 10-10 name). The + site picker also has **NONE**. Each rail can be unassigned. The cube map marks set sites in silver. Leave the mode to use per-channel RLD again — bias stays off until you turn it back on.
 
 ## Plot
 
