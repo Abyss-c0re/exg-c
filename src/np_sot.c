@@ -62,10 +62,31 @@ const char *np_sot_dir(void)
     if (g_dir[0]) {
         return g_dir;
     }
-    env = getenv("NP_SOT_DIR");
-    if (env && env[0]) {
-        snprintf(g_dir, sizeof(g_dir), "%s", env);
-        return g_dir;
+    {
+        const char *cells = getenv("CUBEBRAIN_VIZ_CELLS");
+        if (cells && cells[0]) {
+            snprintf(g_dir, sizeof(g_dir), "%s", cells);
+            {
+                char *s = strrchr(g_dir, '/');
+                if (s && s > g_dir) {
+                    *s = 0;
+                }
+            }
+            return g_dir;
+        }
+    }
+    {
+        const char *keys[] = {
+            "NP_SOT_DIR", "CUBEBRAIN_VIZ_DIR", "CUBE_SOT_DIR", "CUBALC_SOT_DIR", 0
+        };
+        int i;
+        for (i = 0; keys[i]; i++) {
+            env = getenv(keys[i]);
+            if (env && env[0]) {
+                snprintf(g_dir, sizeof(g_dir), "%s", env);
+                return g_dir;
+            }
+        }
     }
 #ifdef __ANDROID__
     snprintf(g_dir, sizeof(g_dir), "%s", NP_SOT_DIR_DEF);
