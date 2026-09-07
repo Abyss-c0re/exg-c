@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include "np_app.h"
 #include "np_algo.h"
+#include "np_sot.h"
 #include "np_cube.h"
 #include "np_font.h"
 #include "np_host.h"
@@ -2269,7 +2270,7 @@ static void api_status_json(char *out, int n)
         }
     }
     snprintf(out, (size_t)n,
-             "{\"ok\":true,\"v\":\"2.81\",\"connected\":%s,\"paused\":%s,\"sps\":%.1f,"
+             "{\"ok\":true,\"v\":\"2.82\",\"connected\":%s,\"paused\":%s,\"sps\":%.1f,"
              "\"frames\":%u,\"status\":\"%s\",\"id\":\"%s\",\"id_best\":%d,"
              "\"notch\":%d,\"hp\":%d,\"lp\":%d,\"car\":%d,\"band\":%d,\"mask\":%u,"
              "\"api\":\"%s\"}",
@@ -3076,6 +3077,11 @@ void smx_tick(void)
         np_ring_imu(&g.ring, acc, gyr, mag, &imu_ok);
         if (imu_ok) {
             np_cube_imu(&g.smx, acc, gyr, mag);
+        }
+        {
+            char bits01[NP_CUBE3_N + 1];
+            np_cube_pack(&g.smx, bits01, (int)sizeof(bits01));
+            np_sot_write_bits01(bits01);
         }
         cube_offer();
         if (g.rec_t0 && rec_smx_n < NPL_SMX_SEC) {

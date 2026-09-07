@@ -1,4 +1,5 @@
 #include "np_algo.h"
+#include "np_sot.h"
 
 #include <ctype.h>
 #include <math.h>
@@ -175,7 +176,8 @@ enum {
     OP_BIT,
     OP_BITN,
     OP_FOR,
-    OP_UNTIL
+    OP_UNTIL,
+    OP_OUT
 };
 
 #define NP_ALGO_OPS 96
@@ -195,6 +197,8 @@ struct np_prog {
     char vname[NP_ALGO_VARS][12];
     int nv;
     int nfor, nuntil;
+    char oname[NP_SOT_NAMES][NP_SOT_NAME];
+    int no;
     int for_b0[NP_HOLD_N], for_b1[NP_HOLD_N];
     int until_c0[NP_HOLD_N], until_c1[NP_HOLD_N];
     int until_b0[NP_HOLD_N], until_b1[NP_HOLD_N];
@@ -393,6 +397,7 @@ static int reserved(const char *name)
            kw_eq(name, "and") || kw_eq(name, "or") ||
            kw_eq(name, "not") || kw_eq(name, "for") || kw_eq(name, "until") ||
            kw_eq(name, "sqrt") || kw_eq(name, "pow") ||
+           kw_eq(name, "out") || kw_eq(name, "sensor") ||
            kw_eq(name, "prev") || kw_eq(name, "dxmean") ||
            kw_eq(name, "above") || kw_eq(name, "pos") ||
            kw_eq(name, "signal") || name_ix(name, "ch") >= 0 ||
@@ -924,6 +929,35 @@ static int parse_stmt(struct np_lex *L, struct np_prog *P, char *err, int errn)
         lex_next(L);
         return parse_set_ch(L, P, ix, err, errn);
     }
+    if (L->kind == TK_ID && kw_eq(L->tok, "out")) {
+        char name[32];
+        float v = 1.f;
+        int slot;
+        lex_next(L);
+        if (L->kind == TK_ID && kw_eq(L->tok, "sensor")) {
+            lex_next(L);
+        }
+        if (L->kind != TK_ID) {
+            snprintf(err, (size_t)errn, "line %d: OUT needs a name", L->line);
+            return -1;
+        }
+        snprintf(name, sizeof(name), "%s", L->tok);
+        lex_next(L);
+        if (L->kind == TK_NUM) {
+            v = L->num;
+            lex_next(L);
+        }
+        if (P->no >= NP_SOT_NAMES) {
+            snprintf(err, (size_t)errn, "line %d: too many OUT names", L->line);
+            return -1;
+        }
+        slot = P->no++;
+        snprintf(P->oname[slot], sizeof(P->oname[0]), "%.15s", name);
+        if (emit(P, OP_PUSHC, v, 0, err, errn, L->line) != 0) {
+            return -1;
+        }
+        return emit(P, OP_OUT, 0, slot, err, errn, L->line);
+    }
     if (L->kind == TK_ID && kw_eq(L->tok, "let")) {
         char name[32];
         int slot;
@@ -958,7 +992,8 @@ static int parse_stmt(struct np_lex *L, struct np_prog *P, char *err, int errn)
         }
         return emit(P, OP_STORE, 0, slot, err, errn, L->line);
     }
-    snprintf(err, (size_t)errn, "line %d: expected IF, FOR, UNTIL, LET, chN, ON or OFF",
+    snprintf(err, (size_t)errn,
+             "line %d: expected IF, FOR, UNTIL, LET, OUT, chN, ON or OFF",
              L->line);
     return -1;
 }
@@ -1368,6 +1403,16 @@ static int eval_ops(const struct np_prog *P, struct eval_run *E, int pc0, int pc
             if (o->i >= 0 && o->i < NP_HOLD_N) {
                 g_hs.until_on[o->i] = 1;
                 E->hit_until[o->i] = 1;
+            }
+            pc++;
+            break;
+        case OP_OUT:
+            if (E->sp < 1) {
+                return 0;
+            }
+            a = E->st[--E->sp];
+            if (o->i >= 0 && o->i < P->no) {
+                np_sot_set(P->oname[o->i], a != 0.f);
             }
             pc++;
             break;

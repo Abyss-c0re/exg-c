@@ -1,4 +1,4 @@
-# App (2.81)
+# App (2.82)
 
 What the host does. The LAN wire is [API.md](API.md).
 
@@ -147,7 +147,7 @@ A separate tab. Defaults are CubalC you can read (and reset). Add your own. **us
 | proton | `if pos > 0.5 then 1` |
 | compare | `if ch2 < ch5 then ch3 ON` |
 
-A block after `THEN` can set several channels. `ELSE IF` works. Compares are 0/1, so `(ch1>0)+(ch2>0)>1` means two high. Logic: `AND` `OR` `NOT` (`&&` `||` `!`). Math: `+ - * / % abs() min() max() sqrt() pow(a, b)`. `LET name = expr`, `LET name, expr`, or CubalC’s `LET name expr`. `FOR <seconds>` keeps the body on for that many seconds even if the outer `IF` later misses — not official CubalC `FOR i = a TO b` (count loop). `UNTIL <cond>` keeps the body on until the cond is true (`UNTIL ch4 < ch2`) — one pass per tick, not CubalC’s busy `UNTIL` loop. Names: `ch`/`last`/`mean`/`rms`/`prev`/`dxmean`/`above`/`pos`/`signal`, and `ch1`…`ch8`. The cube is ON/OFF bits from this dialect. It does not import CubalC’s EEG feature-pack (50 µV polarity/energy bits).
+A block after `THEN` can set several channels. `ELSE IF` works. Compares are 0/1, so `(ch1>0)+(ch2>0)>1` means two high. Logic: `AND` `OR` `NOT` (`&&` `||` `!`). Math: `+ - * / % abs() min() max() sqrt() pow(a, b)`. `OUT name` / `OUT sensor name` [ON|OFF] writes a named cell to the local lattice file (`cells.bin`, no network). `LET name = expr`, `LET name, expr`, or CubalC’s `LET name expr`. `FOR <seconds>` keeps the body on for that many seconds even if the outer `IF` later misses — not official CubalC `FOR i = a TO b` (count loop). `UNTIL <cond>` keeps the body on until the cond is true (`UNTIL ch4 < ch2`) — one pass per tick, not CubalC’s busy `UNTIL` loop. Names: `ch`/`last`/`mean`/`rms`/`prev`/`dxmean`/`above`/`pos`/`signal`, and `ch1`…`ch8`. The cube is ON/OFF bits from this dialect. It does not import CubalC’s EEG feature-pack (50 µV polarity/energy bits).
 
 **float on** levitates; **float off** is manual drag-spin and +/− zoom. Sites live in Settings.
 

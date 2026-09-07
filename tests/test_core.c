@@ -3,6 +3,7 @@
 #include "np_knight.h"
 #include "np_ring.h"
 #include "np_algo.h"
+#include "np_sot.h"
 #include "np_cube.h"
 #include "np_smx.h"
 #include "nplearn.h"
@@ -16,6 +17,7 @@
 #include <math.h>
 #include <netinet/in.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/time.h>
@@ -957,6 +959,24 @@ static void test_algo(void)
             expect(np_algo_compile("UNTIL ch4 < ch2\n  ch3 ON\nEND\n", err, 80) ==
                        0,
                    "UNTIL cond compiles");
+            expect(np_algo_compile("OUT sensor cpu ON\nOUT eeg1\n", err, 80) == 0,
+                   "OUT sensor compiles");
+            {
+                const char *dir = "/tmp/exg-sot-test";
+                char path[128], hdr;
+                FILE *sf;
+                setenv("NP_SOT_DIR", dir, 1);
+                np_sot_clear();
+                np_sot_set("cpu", 1);
+                expect(np_sot_write_cpu() == 0, "SoT cpu write");
+                snprintf(path, sizeof(path), "%s/cells.bin", dir);
+                sf = fopen(path, "rb");
+                expect(sf != NULL, "SoT cells.bin exists");
+                if (sf) {
+                    expect(fread(&hdr, 1, 1, sf) == 1 && hdr == 8, "SoT n=8");
+                    fclose(sf);
+                }
+            }
             {
                 const char *hold =
                     "if ch1 > 0 then\n"
@@ -1560,7 +1580,7 @@ static void test_api(void)
          strstr(body, "/stream") && strstr(body, "EXG1");
     expect(ok, "api GET / index lists stream");
     expect(strstr(body, "stream.json") == NULL, "api index has no NDJSON live path");
-    expect(strstr(body, "\"v\":\"2.81\"") != NULL, "api index version 2.81");
+    expect(strstr(body, "\"v\":\"2.82\"") != NULL, "api index version 2.82");
     expect(strstr(body, "/pair") != NULL, "api index lists /pair");
     expect(strstr(body, "\"ip\":\"127.0.0.1\"") != NULL, "api local ip is loopback");
     {

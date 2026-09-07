@@ -196,6 +196,7 @@ public class ExgActivity extends Activity {
                 + "this cell:  ch last mean rms prev dxmean above pos signal n\n"
                 + "jacks:      ch1..ch8  last1 mean1 rms1 prev1 …\n"
                 + "LET name = expr     # or LET name, expr  or  LET name expr\n"
+                + "OUT name            # or OUT sensor name  ON/OFF — lattice SoT\n"
                 + "\n"
                 + "detect  if signal == ON then ON\n"
                 + "sign    if ch > 0 then ON\n"
