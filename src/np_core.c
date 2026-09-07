@@ -2269,7 +2269,7 @@ static void api_status_json(char *out, int n)
         }
     }
     snprintf(out, (size_t)n,
-             "{\"ok\":true,\"v\":\"2.80\",\"connected\":%s,\"paused\":%s,\"sps\":%.1f,"
+             "{\"ok\":true,\"v\":\"2.81\",\"connected\":%s,\"paused\":%s,\"sps\":%.1f,"
              "\"frames\":%u,\"status\":\"%s\",\"id\":\"%s\",\"id_best\":%d,"
              "\"notch\":%d,\"hp\":%d,\"lp\":%d,\"car\":%d,\"band\":%d,\"mask\":%u,"
              "\"api\":\"%s\"}",

@@ -9,13 +9,14 @@
 
 struct np_sample {
     uint8_t seq;
-    uint8_t loff_p;
-    uint8_t loff_n;
+    uint8_t loff_p; /* P contact, bit 0 = ch1 */
+    uint8_t loff_n; /* N contact, bit 0 = ch1 */
+    uint8_t drops;  /* (seq - expected) & 0xFF; 0 if first or in order */
     int imu;
     float uv[NP_NCHAN];
-    float acc[3];
-    float gyr[3];
-    float mag[3];
+    float acc[3]; /* m/s² */
+    float gyr[3]; /* rad/s */
+    float mag[3]; /* µT */
 };
 
 struct np_parser {
@@ -25,7 +26,10 @@ struct np_parser {
     int have;
     int locked;
     int frame_len; /* 21 (NP_DEFAULT), 57 (NP_IMU); 22 is a hunt leftover */
+    int have_seq;
+    uint8_t last_seq;
     uint32_t resyncs;
+    uint32_t drops;
 };
 
 void np_parser_init(struct np_parser *p, enum np_board board);

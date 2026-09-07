@@ -143,6 +143,37 @@ static void test_parser(void)
         }
         expect(nout == 1 && p.locked && p.frame_len == 21, "parser lock 21 EEG");
         expect(s.seq == 3 && s.imu == 0, "parser 21-byte has no IMU");
+        expect(fabsf(scale_uv_ref(1, 12) - 0.128f) < 0.002f,
+               "gain 12 is ~0.128 µV/count");
+    }
+    {
+        unsigned char a[21], b[21], c[21];
+        int rawz[NP_NCHAN] = {0};
+        memset(a, 0, 21);
+        memset(b, 0, 21);
+        memset(c, 0, 21);
+        a[0] = b[0] = c[0] = NP_START;
+        a[20] = b[20] = c[20] = NP_END;
+        a[1] = 255;
+        b[1] = 0;
+        c[1] = 3;
+        a[18] = 0x01;
+        a[19] = 0x80;
+        np_parser_init(&p, NP_BOARD_KNIGHT);
+        for (i = 0; i < 21; i++) {
+            np_parser_feed(&p, a[i], &s);
+        }
+        expect(s.loff_p == 0x01 && s.loff_n == 0x80, "P/N contact bytes");
+        expect(s.drops == 0, "first frame has no drop");
+        for (i = 0; i < 21; i++) {
+            np_parser_feed(&p, b[i], &s);
+        }
+        expect(s.seq == 0 && s.drops == 0, "seq 255 then 0 is not a drop");
+        for (i = 0; i < 21; i++) {
+            np_parser_feed(&p, c[i], &s);
+        }
+        expect(s.drops == 2 && p.drops == 2, "seq 0 then 3 dropped 2");
+        (void)rawz;
     }
 
     /* junk then a good frame — must resync */
@@ -1529,7 +1560,7 @@ static void test_api(void)
          strstr(body, "/stream") && strstr(body, "EXG1");
     expect(ok, "api GET / index lists stream");
     expect(strstr(body, "stream.json") == NULL, "api index has no NDJSON live path");
-    expect(strstr(body, "\"v\":\"2.80\"") != NULL, "api index version 2.80");
+    expect(strstr(body, "\"v\":\"2.81\"") != NULL, "api index version 2.81");
     expect(strstr(body, "/pair") != NULL, "api index lists /pair");
     expect(strstr(body, "\"ip\":\"127.0.0.1\"") != NULL, "api local ip is loopback");
     {

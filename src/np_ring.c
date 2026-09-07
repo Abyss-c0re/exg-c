@@ -34,6 +34,7 @@ void np_ring_push(struct np_ring *r, const struct np_sample *s)
     r->wr++;
     r->total++;
     r->good++;
+    r->drops += s->drops;
     pthread_mutex_unlock(&r->mu);
 }
 
@@ -69,6 +70,15 @@ void np_ring_stats(struct np_ring *r, uint64_t *total, uint32_t *good, uint32_t 
         *bad = r->bad;
     }
     pthread_mutex_unlock(&r->mu);
+}
+
+uint32_t np_ring_drops(struct np_ring *r)
+{
+    uint32_t n;
+    pthread_mutex_lock(&r->mu);
+    n = r->drops;
+    pthread_mutex_unlock(&r->mu);
+    return n;
 }
 
 void np_ring_loff(struct np_ring *r, uint8_t *p, uint8_t *n)

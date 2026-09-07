@@ -75,11 +75,20 @@ static int decode_frame(struct np_parser *p, int n, struct np_sample *out)
     }
     memset(out, 0, sizeof(*out));
     out->seq = p->buf[1];
-    /* Firmware README: 8 × int16 EEG, big-endian, ch 1→8. */
+    if (p->have_seq) {
+        uint8_t expect = (uint8_t)(p->last_seq + 1);
+        if (out->seq != expect) {
+            out->drops = (uint8_t)(out->seq - expect);
+            p->drops += out->drops;
+        }
+    }
+    p->last_seq = out->seq;
+    p->have_seq = 1;
+    /* Data format: 8 × int16 EEG, big-endian, ch 1→8. */
     for (i = 0; i < NP_NCHAN; i++) {
         out->uv[i] = scale_uv(i16be(p->buf + 2 + 2 * i), p->gain[i]);
     }
-    /* Docs: P/N contact status, bit 0 = channel 1. */
+    /* P/N contact, bit 0 = channel 1. */
     out->loff_p = p->buf[18];
     out->loff_n = p->buf[19];
     if (n >= NP_FRAME_IMU) {

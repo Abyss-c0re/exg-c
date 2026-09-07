@@ -1,4 +1,4 @@
-# App (2.80)
+# App (2.81)
 
 What the host does. The LAN wire is [API.md](API.md).
 
@@ -44,9 +44,15 @@ Follows the published [firmware](https://docs.neuropawn.tech/knight-board/firmwa
 
 | Item | Host |
 |------|------|
-| Serial | 115200 8N1 |
-| Frames | `0xA0` … `0xC0`. EEG-only **21** bytes (`NP_DEFAULT`). IMU **57** bytes (9× little-endian f32). Hunt still accepts a leftover 22-byte lock. |
-| Scale | `4/(2^15-1)/79.57/gain*1e6` µV. Gains `1 2 3 4 6 8 12`. |
+| Serial | 115200 8N1. Stream starts on power-up. No start command. |
+| Marker | `[0]=0xA0` … last=`0xC0` |
+| `[1]` | Sample number 0–255. Not a timestamp. Host time is recorded separately. Gaps: `(seq-expected)&0xFF`. |
+| `[2–17]` | ch1–ch8, signed int16 **MSB first** |
+| `[18]` `[19]` | P contact / N contact, bit 0 = ch1 |
+| EEG-only | **21** bytes (`NP_DEFAULT`). `[20]=0xC0`. No IMU placeholder. |
+| IMU | **57** bytes. `[20–31]` acc m/s², `[32–43]` gyr rad/s, `[44–55]` mag µT, all LE float32. `[56]=0xC0`. Missing sensor → nine zeros, still 57. |
+| Scale | `4/(2^15-1)/79.57/gain*1e6` µV (~0.128 µV/count at gain 12). Gains `1 2 3 4 6 8 12`. |
+| Mode | No runtime negotiation. Board picker sets 21 vs 57; hunt still accepts the other length (and leftover 22). |
 | Commands | `chon_{ch}_{gain}`, `choff_{ch}`, `rldadd_{ch}`, `rldremove_{ch}` |
 | Connect | Wait for the binary stream, **2 s** settle, then per active channel `chon_` then `rldadd_`/`rldremove_` with ≥1 s between commands. Channels start off on the board. |
 
