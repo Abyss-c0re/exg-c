@@ -6,7 +6,8 @@
 /*
  * Resource-friendly 0/1 folds (Algocube / FOLDBITS style).
  * One pass over a short window. No heap, no FFT.
- * Custom is a CubalC-shaped if/else over last/mean/rms.
+ * Custom is the fold CubalC dialect (IF/FOR-seconds/UNTIL-latch/LET).
+ * Not official CubalC FOR i=TO (count) and not cubalc_eeg feature-pack.
  */
 
 #define NP_ALGO_DETECT 0 /* 1 only if EXG vs worn CALM is SIGNAL */

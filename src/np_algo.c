@@ -934,12 +934,10 @@ static int parse_stmt(struct np_lex *L, struct np_prog *P, char *err, int errn)
         }
         snprintf(name, sizeof(name), "%s", L->tok);
         lex_next(L);
-        if (!((L->kind == TK_OP && L->tok[0] == '=' && L->tok[1] == 0) ||
-              (L->kind == TK_OP && L->tok[0] == ',' && L->tok[1] == 0))) {
-            snprintf(err, (size_t)errn, "line %d: LET needs = or ,", L->line);
-            return -1;
+        if ((L->kind == TK_OP && L->tok[0] == '=' && L->tok[1] == 0) ||
+            (L->kind == TK_OP && L->tok[0] == ',' && L->tok[1] == 0)) {
+            lex_next(L);
         }
-        lex_next(L);
         if (parse_expr(L, P, err, errn) != 0) {
             return -1;
         }

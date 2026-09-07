@@ -874,6 +874,12 @@ static void test_algo(void)
             expect(np_algo_custom_bank("LET thresh, 100\nif ch < thresh then ON else OFF\n",
                                       &b) == 1,
                    "LET comma binds");
+            expect(np_algo_compile("LET thresh 100\nif ch < thresh then ON else OFF\n",
+                                  err, 80) == 0,
+                   "LET space compiles");
+            expect(np_algo_custom_bank("LET thresh 100\nif ch < thresh then ON else OFF\n",
+                                      &b) == 1,
+                   "LET space binds");
             expect(np_algo_compile("if 10 % 3 == 1 then ON else OFF\n", err, 80) ==
                        0,
                    "% compiles");
@@ -1501,7 +1507,7 @@ static void test_api(void)
          strstr(body, "/stream") && strstr(body, "EXG1");
     expect(ok, "api GET / index lists stream");
     expect(strstr(body, "stream.json") == NULL, "api index has no NDJSON live path");
-    expect(strstr(body, "\"v\":\"2.78\"") != NULL, "api index version 2.78");
+    expect(strstr(body, "\"v\":\"2.79\"") != NULL, "api index version 2.79");
     expect(strstr(body, "/pair") != NULL, "api index lists /pair");
     expect(strstr(body, "\"ip\":\"127.0.0.1\"") != NULL, "api local ip is loopback");
     {
