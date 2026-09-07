@@ -24,7 +24,7 @@ struct np_parser {
     unsigned char buf[NP_FRAME_MAX];
     int have;
     int locked;
-    int frame_len; /* 21, 22 or 57 once seen */
+    int frame_len; /* 21 (NP_DEFAULT), 57 (NP_IMU); 22 is a hunt leftover */
     uint32_t resyncs;
 };
 

@@ -79,6 +79,7 @@ static int decode_frame(struct np_parser *p, int n, struct np_sample *out)
     for (i = 0; i < NP_NCHAN; i++) {
         out->uv[i] = scale_uv(i16be(p->buf + 2 + 2 * i), p->gain[i]);
     }
+    /* Docs: P/N contact status, bit 0 = channel 1. */
     out->loff_p = p->buf[18];
     out->loff_n = p->buf[19];
     if (n >= NP_FRAME_IMU) {
@@ -94,8 +95,8 @@ static int decode_frame(struct np_parser *p, int n, struct np_sample *out)
 
 int np_parser_feed(struct np_parser *p, unsigned char b, struct np_sample *out)
 {
-    const int cand_imu[] = {57, 22, 21};
-    const int cand_eeg[] = {22, 21, 57};
+    const int cand_imu[] = {57, 21, 22};
+    const int cand_eeg[] = {21, 57, 22};
     const int *cand = p->board == NP_BOARD_KNIGHT_IMU ? cand_imu : cand_eeg;
     int i;
 
@@ -154,11 +155,10 @@ int np_parser_feed(struct np_parser *p, unsigned char b, struct np_sample *out)
     return 0;
 }
 
-/* Firmware Stream::readString() returns after 1 s of silence, then
- * startsWith("chon_"). A second token inside that window is glued on
- * and dropped. 1.1 s is enough; 1.6 s was padding. Trailing newline
- * is ignored by readString and lets a readStringUntil('\n') build
- * return immediately. */
+/* Official command set: ≥1 s between commands (2 s after stream
+ * before the first). Firmware readString() also needs ~1 s of silence
+ * or a second token is glued on and dropped. Trailing newline lets a
+ * readStringUntil('\n') return immediately. */
 #define NP_CMD_GAP_US 1250000
 
 static int send_cmd(int fd, const char *s)

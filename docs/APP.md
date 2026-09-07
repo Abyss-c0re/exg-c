@@ -1,4 +1,4 @@
-# App (2.79)
+# App (2.80)
 
 What the host does. The LAN wire is [API.md](API.md).
 
@@ -36,7 +36,21 @@ Android does **not** compile `np_ui.c`. Java talks to `include/np_host.h` via `s
 
 After `set_gen=5`, saved ini wins. `set_gen=5` forces raw once so an old line-kill ini cannot hide the board. Line-kill / EEG / EMG stay as bands.
 
-Scale is `4/(2^15-1)/gain*1e6/79.57` (~±4.2 mV at gain 12). That divisor is the product unit: CLIP, plot, plates, and ID. Worn raw is tens to hundreds of µV. Off-head approaches the 4 mV rail. **line-kill** (hp 2, CAR, detrend) is a cook. It is not the board.
+Scale is `4/(2^15-1)/gain*1e6/79.57` (~±4.2 mV at gain 12). That is the official Knight conversion (fixed analog front-end 79.57). CLIP, plot, plates, and ID use that unit. Worn raw is tens to hundreds of µV. Off-head approaches the 4 mV rail. **line-kill** (hp 2, CAR, detrend) is a cook. It is not the board.
+
+## Knight wire
+
+Follows the published [firmware](https://docs.neuropawn.tech/knight-board/firmware/), [data format](https://docs.neuropawn.tech/knight-board/data-format/), and [command set](https://docs.neuropawn.tech/knight-board/command-set/).
+
+| Item | Host |
+|------|------|
+| Serial | 115200 8N1 |
+| Frames | `0xA0` … `0xC0`. EEG-only **21** bytes (`NP_DEFAULT`). IMU **57** bytes (9× little-endian f32). Hunt still accepts a leftover 22-byte lock. |
+| Scale | `4/(2^15-1)/79.57/gain*1e6` µV. Gains `1 2 3 4 6 8 12`. |
+| Commands | `chon_{ch}_{gain}`, `choff_{ch}`, `rldadd_{ch}`, `rldremove_{ch}` |
+| Connect | Wait for the binary stream, **2 s** settle, then per active channel `chon_` then `rldadd_`/`rldremove_` with ≥1 s between commands. Channels start off on the board. |
+
+Do not write other text on the USB serial link. Do not shell CubalC at 125 Hz.
 
 ## DC vs CLEAN
 

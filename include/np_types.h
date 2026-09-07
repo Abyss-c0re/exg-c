@@ -6,8 +6,8 @@
 #define NP_NCHAN 8
 #define NP_START 0xA0
 #define NP_END 0xC0
-#define NP_FRAME_EEG 22
-#define NP_FRAME_IMU 57
+#define NP_FRAME_EEG 21 /* NP_DEFAULT: 20-byte EEG block + 0xC0 */
+#define NP_FRAME_IMU 57 /* NP_IMU: EEG block + 9×f32le + 0xC0 */
 #define NP_FRAME_MAX 64
 #define NP_IMU_BYTES 36
 #define NP_BAUD 115200

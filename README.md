@@ -4,7 +4,7 @@ A C host for a **[Knight](https://www.neuropawn.tech/)** ADS1299 board — or an
 
 Not a medical device. Not affiliated with NeuroPawn.
 
-Shipped app: **2.79** (`com.abysscore.exgc`, versionCode 87). One framework, two skins:
+Shipped app: **2.80** (`com.abysscore.exgc`, versionCode 88). One framework, two skins:
 
 | Piece | Role |
 |-------|------|
@@ -21,7 +21,7 @@ Quest / phone notes: [android/README.md](android/README.md).
 
 ## What it does
 
-- 8 channels at **125 SPS** (Knight ADS1299).
+- 8 channels at **125 SPS**. USB serial **115200 8N1**. Frames `0xA0`…`0xC0` (21-byte EEG, 57-byte IMU). Scale `4/(2^15-1)/79.57/gain` µV. Commands `chon_` / `choff_` / `rldadd_` / `rldremove_`. See [Knight firmware](https://docs.neuropawn.tech/knight-board/firmware/).
 - Default view is **raw** (same as the official Knight plot): no notch, no hp, no CAR, no detrend. Off-head rails. **line-kill** is a band if you want cooked EXG.
 - **Calibrate** — 5 s to put the headset down, 8 s desk plate, tap when worn, 8 s still plate.
 - **DC on / DC off** — subtracts the still-plate mean. That is not Wiener CLEAN.

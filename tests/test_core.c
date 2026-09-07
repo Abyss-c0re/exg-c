@@ -93,6 +93,8 @@ static void test_cmds(void)
     expect(strcmp(s, "rldadd_3\n") == 0, "fmt rldadd_3");
     np_fmt_choff(s, sizeof(s), 2);
     expect(strcmp(s, "choff_2\n") == 0, "fmt choff_2");
+    np_fmt_rldremove(s, sizeof(s), 1);
+    expect(strcmp(s, "rldremove_1\n") == 0, "fmt rldremove_1");
 }
 
 static void test_parser(void)
@@ -122,6 +124,26 @@ static void test_parser(void)
     expect(fabsf(scale_uv_ref(32767, 12) - (4.0f / 12.0f * 1000000.0f / NP_KNIGHT_DIV)) < 2.f,
            "full-scale is 4/gain V / 79.57 (~4.2 mV at g12)");
     expect(fabsf(s.acc[0] - 0.5f) < 1e-5f, "parser acc x");
+
+    {
+        unsigned char eeg[21];
+        memset(eeg, 0, sizeof(eeg));
+        eeg[0] = NP_START;
+        eeg[1] = 3;
+        for (i = 0; i < NP_NCHAN; i++) {
+            put_i16be(eeg + 2 + 2 * i, raw[i]);
+        }
+        eeg[20] = NP_END;
+        np_parser_init(&p, NP_BOARD_KNIGHT);
+        nout = 0;
+        for (i = 0; i < 21; i++) {
+            if (np_parser_feed(&p, eeg[i], &s) > 0) {
+                nout++;
+            }
+        }
+        expect(nout == 1 && p.locked && p.frame_len == 21, "parser lock 21 EEG");
+        expect(s.seq == 3 && s.imu == 0, "parser 21-byte has no IMU");
+    }
 
     /* junk then a good frame — must resync */
     np_parser_init(&p, NP_BOARD_KNIGHT_IMU);
@@ -1507,7 +1529,7 @@ static void test_api(void)
          strstr(body, "/stream") && strstr(body, "EXG1");
     expect(ok, "api GET / index lists stream");
     expect(strstr(body, "stream.json") == NULL, "api index has no NDJSON live path");
-    expect(strstr(body, "\"v\":\"2.79\"") != NULL, "api index version 2.79");
+    expect(strstr(body, "\"v\":\"2.80\"") != NULL, "api index version 2.80");
     expect(strstr(body, "/pair") != NULL, "api index lists /pair");
     expect(strstr(body, "\"ip\":\"127.0.0.1\"") != NULL, "api local ip is loopback");
     {

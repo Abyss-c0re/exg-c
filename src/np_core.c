@@ -2269,7 +2269,7 @@ static void api_status_json(char *out, int n)
         }
     }
     snprintf(out, (size_t)n,
-             "{\"ok\":true,\"v\":\"2.79\",\"connected\":%s,\"paused\":%s,\"sps\":%.1f,"
+             "{\"ok\":true,\"v\":\"2.80\",\"connected\":%s,\"paused\":%s,\"sps\":%.1f,"
              "\"frames\":%u,\"status\":\"%s\",\"id\":\"%s\",\"id_best\":%d,"
              "\"notch\":%d,\"hp\":%d,\"lp\":%d,\"car\":%d,\"band\":%d,\"mask\":%u,"
              "\"api\":\"%s\"}",
@@ -3369,19 +3369,22 @@ static void *enable_thread(void *arg)
         g.en_running = 0;
         return NULL;
     }
+    /* Command set: 2 s after the stream is up, before first chon_. */
+    set_status(1, "board settling...");
+    usleep(2000000);
     set_status(1, "enabling channels...");
     for (c = 0; c < NP_NCHAN && g.connected; c++) {
-        if (g.active[c]) {
-            cmd_push(CMD_CHON, c + 1, g.gain[c]);
+        if (!g.active[c]) {
+            continue;
         }
-    }
-    cmd_drain(25000);
-    for (c = 0; c < NP_NCHAN && g.connected; c++) {
-        if (g.active[c]) {
-            cmd_push(g.rld[c] ? CMD_RLDADD : CMD_RLDRM, c + 1, 0);
+        cmd_push(CMD_CHON, c + 1, g.gain[c]);
+        cmd_drain(8000);
+        if (!g.connected) {
+            break;
         }
+        cmd_push(g.rld[c] ? CMD_RLDADD : CMD_RLDRM, c + 1, 0);
+        cmd_drain(8000);
     }
-    cmd_drain(25000);
     if (g.connected) {
         set_status(1, "connected %s", g.nports ? g.ports[g.port_i] : "");
         if (!g.cal.have) {
@@ -3688,9 +3691,8 @@ int ch_quality(int c, const float *buf, uint32_t n, uint8_t lp, uint8_t ln)
     if (n < 4) {
         return Q_ZERO;
     }
-    /* ADS1299 LOFF_STATP/N: 1 = lead-off when the comparator is on.
-     * If both bytes stay 0 the firmware never enabled lead-off current
-     * and we fall through to amplitude. */
+    /* Knight P/N contact bytes (bit 0 = ch1). If both stay 0 the
+     * firmware is not reporting contact and we fall through to amplitude. */
     if ((lp | ln) != 0 && ((lp & bit) || (ln & bit))) {
         return Q_LEADOFF;
     }
