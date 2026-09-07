@@ -50,6 +50,8 @@ public class CubeView extends View {
     private int npair;
     private int elecSel;
     private int siteFocus;
+    private boolean negRail;
+    private int negSite;
     private int smxSeq;
     private int smxFold;
     private int algoFold;
@@ -189,6 +191,8 @@ public class CubeView extends View {
         nsite = Math.min(MAX_SITE, ExgNative.siteN());
         siteFocus = ExgNative.siteFocus();
         elecSel = ExgNative.elecSel();
+        negRail = ExgNative.negRail();
+        negSite = ExgNative.negSite();
         float[] xyz = new float[3];
         float[] xy = new float[2];
         for (int i = 0; i < nsite; i++) {
@@ -766,12 +770,13 @@ public class CubeView extends View {
             project(siteX[i], siteY[i], siteZ[i], cx, cy, k, p);
             siteSx[i] = (int) p[0];
             siteSy[i] = (int) p[1];
-            boolean show = i == siteFocus || siteCh[i] >= 0 || siteCore[i];
+            boolean isNeg = negRail && i == negSite;
+            boolean show = i == siteFocus || siteCh[i] >= 0 || siteCore[i] || isNeg;
             if (!show || p[2] < -0.25f) {
                 continue;
             }
             int col = i == siteFocus ? 0xFFFFDC50
-                    : (siteCh[i] >= 0 ? elecCol[siteCh[i]] : 0xFFA02832);
+                    : (siteCh[i] >= 0 ? elecCol[siteCh[i]] : (isNeg ? 0xFFC8D0D8 : 0xFFA02832));
             ink.setColor(col);
             c.drawText(siteName[i] != null ? siteName[i] : "?", p[0] + 6, p[1] + 6, ink);
         }
@@ -816,12 +821,13 @@ public class CubeView extends View {
             mapSx[i] = sx;
             mapSy[i] = sy;
             int taken = siteCh[i];
-            int r = i == siteFocus ? 10 : (taken >= 0 || siteCore[i] ? 7 : 4);
+            boolean isNeg = negRail && i == negSite;
+            int r = i == siteFocus ? 10 : (taken >= 0 || isNeg || siteCore[i] ? 7 : 4);
             int col = i == siteFocus ? 0xFFFFD246
-                    : (taken >= 0 ? elecCol[taken] : 0xFF5A1820);
+                    : (taken >= 0 ? elecCol[taken] : (isNeg ? 0xFFC8D0D8 : 0xFF5A1820));
             fill.setColor(col);
             c.drawCircle(sx, sy, r, fill);
-            if (i == siteFocus || taken >= 0 || siteCore[i]) {
+            if (i == siteFocus || taken >= 0 || isNeg || siteCore[i]) {
                 ink.setColor(i == siteFocus ? 0xFFFFE090 : 0xFFC8B4B8);
                 ink.setTextSize(20f * labelMul);
                 c.drawText(siteName[i] != null ? siteName[i] : "?", sx + 8, sy - 4, ink);

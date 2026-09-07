@@ -1206,12 +1206,15 @@ static void draw_cube(int x, int y, int w, int h)
                     break;
                 }
             }
-            r = (i == g.site_focus) ? 5 : (taken >= 0 || np_1010_core(i) ? 3 : 2);
+            if (g.neg_rail && i == g.neg_site && taken < 0) {
+                taken = -2;
+            }
+            r = (i == g.site_focus) ? 5 : (taken != -1 || np_1010_core(i) ? 3 : 2);
             fill(sx - r, sy - r, r * 2, r * 2,
-                 i == g.site_focus ? 255 : (taken >= 0 ? g.chrgb[taken][0] : 90),
-                 i == g.site_focus ? 210 : (taken >= 0 ? g.chrgb[taken][1] : 24),
-                 i == g.site_focus ? 70 : (taken >= 0 ? g.chrgb[taken][2] : 32));
-            if (i == g.site_focus || taken >= 0 || np_1010_core(i)) {
+                 i == g.site_focus ? 255 : (taken >= 0 ? g.chrgb[taken][0] : (taken == -2 ? 180 : 90)),
+                 i == g.site_focus ? 210 : (taken >= 0 ? g.chrgb[taken][1] : (taken == -2 ? 180 : 24)),
+                 i == g.site_focus ? 70 : (taken >= 0 ? g.chrgb[taken][2] : (taken == -2 ? 190 : 32)));
+            if (i == g.site_focus || taken != -1 || np_1010_core(i)) {
                 text(sx + 5, sy - 3, np_1010_name(i),
                      i == g.site_focus ? 255 : 200, i == g.site_focus ? 220 : 180,
                      i == g.site_focus ? 90 : 190, 1);
@@ -1276,6 +1279,16 @@ static int draw_channels(int x, int y)
     char line[8], gn[8];
     text(x + 12, y, "Channels 1-8", 140, 148, 160, 1);
     y += NP_TOUCH ? 18 : 14;
+    {
+        char nb[24];
+        btn(x + 10, y, 110, bh, g.neg_rail ? "NEG RAIL" : "bias RLD", g.neg_rail, 72, 0,
+            g.neg_rail ? 90 : 40, g.neg_rail ? 28 : 42, g.neg_rail ? 32 : 52);
+        snprintf(nb, sizeof(nb), "− %s", np_1010_name(g.neg_site));
+        btn(x + 124, y, 164, bh, nb, g.elec_sel == NP_ELEC_NEG, 73, 0,
+            g.elec_sel == NP_ELEC_NEG ? 80 : 36, g.elec_sel == NP_ELEC_NEG ? 24 : 40,
+            g.elec_sel == NP_ELEC_NEG ? 28 : 48);
+        y += rh;
+    }
     for (c = 0; c < NP_NCHAN; c++) {
         int col = c / 4;
         int row = c % 4;
@@ -1285,8 +1298,12 @@ static int draw_channels(int x, int y)
         text(bx, by + (bh - 7) / 2, line, g.chrgb[c][0], g.chrgb[c][1], g.chrgb[c][2], 1);
         btn(bx + 26, by, 36, bh, g.active[c] ? "ON" : "off", g.active[c], 6, c,
             g.active[c] ? 28 : 40, g.active[c] ? 90 : 42, g.active[c] ? 60 : 50);
-        btn(bx + 64, by, 36, bh, g.rld[c] ? "RLD" : "rld", g.rld[c], 7, c,
-            g.rld[c] ? 50 : 40, g.rld[c] ? 70 : 42, g.rld[c] ? 110 : 50);
+        if (g.neg_rail) {
+            btn(bx + 64, by, 36, bh, "off", 0, 7, c, 36, 32, 32);
+        } else {
+            btn(bx + 64, by, 36, bh, g.rld[c] ? "RLD" : "rld", g.rld[c], 7, c,
+                g.rld[c] ? 50 : 40, g.rld[c] ? 70 : 42, g.rld[c] ? 110 : 50);
+        }
         snprintf(gn, sizeof(gn), "g%d", g.gain[c]);
         btn(bx + 102, by, 40, bh, gn, 1, 8, c, 40, 42, 52);
     }
@@ -1482,6 +1499,14 @@ static void draw_side(int x)
         }
         y += 4 * rh + 8;
         {
+            char nb[24];
+            snprintf(nb, sizeof(nb), "− %s", np_1010_name(g.neg_site));
+            btn(x + 12, y, sidew() - 24, bh, nb, g.elec_sel == NP_ELEC_NEG, 73, 0,
+                g.elec_sel == NP_ELEC_NEG ? 80 : 36, g.elec_sel == NP_ELEC_NEG ? 24 : 40,
+                g.elec_sel == NP_ELEC_NEG ? 28 : 48);
+            y += rh;
+        }
+        {
             char zb[24];
             snprintf(zb, sizeof(zb), "zoom %.1fx", (double)g.cube_zoom);
             btn(x + 12, y, 88, bh, "-", 0, 47, 0, 36, 40, 48);
@@ -1499,7 +1524,9 @@ static void draw_side(int x)
             btn(x + 220, y, 56, bh, ">", 0, 50, 0, 36, 40, 48);
         }
         y += rh;
-        btn(x + 12, y, sidew() - 24, bh, "Assign to selected ch", 0, 51, 0, 28, 80, 48);
+        btn(x + 12, y, sidew() - 24, bh,
+            g.elec_sel == NP_ELEC_NEG ? "Assign to negative electrode" : "Assign to selected ch",
+            0, 51, 0, 28, 80, 48);
         y += rh;
         {
             int vs = cube_virt_slot(g.virt_focus);
@@ -1877,10 +1904,13 @@ static void click(int x, int y)
             }
             break;
         case 7:
-            g.rld[hits[i].ch] = !g.rld[hits[i].ch];
-            if (g.connected) {
-                cmd_push(g.rld[hits[i].ch] ? CMD_RLDADD : CMD_RLDRM, hits[i].ch + 1, 0);
-            }
+            np_host_set_rld(hits[i].ch, !np_host_rld(hits[i].ch));
+            break;
+        case 72:
+            np_host_set_neg_rail(!g.neg_rail);
+            break;
+        case 73:
+            np_host_set_elec_sel(NP_ELEC_NEG);
             break;
         case 8:
             next_gain(hits[i].ch);

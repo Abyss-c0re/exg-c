@@ -607,9 +607,14 @@ static void test_elec_view(void)
         }
         expect(distinct, "default sites distinct");
     }
-    expect(np_1010_count() == NP_1010_N, "61 10-10 headset nodes");
+    expect(np_1010_count() == NP_1010_N, "65 10-10 + ear/mastoid refs");
     expect(np_1010_find("Fp1") >= 0 && np_1010_find("C3") >= 0 && np_1010_find("O2") >= 0,
            "headset names Fp1 C3 O2 exist");
+    expect(np_1010_find("A1") >= 0 && np_1010_find("A2") >= 0
+               && np_1010_find("M1") >= 0 && np_1010_find("M2") >= 0,
+           "negative electrode sites A1 A2 M1 M2 exist");
+    expect(!np_1010_core(np_1010_find("A1")) && !np_1010_core(np_1010_find("M2")),
+           "ear/mastoid refs are not headset core");
     expect(np_1010_core(np_1010_find("Fp1")) && np_1010_core(np_1010_find("Cz")),
            "10-20 names are core markings");
     expect(!np_1010_core(np_1010_find("AF3")) && !np_1010_core(np_1010_find("FCz")),
@@ -1024,8 +1029,8 @@ static void test_profile_format(void)
     const char *path = "/tmp/exg-c-profile-mock.ini";
     FILE *f;
     char line[96];
-    int gain1 = 0, active3 = -1, rld2 = -1, scale = 0, notch = 0;
-    char elec1[8] = "", elec8[8] = "", prof[24] = "";
+    int gain1 = 0, active3 = -1, rld2 = -1, scale = 0, notch = 0, neg_rail = -1;
+    char elec1[8] = "", elec8[8] = "", prof[24] = "", neg_site[8] = "";
 
     f = fopen(path, "w");
     expect(f != NULL, "profile mock file opens");
@@ -1035,7 +1040,7 @@ static void test_profile_format(void)
     fprintf(f, "[ui]\nscale=20\nprofile=motor\n");
     fprintf(f, "[view]\nnotch_hz=50\nhp_hz=1\n");
     fprintf(f, "[cube]\nelec1=Fp1\nelec8=O2\n");
-    fprintf(f, "[channels]\ngain1=8\nactive3=0\nrld2=1\n");
+    fprintf(f, "[channels]\ngain1=8\nactive3=0\nrld2=1\nneg_rail=1\nneg_site=A1\n");
     fclose(f);
     f = fopen(path, "r");
     expect(f != NULL, "profile mock file reads");
@@ -1060,6 +1065,10 @@ static void test_profile_format(void)
             active3 = v;
         } else if (sscanf(line, "rld%d=%d", &ch, &v) == 2 && ch == 2) {
             rld2 = v;
+        } else if (sscanf(line, "neg_rail=%d", &v) == 1) {
+            neg_rail = v;
+        } else if (sscanf(line, "neg_site=%7s", neg_site) == 1) {
+            ;
         }
     }
     fclose(f);
@@ -1068,6 +1077,7 @@ static void test_profile_format(void)
     expect(strcmp(elec1, "Fp1") == 0 && strcmp(elec8, "O2") == 0,
            "profile keeps electrode sites");
     expect(gain1 == 8 && active3 == 0 && rld2 == 1, "profile keeps gain on/rld");
+    expect(neg_rail == 1 && strcmp(neg_site, "A1") == 0, "profile keeps neg rail site");
 }
 
 static void test_id_event(void)
@@ -1580,7 +1590,7 @@ static void test_api(void)
          strstr(body, "/stream") && strstr(body, "EXG1");
     expect(ok, "api GET / index lists stream");
     expect(strstr(body, "stream.json") == NULL, "api index has no NDJSON live path");
-    expect(strstr(body, "\"v\":\"2.82\"") != NULL, "api index version 2.82");
+    expect(strstr(body, "\"v\":\"2.83\"") != NULL, "api index version 2.83");
     expect(strstr(body, "/pair") != NULL, "api index lists /pair");
     expect(strstr(body, "\"ip\":\"127.0.0.1\"") != NULL, "api local ip is loopback");
     {

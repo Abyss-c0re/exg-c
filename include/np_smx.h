@@ -41,7 +41,7 @@ struct np_cube {
 
 /* Scalp site. az 0 = nose, + = right (deg). el 0 = ear line, + = vertex. */
 #define NP_ELEC_NAME 6
-#define NP_1010_N 61 /* 10-10 nodes on the kit headset (no Nz/Iz/A1/A2) */
+#define NP_1010_N 65 /* 61 headset 10-10 + A1/A2/M1/M2 for the negative electrode */
 struct np_elec {
     float az, el;
     int site; /* 10-10 index, or -1 */

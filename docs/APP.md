@@ -1,4 +1,4 @@
-# App (2.82)
+# App (2.83)
 
 What the host does. The LAN wire is [API.md](API.md).
 
@@ -107,6 +107,10 @@ Last ~0.5 s EXG vs a rolling quiet baseline (`id_base` EMA while still).
 ## Bias (RLD)
 
 Per-channel **bias ON** (teal) / **bias off** (dark). Connect sends `RLDADD` or `RLDRM` for every active pin. A saved off stays off.
+
+## Negative rail
+
+**NEG RAIL** is the shared-negative mode: every channel's bias is locked off (`rldremove_` on Connect and while the mode is on). Pick the negative electrode site (default **A1**; also A2, M1, M2, or any 10-10 name). The cube map marks that site in silver. Leave the mode to use per-channel RLD again — bias stays off until you turn it back on.
 
 ## Plot
 
