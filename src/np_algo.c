@@ -161,6 +161,9 @@ enum {
     OP_GE,
     OP_EQ,
     OP_NE,
+    OP_AND,
+    OP_OR,
+    OP_NOT,
     OP_JZ,
     OP_JMP,
     OP_STORE,
@@ -255,6 +258,15 @@ static void lex_next(struct np_lex *L)
         } else if (kw_eq(L->tok, "off")) {
             L->kind = TK_NUM;
             L->num = 0.f;
+        } else if (kw_eq(L->tok, "and")) {
+            snprintf(L->tok, sizeof(L->tok), "%s", "AND");
+            L->kind = TK_OP;
+        } else if (kw_eq(L->tok, "or")) {
+            snprintf(L->tok, sizeof(L->tok), "%s", "OR");
+            L->kind = TK_OP;
+        } else if (kw_eq(L->tok, "not")) {
+            snprintf(L->tok, sizeof(L->tok), "%s", "NOT");
+            L->kind = TK_OP;
         } else {
             L->kind = TK_ID;
         }
@@ -274,6 +286,18 @@ static void lex_next(struct np_lex *L)
         L->tok[0] = L->s[0];
         L->tok[1] = '=';
         L->tok[2] = 0;
+        L->s += 2;
+        L->kind = TK_OP;
+        return;
+    }
+    if (L->s[0] == '&' && L->s[1] == '&') {
+        snprintf(L->tok, sizeof(L->tok), "%s", "AND");
+        L->s += 2;
+        L->kind = TK_OP;
+        return;
+    }
+    if (L->s[0] == '|' && L->s[1] == '|') {
+        snprintf(L->tok, sizeof(L->tok), "%s", "OR");
         L->s += 2;
         L->kind = TK_OP;
         return;
@@ -341,7 +365,8 @@ static int reserved(const char *name)
            kw_eq(name, "rms") || kw_eq(name, "n") || kw_eq(name, "bit") ||
            kw_eq(name, "if") || kw_eq(name, "then") || kw_eq(name, "else") ||
            kw_eq(name, "elif") || kw_eq(name, "end") || kw_eq(name, "let") ||
-           kw_eq(name, "abs") || kw_eq(name, "prev") || kw_eq(name, "dxmean") ||
+           kw_eq(name, "abs") || kw_eq(name, "and") || kw_eq(name, "or") ||
+           kw_eq(name, "not") || kw_eq(name, "prev") || kw_eq(name, "dxmean") ||
            kw_eq(name, "above") || kw_eq(name, "pos") ||
            kw_eq(name, "signal") || name_ix(name, "ch") >= 0 ||
            name_ix(name, "last") >= 0 || name_ix(name, "mean") >= 0 ||
@@ -354,12 +379,20 @@ static int parse_expr(struct np_lex *L, struct np_prog *P, char *err, int errn);
 
 static int parse_unary(struct np_lex *L, struct np_prog *P, char *err, int errn)
 {
-    if (L->kind == TK_OP && L->tok[0] == '-' && L->tok[1] == 0) {
+    if ((L->kind == TK_OP && L->tok[0] == '-' && L->tok[1] == 0)) {
         lex_next(L);
         if (parse_unary(L, P, err, errn) != 0) {
             return -1;
         }
         return emit(P, OP_NEG, 0, 0, err, errn, L->line);
+    }
+    if (L->kind == TK_OP &&
+        (strcmp(L->tok, "NOT") == 0 || (L->tok[0] == '!' && L->tok[1] == 0))) {
+        lex_next(L);
+        if (parse_unary(L, P, err, errn) != 0) {
+            return -1;
+        }
+        return emit(P, OP_NOT, 0, 0, err, errn, L->line);
     }
     if (L->kind == TK_ID && kw_eq(L->tok, "abs")) {
         lex_next(L);
@@ -526,7 +559,7 @@ static int parse_add(struct np_lex *L, struct np_prog *P, char *err, int errn)
     return 0;
 }
 
-static int parse_expr(struct np_lex *L, struct np_prog *P, char *err, int errn)
+static int parse_cmp(struct np_lex *L, struct np_prog *P, char *err, int errn)
 {
     unsigned char op;
     if (parse_add(L, P, err, errn) != 0) {
@@ -554,6 +587,40 @@ static int parse_expr(struct np_lex *L, struct np_prog *P, char *err, int errn)
             return -1;
         }
         if (emit(P, op, 0, 0, err, errn, L->line) != 0) {
+            return -1;
+        }
+    }
+    return 0;
+}
+
+static int parse_and(struct np_lex *L, struct np_prog *P, char *err, int errn)
+{
+    if (parse_cmp(L, P, err, errn) != 0) {
+        return -1;
+    }
+    while (L->kind == TK_OP && strcmp(L->tok, "AND") == 0) {
+        lex_next(L);
+        if (parse_cmp(L, P, err, errn) != 0) {
+            return -1;
+        }
+        if (emit(P, OP_AND, 0, 0, err, errn, L->line) != 0) {
+            return -1;
+        }
+    }
+    return 0;
+}
+
+static int parse_expr(struct np_lex *L, struct np_prog *P, char *err, int errn)
+{
+    if (parse_and(L, P, err, errn) != 0) {
+        return -1;
+    }
+    while (L->kind == TK_OP && strcmp(L->tok, "OR") == 0) {
+        lex_next(L);
+        if (parse_and(L, P, err, errn) != 0) {
+            return -1;
+        }
+        if (emit(P, OP_OR, 0, 0, err, errn, L->line) != 0) {
             return -1;
         }
     }
@@ -968,6 +1035,13 @@ static int eval_prog(const struct np_prog *P, const struct np_algo_bank *bank,
             st[sp - 1] = -st[sp - 1];
             pc++;
             break;
+        case OP_NOT:
+            if (sp < 1) {
+                return 0;
+            }
+            st[sp - 1] = st[sp - 1] != 0.f ? 0.f : 1.f;
+            pc++;
+            break;
         case OP_ADD:
         case OP_SUB:
         case OP_MUL:
@@ -978,6 +1052,8 @@ static int eval_prog(const struct np_prog *P, const struct np_algo_bank *bank,
         case OP_GE:
         case OP_EQ:
         case OP_NE:
+        case OP_AND:
+        case OP_OR:
             if (sp < 2) {
                 return 0;
             }
@@ -1001,8 +1077,14 @@ static int eval_prog(const struct np_prog *P, const struct np_algo_bank *bank,
                 a = a >= b ? 1.f : 0.f;
             } else if (o->op == OP_EQ) {
                 a = a == b ? 1.f : 0.f;
-            } else {
+            } else if (o->op == OP_NE) {
                 a = a != b ? 1.f : 0.f;
+            } else if (o->op == OP_AND) {
+                a = (a != 0.f && b != 0.f) ? 1.f : 0.f;
+            } else if (o->op == OP_OR) {
+                a = (a != 0.f || b != 0.f) ? 1.f : 0.f;
+            } else {
+                a = 0.f;
             }
             st[sp++] = a;
             pc++;

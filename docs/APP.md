@@ -1,4 +1,4 @@
-# App (2.75)
+# App (2.76)
 
 What the host does. The LAN wire is [API.md](API.md).
 
@@ -127,7 +127,7 @@ A separate tab. Defaults are CubalC you can read (and reset). Add your own. **us
 | proton | `if pos > 0.5 then 1` |
 | compare | `if ch2 < ch5 then ch3 ON` |
 
-Names: `ch`/`last`/`mean`/`rms`/`prev`/`dxmean`/`above`/`pos`/`signal` for this bit’s channel, and `ch1`…`ch8` for jacks. `LET` / `IF` / `THEN` / `ELSE` / `END` work.
+Names: `ch`/`last`/`mean`/`rms`/`prev`/`dxmean`/`above`/`pos`/`signal` for this bit’s channel, and `ch1`…`ch8` for jacks. Logic: `AND` `OR` `NOT` (also `&&` `||` `!`). `LET` / `IF` / `THEN` / `ELSE` / `END` work.
 
 **float on** levitates; **float off** is manual drag-spin and +/− zoom. Sites live in Settings.
 

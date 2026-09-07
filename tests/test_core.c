@@ -812,6 +812,25 @@ static void test_algo(void)
             b.last[6] = 2.f;
             expect(np_algo_custom_bank("if ch3 < ch7 then ON\nelse OFF\n", &b) == 1,
                    "ch3<ch7 self ON");
+            b.last[1] = 10.f;
+            b.last[4] = 50.f;
+            b.last[0] = 2.f;
+            expect(np_algo_compile("if ch2 < ch5 AND ch1 > 0 then ON\nelse OFF\n",
+                                  err, 80) == 0,
+                   "AND compiles");
+            expect(np_algo_custom_bank(
+                       "if ch2 < ch5 AND ch1 > 0 then ON\nelse OFF\n", &b) == 1,
+                   "AND both true");
+            b.last[0] = -1.f;
+            expect(np_algo_custom_bank(
+                       "if ch2 < ch5 AND ch1 > 0 then ON\nelse OFF\n", &b) == 0,
+                   "AND one false");
+            expect(np_algo_custom_bank(
+                       "if ch2 < ch5 OR ch1 > 0 then ON\nelse OFF\n", &b) == 1,
+                   "OR one true");
+            expect(np_algo_custom_bank("if NOT (ch1 > 0) then ON\nelse OFF\n",
+                                      &b) == 1,
+                   "NOT false is ON");
         }
     }
 }
@@ -1377,7 +1396,7 @@ static void test_api(void)
          strstr(body, "/stream") && strstr(body, "EXG1");
     expect(ok, "api GET / index lists stream");
     expect(strstr(body, "stream.json") == NULL, "api index has no NDJSON live path");
-    expect(strstr(body, "\"v\":\"2.75\"") != NULL, "api index version 2.75");
+    expect(strstr(body, "\"v\":\"2.76\"") != NULL, "api index version 2.76");
     expect(strstr(body, "/pair") != NULL, "api index lists /pair");
     expect(strstr(body, "\"ip\":\"127.0.0.1\"") != NULL, "api local ip is loopback");
     {
