@@ -152,6 +152,9 @@ enum {
     OP_ABS,
     OP_MIN,
     OP_MAX,
+    OP_SQRT,
+    OP_POW,
+    OP_MOD,
     OP_NEG,
     OP_ADD,
     OP_SUB,
@@ -170,12 +173,15 @@ enum {
     OP_JMP,
     OP_STORE,
     OP_BIT,
-    OP_BITN
+    OP_BITN,
+    OP_FOR,
+    OP_UNTIL
 };
 
 #define NP_ALGO_OPS 96
 #define NP_ALGO_VARS 8
 #define NP_ALGO_STACK 16
+#define NP_HOLD_N 8
 
 struct np_op {
     unsigned char op;
@@ -188,7 +194,23 @@ struct np_prog {
     int n;
     char vname[NP_ALGO_VARS][12];
     int nv;
+    int nfor, nuntil;
+    int for_b0[NP_HOLD_N], for_b1[NP_HOLD_N];
+    int until_c0[NP_HOLD_N], until_c1[NP_HOLD_N];
+    int until_b0[NP_HOLD_N], until_b1[NP_HOLD_N];
 };
+
+static uint64_t g_now_ms;
+static struct {
+    char src[NP_ALGO_SRC];
+    uint64_t for_dead[NP_HOLD_N];
+    uint8_t until_on[NP_HOLD_N];
+} g_hs;
+
+void np_algo_set_now(uint64_t now_ms)
+{
+    g_now_ms = now_ms;
+}
 
 enum { TK_EOF = 0, TK_ID, TK_NUM, TK_OP };
 
@@ -369,7 +391,9 @@ static int reserved(const char *name)
            kw_eq(name, "elif") || kw_eq(name, "end") || kw_eq(name, "let") ||
            kw_eq(name, "abs") || kw_eq(name, "min") || kw_eq(name, "max") ||
            kw_eq(name, "and") || kw_eq(name, "or") ||
-           kw_eq(name, "not") || kw_eq(name, "prev") || kw_eq(name, "dxmean") ||
+           kw_eq(name, "not") || kw_eq(name, "for") || kw_eq(name, "until") ||
+           kw_eq(name, "sqrt") || kw_eq(name, "pow") ||
+           kw_eq(name, "prev") || kw_eq(name, "dxmean") ||
            kw_eq(name, "above") || kw_eq(name, "pos") ||
            kw_eq(name, "signal") || name_ix(name, "ch") >= 0 ||
            name_ix(name, "last") >= 0 || name_ix(name, "mean") >= 0 ||
@@ -396,6 +420,48 @@ static int parse_unary(struct np_lex *L, struct np_prog *P, char *err, int errn)
             return -1;
         }
         return emit(P, OP_NOT, 0, 0, err, errn, L->line);
+    }
+    if (L->kind == TK_ID && kw_eq(L->tok, "sqrt")) {
+        lex_next(L);
+        if (!(L->kind == TK_OP && L->tok[0] == '(')) {
+            snprintf(err, (size_t)errn, "line %d: sqrt needs ()", L->line);
+            return -1;
+        }
+        lex_next(L);
+        if (parse_expr(L, P, err, errn) != 0) {
+            return -1;
+        }
+        if (!(L->kind == TK_OP && L->tok[0] == ')')) {
+            snprintf(err, (size_t)errn, "line %d: missing )", L->line);
+            return -1;
+        }
+        lex_next(L);
+        return emit(P, OP_SQRT, 0, 0, err, errn, L->line);
+    }
+    if (L->kind == TK_ID && kw_eq(L->tok, "pow")) {
+        lex_next(L);
+        if (!(L->kind == TK_OP && L->tok[0] == '(')) {
+            snprintf(err, (size_t)errn, "line %d: pow needs (a, b)", L->line);
+            return -1;
+        }
+        lex_next(L);
+        if (parse_expr(L, P, err, errn) != 0) {
+            return -1;
+        }
+        if (!(L->kind == TK_OP && L->tok[0] == ',')) {
+            snprintf(err, (size_t)errn, "line %d: pow needs a comma", L->line);
+            return -1;
+        }
+        lex_next(L);
+        if (parse_expr(L, P, err, errn) != 0) {
+            return -1;
+        }
+        if (!(L->kind == TK_OP && L->tok[0] == ')')) {
+            snprintf(err, (size_t)errn, "line %d: missing )", L->line);
+            return -1;
+        }
+        lex_next(L);
+        return emit(P, OP_POW, 0, 0, err, errn, L->line);
     }
     if (L->kind == TK_ID && kw_eq(L->tok, "abs")) {
         lex_next(L);
@@ -553,15 +619,16 @@ static int parse_mul(struct np_lex *L, struct np_prog *P, char *err, int errn)
     if (parse_unary(L, P, err, errn) != 0) {
         return -1;
     }
-    while (L->kind == TK_OP && (L->tok[0] == '*' || L->tok[0] == '/') &&
-           L->tok[1] == 0) {
+    while (L->kind == TK_OP &&
+           ((L->tok[0] == '*' || L->tok[0] == '/' || L->tok[0] == '%') &&
+            L->tok[1] == 0)) {
         char op = L->tok[0];
         lex_next(L);
         if (parse_unary(L, P, err, errn) != 0) {
             return -1;
         }
-        if (emit(P, op == '*' ? OP_MUL : OP_DIV, 0, 0, err, errn, L->line) !=
-            0) {
+        if (emit(P, op == '*' ? OP_MUL : (op == '/' ? OP_DIV : OP_MOD), 0, 0,
+                 err, errn, L->line) != 0) {
             return -1;
         }
     }
@@ -658,6 +725,77 @@ static int parse_expr(struct np_lex *L, struct np_prog *P, char *err, int errn)
 
 static int parse_stmt(struct np_lex *L, struct np_prog *P, char *err, int errn);
 static int parse_block(struct np_lex *L, struct np_prog *P, char *err, int errn);
+
+static int parse_for(struct np_lex *L, struct np_prog *P, char *err, int errn)
+{
+    int slot, b0;
+    lex_next(L);
+    if (P->nfor >= NP_HOLD_N) {
+        snprintf(err, (size_t)errn, "line %d: too many FOR", L->line);
+        return -1;
+    }
+    slot = P->nfor++;
+    if (parse_expr(L, P, err, errn) != 0) {
+        return -1;
+    }
+    if (emit(P, OP_FOR, 0, slot, err, errn, L->line) != 0) {
+        return -1;
+    }
+    if (L->kind == TK_ID && kw_eq(L->tok, "then")) {
+        lex_next(L);
+    }
+    b0 = P->n;
+    if (parse_block(L, P, err, errn) != 0) {
+        return -1;
+    }
+    P->for_b0[slot] = b0;
+    P->for_b1[slot] = P->n;
+    if (L->kind == TK_ID && kw_eq(L->tok, "end")) {
+        lex_next(L);
+    }
+    return 0;
+}
+
+static int parse_until(struct np_lex *L, struct np_prog *P, char *err, int errn)
+{
+    int slot, c0, jz, b0;
+    lex_next(L);
+    if (P->nuntil >= NP_HOLD_N) {
+        snprintf(err, (size_t)errn, "line %d: too many UNTIL", L->line);
+        return -1;
+    }
+    slot = P->nuntil++;
+    if (emit(P, OP_UNTIL, 0, slot, err, errn, L->line) != 0) {
+        return -1;
+    }
+    c0 = P->n;
+    if (parse_expr(L, P, err, errn) != 0) {
+        return -1;
+    }
+    P->until_c0[slot] = c0;
+    P->until_c1[slot] = P->n;
+    if (L->kind == TK_ID && kw_eq(L->tok, "then")) {
+        lex_next(L);
+    }
+    if (emit(P, OP_NOT, 0, 0, err, errn, L->line) != 0) {
+        return -1;
+    }
+    jz = P->n;
+    if (emit(P, OP_JZ, 0, 0, err, errn, L->line) != 0) {
+        return -1;
+    }
+    b0 = P->n;
+    if (parse_block(L, P, err, errn) != 0) {
+        return -1;
+    }
+    P->until_b0[slot] = b0;
+    P->until_b1[slot] = P->n;
+    P->op[jz].i = P->n;
+    if (L->kind == TK_ID && kw_eq(L->tok, "end")) {
+        lex_next(L);
+    }
+    return 0;
+}
 
 static int parse_onoff(struct np_lex *L, float *v, char *err, int errn)
 {
@@ -773,6 +911,12 @@ static int parse_stmt(struct np_lex *L, struct np_prog *P, char *err, int errn)
     if (L->kind == TK_ID && kw_eq(L->tok, "if")) {
         return parse_if(L, P, err, errn);
     }
+    if (L->kind == TK_ID && kw_eq(L->tok, "for")) {
+        return parse_for(L, P, err, errn);
+    }
+    if (L->kind == TK_ID && kw_eq(L->tok, "until")) {
+        return parse_until(L, P, err, errn);
+    }
     if (L->kind == TK_NUM) {
         return parse_set_ch(L, P, -1, err, errn);
     }
@@ -790,8 +934,9 @@ static int parse_stmt(struct np_lex *L, struct np_prog *P, char *err, int errn)
         }
         snprintf(name, sizeof(name), "%s", L->tok);
         lex_next(L);
-        if (!(L->kind == TK_OP && L->tok[0] == '=' && L->tok[1] == 0)) {
-            snprintf(err, (size_t)errn, "line %d: LET needs =", L->line);
+        if (!((L->kind == TK_OP && L->tok[0] == '=' && L->tok[1] == 0) ||
+              (L->kind == TK_OP && L->tok[0] == ',' && L->tok[1] == 0))) {
+            snprintf(err, (size_t)errn, "line %d: LET needs = or ,", L->line);
             return -1;
         }
         lex_next(L);
@@ -815,7 +960,7 @@ static int parse_stmt(struct np_lex *L, struct np_prog *P, char *err, int errn)
         }
         return emit(P, OP_STORE, 0, slot, err, errn, L->line);
     }
-    snprintf(err, (size_t)errn, "line %d: expected IF, LET, chN, ON or OFF",
+    snprintf(err, (size_t)errn, "line %d: expected IF, FOR, UNTIL, LET, chN, ON or OFF",
              L->line);
     return -1;
 }
@@ -879,219 +1024,242 @@ static float bank_at(const float *v, int i)
     return v[i];
 }
 
-static int eval_prog(const struct np_prog *P, const struct np_algo_bank *bank,
-                     struct np_algo_out *out)
-{
+struct eval_run {
     float st[NP_ALGO_STACK];
     float var[NP_ALGO_VARS];
-    float ch = 0, ma = 0, rms = 0, nn = 0;
-    float prev = 0, dx = 0, above = 0, pos = 0, sig = 0;
-    int sp = 0, pc = 0;
-    int bit = 0;
-    int self = bank ? bank->self : -1;
-    struct np_algo_out local;
+    int sp;
+    int bit;
+    uint8_t hit_for[NP_HOLD_N];
+    uint8_t hit_until[NP_HOLD_N];
+    struct np_algo_out *out;
+    const struct np_algo_bank *bank;
+    float ch, ma, rms, nn, prev, dx, above, pos, sig;
+    int self;
+};
 
-    if (!out) {
-        out = &local;
+static void hold_bind(const char *src)
+{
+    if (!src) {
+        src = "";
     }
-    memset(out, 0, sizeof(*out));
-    memset(var, 0, sizeof(var));
-    if (bank && self >= 0 && self < 8) {
-        ch = bank->last[self];
-        ma = bank->mean[self];
-        rms = bank->rms[self];
-        nn = bank->nn[self];
-        prev = bank->prev[self];
-        dx = bank->dxmean[self];
-        above = bank->above[self];
-        pos = bank->pos[self];
-        sig = bank->signal[self];
+    if (strcmp(g_hs.src, src) != 0) {
+        memset(&g_hs, 0, sizeof(g_hs));
+        snprintf(g_hs.src, sizeof(g_hs.src), "%s", src);
     }
-    while (pc >= 0 && pc < P->n) {
+}
+
+static int eval_ops(const struct np_prog *P, struct eval_run *E, int pc0, int pc1)
+{
+    int pc = pc0;
+    if (pc0 < 0) {
+        return 0;
+    }
+    if (pc1 > P->n) {
+        pc1 = P->n;
+    }
+    while (pc >= 0 && pc < pc1) {
         const struct np_op *o = &P->op[pc];
         float a, b;
         switch (o->op) {
         case OP_HALT:
-            return bit ? 1 : 0;
+            return E->bit ? 1 : 0;
         case OP_PUSHC:
-            if (sp >= NP_ALGO_STACK) {
+            if (E->sp >= NP_ALGO_STACK) {
                 return 0;
             }
-            st[sp++] = o->f;
+            E->st[E->sp++] = o->f;
             pc++;
             break;
         case OP_PUSHV:
-            if (sp >= NP_ALGO_STACK || o->i < 0 || o->i >= NP_ALGO_VARS) {
+            if (E->sp >= NP_ALGO_STACK || o->i < 0 || o->i >= NP_ALGO_VARS) {
                 return 0;
             }
-            st[sp++] = var[o->i];
+            E->st[E->sp++] = E->var[o->i];
             pc++;
             break;
         case OP_PUSHCH:
-            if (sp >= NP_ALGO_STACK) {
+            if (E->sp >= NP_ALGO_STACK) {
                 return 0;
             }
-            st[sp++] = ch;
+            E->st[E->sp++] = E->ch;
             pc++;
             break;
         case OP_PUSHMEAN:
-            if (sp >= NP_ALGO_STACK) {
+            if (E->sp >= NP_ALGO_STACK) {
                 return 0;
             }
-            st[sp++] = ma;
+            E->st[E->sp++] = E->ma;
             pc++;
             break;
         case OP_PUSHRMS:
-            if (sp >= NP_ALGO_STACK) {
+            if (E->sp >= NP_ALGO_STACK) {
                 return 0;
             }
-            st[sp++] = rms;
+            E->st[E->sp++] = E->rms;
             pc++;
             break;
         case OP_PUSHN:
-            if (sp >= NP_ALGO_STACK) {
+            if (E->sp >= NP_ALGO_STACK) {
                 return 0;
             }
-            st[sp++] = nn;
+            E->st[E->sp++] = E->nn;
             pc++;
             break;
         case OP_PUSHCHN:
-            if (sp >= NP_ALGO_STACK) {
+            if (E->sp >= NP_ALGO_STACK) {
                 return 0;
             }
-            st[sp++] = bank ? bank_at(bank->last, o->i) : 0.f;
+            E->st[E->sp++] = E->bank ? bank_at(E->bank->last, o->i) : 0.f;
             pc++;
             break;
         case OP_PUSHMEANN:
-            if (sp >= NP_ALGO_STACK) {
+            if (E->sp >= NP_ALGO_STACK) {
                 return 0;
             }
-            st[sp++] = bank ? bank_at(bank->mean, o->i) : 0.f;
+            E->st[E->sp++] = E->bank ? bank_at(E->bank->mean, o->i) : 0.f;
             pc++;
             break;
         case OP_PUSHRMSN:
-            if (sp >= NP_ALGO_STACK) {
+            if (E->sp >= NP_ALGO_STACK) {
                 return 0;
             }
-            st[sp++] = bank ? bank_at(bank->rms, o->i) : 0.f;
+            E->st[E->sp++] = E->bank ? bank_at(E->bank->rms, o->i) : 0.f;
             pc++;
             break;
         case OP_PUSHNN:
-            if (sp >= NP_ALGO_STACK) {
+            if (E->sp >= NP_ALGO_STACK) {
                 return 0;
             }
-            st[sp++] = bank ? bank_at(bank->nn, o->i) : 0.f;
+            E->st[E->sp++] = E->bank ? bank_at(E->bank->nn, o->i) : 0.f;
             pc++;
             break;
         case OP_PUSHPREV:
-            if (sp >= NP_ALGO_STACK) {
+            if (E->sp >= NP_ALGO_STACK) {
                 return 0;
             }
-            st[sp++] = prev;
+            E->st[E->sp++] = E->prev;
             pc++;
             break;
         case OP_PUSHDX:
-            if (sp >= NP_ALGO_STACK) {
+            if (E->sp >= NP_ALGO_STACK) {
                 return 0;
             }
-            st[sp++] = dx;
+            E->st[E->sp++] = E->dx;
             pc++;
             break;
         case OP_PUSHABOVE:
-            if (sp >= NP_ALGO_STACK) {
+            if (E->sp >= NP_ALGO_STACK) {
                 return 0;
             }
-            st[sp++] = above;
+            E->st[E->sp++] = E->above;
             pc++;
             break;
         case OP_PUSHPOS:
-            if (sp >= NP_ALGO_STACK) {
+            if (E->sp >= NP_ALGO_STACK) {
                 return 0;
             }
-            st[sp++] = pos;
+            E->st[E->sp++] = E->pos;
             pc++;
             break;
         case OP_PUSHSIG:
-            if (sp >= NP_ALGO_STACK) {
+            if (E->sp >= NP_ALGO_STACK) {
                 return 0;
             }
-            st[sp++] = sig;
+            E->st[E->sp++] = E->sig;
             pc++;
             break;
         case OP_PUSHPREVN:
-            if (sp >= NP_ALGO_STACK) {
+            if (E->sp >= NP_ALGO_STACK) {
                 return 0;
             }
-            st[sp++] = bank ? bank_at(bank->prev, o->i) : 0.f;
+            E->st[E->sp++] = E->bank ? bank_at(E->bank->prev, o->i) : 0.f;
             pc++;
             break;
         case OP_PUSHDXN:
-            if (sp >= NP_ALGO_STACK) {
+            if (E->sp >= NP_ALGO_STACK) {
                 return 0;
             }
-            st[sp++] = bank ? bank_at(bank->dxmean, o->i) : 0.f;
+            E->st[E->sp++] = E->bank ? bank_at(E->bank->dxmean, o->i) : 0.f;
             pc++;
             break;
         case OP_PUSHABOVEN:
-            if (sp >= NP_ALGO_STACK) {
+            if (E->sp >= NP_ALGO_STACK) {
                 return 0;
             }
-            st[sp++] = bank ? bank_at(bank->above, o->i) : 0.f;
+            E->st[E->sp++] = E->bank ? bank_at(E->bank->above, o->i) : 0.f;
             pc++;
             break;
         case OP_PUSHPOSN:
-            if (sp >= NP_ALGO_STACK) {
+            if (E->sp >= NP_ALGO_STACK) {
                 return 0;
             }
-            st[sp++] = bank ? bank_at(bank->pos, o->i) : 0.f;
+            E->st[E->sp++] = E->bank ? bank_at(E->bank->pos, o->i) : 0.f;
             pc++;
             break;
         case OP_PUSHSIGN:
-            if (sp >= NP_ALGO_STACK) {
+            if (E->sp >= NP_ALGO_STACK) {
                 return 0;
             }
-            st[sp++] = bank ? bank_at(bank->signal, o->i) : 0.f;
+            E->st[E->sp++] = E->bank ? bank_at(E->bank->signal, o->i) : 0.f;
             pc++;
             break;
         case OP_ABS:
-            if (sp < 1) {
+            if (E->sp < 1) {
                 return 0;
             }
-            st[sp - 1] = fabsf(st[sp - 1]);
+            E->st[E->sp - 1] = fabsf(E->st[E->sp - 1]);
+            pc++;
+            break;
+        case OP_SQRT:
+            if (E->sp < 1) {
+                return 0;
+            }
+            a = E->st[E->sp - 1];
+            E->st[E->sp - 1] = a < 0.f ? 0.f : sqrtf(a);
+            pc++;
+            break;
+        case OP_POW:
+            if (E->sp < 2) {
+                return 0;
+            }
+            b = E->st[--E->sp];
+            a = E->st[--E->sp];
+            E->st[E->sp++] = powf(a, b);
             pc++;
             break;
         case OP_MIN:
         case OP_MAX:
-            if (sp < 2) {
+            if (E->sp < 2) {
                 return 0;
             }
-            b = st[--sp];
-            a = st[--sp];
+            b = E->st[--E->sp];
+            a = E->st[--E->sp];
             if (o->op == OP_MIN) {
-                st[sp++] = a < b ? a : b;
+                E->st[E->sp++] = a < b ? a : b;
             } else {
-                st[sp++] = a > b ? a : b;
+                E->st[E->sp++] = a > b ? a : b;
             }
             pc++;
             break;
         case OP_NEG:
-            if (sp < 1) {
+            if (E->sp < 1) {
                 return 0;
             }
-            st[sp - 1] = -st[sp - 1];
+            E->st[E->sp - 1] = -E->st[E->sp - 1];
             pc++;
             break;
         case OP_NOT:
-            if (sp < 1) {
+            if (E->sp < 1) {
                 return 0;
             }
-            st[sp - 1] = st[sp - 1] != 0.f ? 0.f : 1.f;
+            E->st[E->sp - 1] = E->st[E->sp - 1] != 0.f ? 0.f : 1.f;
             pc++;
             break;
         case OP_ADD:
         case OP_SUB:
         case OP_MUL:
         case OP_DIV:
+        case OP_MOD:
         case OP_LT:
         case OP_GT:
         case OP_LE:
@@ -1100,11 +1268,11 @@ static int eval_prog(const struct np_prog *P, const struct np_algo_bank *bank,
         case OP_NE:
         case OP_AND:
         case OP_OR:
-            if (sp < 2) {
+            if (E->sp < 2) {
                 return 0;
             }
-            b = st[--sp];
-            a = st[--sp];
+            b = E->st[--E->sp];
+            a = E->st[--E->sp];
             if (o->op == OP_ADD) {
                 a = a + b;
             } else if (o->op == OP_SUB) {
@@ -1113,6 +1281,8 @@ static int eval_prog(const struct np_prog *P, const struct np_algo_bank *bank,
                 a = a * b;
             } else if (o->op == OP_DIV) {
                 a = (b == 0.f) ? 0.f : a / b;
+            } else if (o->op == OP_MOD) {
+                a = (b == 0.f) ? 0.f : fmodf(a, b);
             } else if (o->op == OP_LT) {
                 a = a < b ? 1.f : 0.f;
             } else if (o->op == OP_GT) {
@@ -1132,51 +1302,138 @@ static int eval_prog(const struct np_prog *P, const struct np_algo_bank *bank,
             } else {
                 a = 0.f;
             }
-            st[sp++] = a;
+            E->st[E->sp++] = a;
             pc++;
             break;
         case OP_JZ:
-            if (sp < 1) {
+            if (E->sp < 1) {
                 return 0;
             }
-            a = st[--sp];
+            a = E->st[--E->sp];
             pc = (a == 0.f) ? o->i : pc + 1;
             break;
         case OP_JMP:
             pc = o->i;
             break;
         case OP_STORE:
-            if (sp < 1 || o->i < 0 || o->i >= NP_ALGO_VARS) {
+            if (E->sp < 1 || o->i < 0 || o->i >= NP_ALGO_VARS) {
                 return 0;
             }
-            var[o->i] = st[--sp];
+            E->var[o->i] = E->st[--E->sp];
             pc++;
             break;
         case OP_BIT:
-            if (sp < 1) {
+            if (E->sp < 1) {
                 return 0;
             }
-            bit = st[--sp] != 0.f ? 1 : 0;
-            out->self_bit = bit;
-            if (self >= 0 && self < 8) {
-                out->bit[self] = (uint8_t)bit;
-                out->wrote[self] = 1;
+            E->bit = E->st[--E->sp] != 0.f ? 1 : 0;
+            E->out->self_bit = E->bit;
+            if (E->self >= 0 && E->self < 8) {
+                E->out->bit[E->self] = (uint8_t)E->bit;
+                E->out->wrote[E->self] = 1;
             }
             pc++;
             break;
         case OP_BITN:
-            if (sp < 1) {
+            if (E->sp < 1) {
                 return 0;
             }
-            bit = st[--sp] != 0.f ? 1 : 0;
+            E->bit = E->st[--E->sp] != 0.f ? 1 : 0;
             if (o->i >= 0 && o->i < 8) {
-                out->bit[o->i] = (uint8_t)bit;
-                out->wrote[o->i] = 1;
+                E->out->bit[o->i] = (uint8_t)E->bit;
+                E->out->wrote[o->i] = 1;
+            }
+            pc++;
+            break;
+        case OP_FOR:
+            if (E->sp < 1) {
+                return 0;
+            }
+            a = E->st[--E->sp];
+            if (a < 0.f) {
+                a = 0.f;
+            }
+            if (o->i >= 0 && o->i < NP_HOLD_N) {
+                if (g_hs.for_dead[o->i] == 0 ||
+                    (g_now_ms != 0 && g_now_ms >= g_hs.for_dead[o->i])) {
+                    g_hs.for_dead[o->i] =
+                        g_now_ms + (uint64_t)(a * 1000.f + 0.5f);
+                    if (g_hs.for_dead[o->i] == 0) {
+                        g_hs.for_dead[o->i] = 1;
+                    }
+                }
+                E->hit_for[o->i] = 1;
+            }
+            pc++;
+            break;
+        case OP_UNTIL:
+            if (o->i >= 0 && o->i < NP_HOLD_N) {
+                g_hs.until_on[o->i] = 1;
+                E->hit_until[o->i] = 1;
             }
             pc++;
             break;
         default:
             return 0;
+        }
+    }
+    return E->out->self_bit ? 1 : 0;
+}
+
+static int eval_prog(const struct np_prog *P, const struct np_algo_bank *bank,
+                     struct np_algo_out *out)
+{
+    struct eval_run E;
+    struct np_algo_out local;
+    int i, self;
+    float a;
+
+    if (!out) {
+        out = &local;
+    }
+    memset(out, 0, sizeof(*out));
+    memset(&E, 0, sizeof(E));
+    E.out = out;
+    E.bank = bank;
+    E.self = bank ? bank->self : -1;
+    self = E.self;
+    if (bank && self >= 0 && self < 8) {
+        E.ch = bank->last[self];
+        E.ma = bank->mean[self];
+        E.rms = bank->rms[self];
+        E.nn = bank->nn[self];
+        E.prev = bank->prev[self];
+        E.dx = bank->dxmean[self];
+        E.above = bank->above[self];
+        E.pos = bank->pos[self];
+        E.sig = bank->signal[self];
+    }
+    eval_ops(P, &E, 0, P->n);
+    for (i = 0; i < P->nfor && i < NP_HOLD_N; i++) {
+        if (g_now_ms != 0 && g_hs.for_dead[i] != 0 &&
+            g_now_ms < g_hs.for_dead[i] && !E.hit_for[i]) {
+            E.sp = 0;
+            eval_ops(P, &E, P->for_b0[i], P->for_b1[i]);
+        }
+        if (g_now_ms != 0 && g_hs.for_dead[i] != 0 &&
+            g_now_ms >= g_hs.for_dead[i]) {
+            g_hs.for_dead[i] = 0;
+        }
+    }
+    for (i = 0; i < P->nuntil && i < NP_HOLD_N; i++) {
+        if (g_hs.until_on[i] && !E.hit_until[i]) {
+            E.sp = 0;
+            eval_ops(P, &E, P->until_c0[i], P->until_c1[i]);
+            if (E.sp < 1) {
+                continue;
+            }
+            a = E.st[--E.sp];
+            if (a != 0.f) {
+                g_hs.until_on[i] = 0;
+            } else {
+                E.sp = 0;
+                eval_ops(P, &E, P->until_b0[i], P->until_b1[i]);
+            }
         }
     }
     return out->self_bit ? 1 : 0;
@@ -1271,7 +1528,9 @@ void np_algo_bank_set_ex(struct np_algo_bank *b, int ch, const float *x, int n,
 int np_algo_custom_out(const char *src, const struct np_algo_bank *b,
                        struct np_algo_out *o)
 {
-    const struct np_prog *P = prog_cached(src);
+    const struct np_prog *P;
+    hold_bind(src ? src : "");
+    P = prog_cached(src);
     if (!o) {
         return 0;
     }

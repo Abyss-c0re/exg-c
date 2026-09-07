@@ -747,6 +747,15 @@ static void apply_algo_out(uint8_t bits[NP_NCHAN], const struct np_algo_out *o,
     }
 }
 
+static void algo_now(void)
+{
+    struct timespec ts;
+    if (clock_gettime(CLOCK_MONOTONIC, &ts) == 0) {
+        np_algo_set_now((uint64_t)ts.tv_sec * 1000ull +
+                        (uint64_t)ts.tv_nsec / 1000000ull);
+    }
+}
+
 static uint8_t learn_fold_byte(uint8_t bits[NP_NCHAN])
 {
     struct np_algo_bank bank;
@@ -754,6 +763,7 @@ static uint8_t learn_fold_byte(uint8_t bits[NP_NCHAN])
     int c, ci, q, ch;
     uint8_t fold = 0;
     memset(bits, 0, NP_NCHAN);
+    algo_now();
     fill_algo_bank(&bank);
     if (g.made_n < 1) {
         for (c = 0; c < NP_NCHAN; c++) {
@@ -2259,7 +2269,7 @@ static void api_status_json(char *out, int n)
         }
     }
     snprintf(out, (size_t)n,
-             "{\"ok\":true,\"v\":\"2.77\",\"connected\":%s,\"paused\":%s,\"sps\":%.1f,"
+             "{\"ok\":true,\"v\":\"2.78\",\"connected\":%s,\"paused\":%s,\"sps\":%.1f,"
              "\"frames\":%u,\"status\":\"%s\",\"id\":\"%s\",\"id_best\":%d,"
              "\"notch\":%d,\"hp\":%d,\"lp\":%d,\"car\":%d,\"band\":%d,\"mask\":%u,"
              "\"api\":\"%s\"}",
@@ -5716,6 +5726,7 @@ unsigned int np_host_made_fold(int cube)
     if (g.connected) {
         struct np_algo_bank bank;
         uint8_t chbits[NP_NCHAN];
+        algo_now();
         fill_algo_bank(&bank);
         memset(chbits, 0, sizeof(chbits));
         for (q = 0; q < 8; q++) {

@@ -59,5 +59,7 @@ struct np_algo_out {
 };
 int np_algo_custom_out(const char *src, const struct np_algo_bank *b,
                        struct np_algo_out *o);
+/* Monotonic ms for FOR <seconds> holds. 0 = no time. */
+void np_algo_set_now(uint64_t now_ms);
 
 #endif

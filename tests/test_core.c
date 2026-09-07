@@ -866,6 +866,76 @@ static void test_algo(void)
             expect(np_algo_custom_bank("if min(ch1, ch5) < 0 then ON else OFF\n",
                                       &b) == 1,
                    "min of pair");
+            expect(np_algo_compile("LET thresh, 100\n"
+                                  "if ch < thresh then ON else OFF\n",
+                                  err, 80) == 0,
+                   "LET comma compiles");
+            b.last[0] = 10.f;
+            expect(np_algo_custom_bank("LET thresh, 100\nif ch < thresh then ON else OFF\n",
+                                      &b) == 1,
+                   "LET comma binds");
+            expect(np_algo_compile("if 10 % 3 == 1 then ON else OFF\n", err, 80) ==
+                       0,
+                   "% compiles");
+            expect(np_algo_custom_bank("if 10 % 3 == 1 then ON else OFF\n", &b) ==
+                       1,
+                   "10 % 3 is 1");
+            expect(np_algo_custom_bank("if sqrt(9) == 3 then ON else OFF\n", &b) ==
+                       1,
+                   "sqrt(9) is 3");
+            expect(np_algo_custom_bank("if pow(2, 3) == 8 then ON else OFF\n",
+                                      &b) == 1,
+                   "pow(2, 3) is 8");
+            expect(np_algo_compile("if ch1 > 0 then\n"
+                                  "  FOR 2\n"
+                                  "    ON\n"
+                                  "  END\n"
+                                  "else\n"
+                                  "  OFF\n"
+                                  "end\n",
+                                  err, 80) == 0,
+                   "FOR seconds compiles");
+            expect(np_algo_compile("UNTIL ch4 < ch2\n  ch3 ON\nEND\n", err, 80) ==
+                       0,
+                   "UNTIL cond compiles");
+            {
+                const char *hold =
+                    "if ch1 > 0 then\n"
+                    "  FOR 2\n"
+                    "    ON\n"
+                    "  END\n"
+                    "else\n"
+                    "  OFF\n"
+                    "end\n";
+                const char *lat =
+                    "if ch1 > 0 then\n"
+                    "  UNTIL ch4 < ch2\n"
+                    "    ON\n"
+                    "  END\n"
+                    "else\n"
+                    "  OFF\n"
+                    "end\n";
+                np_algo_set_now(1000);
+                b.last[0] = 5.f;
+                expect(np_algo_custom_bank(hold, &b) == 1, "FOR arms ON");
+                b.last[0] = -1.f;
+                np_algo_set_now(2500);
+                expect(np_algo_custom_bank(hold, &b) == 1,
+                       "FOR holds after IF misses");
+                np_algo_set_now(3100);
+                expect(np_algo_custom_bank(hold, &b) == 0, "FOR drops after 2s");
+                np_algo_set_now(4000);
+                b.last[0] = 5.f;
+                b.last[3] = 10.f;
+                b.last[1] = 2.f;
+                expect(np_algo_custom_bank(lat, &b) == 1, "UNTIL arms ON");
+                b.last[0] = -1.f;
+                expect(np_algo_custom_bank(lat, &b) == 1,
+                       "UNTIL holds until cond");
+                b.last[3] = 1.f;
+                expect(np_algo_custom_bank(lat, &b) == 0,
+                       "UNTIL drops when ch4 < ch2");
+            }
         }
     }
 }
@@ -1431,7 +1501,7 @@ static void test_api(void)
          strstr(body, "/stream") && strstr(body, "EXG1");
     expect(ok, "api GET / index lists stream");
     expect(strstr(body, "stream.json") == NULL, "api index has no NDJSON live path");
-    expect(strstr(body, "\"v\":\"2.77\"") != NULL, "api index version 2.77");
+    expect(strstr(body, "\"v\":\"2.78\"") != NULL, "api index version 2.78");
     expect(strstr(body, "/pair") != NULL, "api index lists /pair");
     expect(strstr(body, "\"ip\":\"127.0.0.1\"") != NULL, "api local ip is loopback");
     {
