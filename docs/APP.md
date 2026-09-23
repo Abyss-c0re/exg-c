@@ -1,4 +1,4 @@
-# App (2.85)
+# App (2.86)
 
 What the host does. The LAN wire is [API.md](API.md).
 
@@ -158,6 +158,7 @@ A block after `THEN` can set several channels. `ELSE IF` works. Compares are 0/1
 ## Quest / handheld
 
 - Package `com.abysscore.exgc`. Quest uses `com.oculus.intent.category.2D`.
+- Phone: the window pads inside the status and navigation bars. Controls sit on one compact row so the traces keep a square screen. Plot, FFT, and cube text follow display density, then the UI 1.0 / 1.5 / 2.0× control.
 - Stream service is `startService` from a visible activity, then `startForeground` (`dataSync`). Not `startForegroundService`.
 - Service stays up while the API **server** is on **or** the app is connected (USB or LAN client).
 - **USB / LAN** next to Connect. USB is the Knight here. LAN types a dest (`host` or `host:8765`). First connect POSTs `/pair`. The share shows **Allow / No** on the app **and** in a notification. After Allow, EXG rides UDP. Share EXG is how this device offers the board out. No Bluetooth. No nearby radio list.

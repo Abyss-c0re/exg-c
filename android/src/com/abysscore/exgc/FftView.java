@@ -4,6 +4,7 @@ import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.util.AttributeSet;
+import android.util.DisplayMetrics;
 import android.view.View;
 
 /** Thin 128-pt strip FFT. Marker only at the effective notch. */
@@ -16,7 +17,8 @@ public class FftView extends View {
     private int peakHz;
     private int markHz;
     private float sps = 125f;
-    private float labelSp = 22f;
+    private float labelMul = 1f;
+    private float den = 1f;
     private boolean frozen;
 
     public FftView(Context c) {
@@ -34,7 +36,7 @@ public class FftView extends View {
         bar.setColor(0xFF46AADC);
         mark.setColor(0x66E05050);
         lab.setColor(0xFFB8C0CC);
-        lab.setTextSize(labelSp);
+        syncPaint();
     }
 
     public void setLabelScale(float f) {
@@ -44,9 +46,16 @@ public class FftView extends View {
         if (f > 2.2f) {
             f = 2.2f;
         }
-        labelSp = 22f * f;
-        lab.setTextSize(labelSp);
+        labelMul = f;
+        syncPaint();
         invalidate();
+    }
+
+    private void syncPaint() {
+        DisplayMetrics m = getResources().getDisplayMetrics();
+        den = m.density < 0.75f ? 1f : m.density;
+        float sd = m.scaledDensity < 0.75f ? den : m.scaledDensity;
+        lab.setTextSize(11f * labelMul * sd);
     }
 
     public void pull() {
@@ -74,17 +83,27 @@ public class FftView extends View {
                 peak = mag[i];
             }
         }
+        syncPaint();
+        Paint.FontMetrics fm = lab.getFontMetrics();
+        float pad = 3f * den;
+        float textH = -fm.ascent + fm.descent;
+        float baseline = pad - fm.ascent;
+        if (baseline + fm.descent > h - 1f) {
+            baseline = h - 1f - fm.descent;
+        }
         int markBin = markHz > 1 ? Math.round(markHz * 128f / sps) : -1;
         if (markBin > NBINS - 1) {
             markBin = NBINS - 1;
         }
+        float markW = Math.max(1.5f, den);
         if (markBin >= 1) {
             float mx = (markBin - 1) * (w - 1f) / (NBINS - 1);
-            c.drawRect(mx - 2f, 0, mx + 2f, h, mark);
+            c.drawRect(mx - markW, textH, mx + markW, h, mark);
         }
         float barW = Math.max(1f, (w - 1f) / (NBINS - 1));
+        float barTop = textH + pad;
         for (int i = 1; i < NBINS; i++) {
-            float bh = mag[i] / peak * (h - 18f);
+            float bh = mag[i] / peak * (h - barTop);
             if (bh < 1f) {
                 bh = 1f;
             }
@@ -97,10 +116,11 @@ public class FftView extends View {
             cap = cap + "  FROZEN";
         }
         lab.setColor(0xFFB8C0CC);
-        c.drawText(cap, 8, 18, lab);
+        c.drawText(cap, pad, baseline, lab);
         if (markHz > 1) {
             lab.setColor(0xFFE05050);
-            c.drawText(markHz + " Hz", w - 110, 18, lab);
+            String hz = markHz + " Hz";
+            c.drawText(hz, w - lab.measureText(hz) - pad, baseline, lab);
         }
     }
 }

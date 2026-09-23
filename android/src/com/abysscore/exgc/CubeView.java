@@ -60,6 +60,8 @@ public class CubeView extends View {
     private String algoRule = "";
     private float yaw = 0.55f, pitch = 0.40f, zoom = 1.0f;
     private float labelMul = 1f;
+    private float den = 1f;
+    private float sd = 1f;
     private float autoYaw;
     private float t;
     private boolean floating = true;
@@ -99,9 +101,25 @@ public class CubeView extends View {
     private void init() {
         setBackgroundColor(VOID);
         stroke.setStyle(Paint.Style.STROKE);
-        stroke.setStrokeWidth(2f);
-        ink.setTextSize(26f);
         ink.setColor(SPIKE);
+        readMetrics();
+        stroke.setStrokeWidth(px(1.2f));
+        ink.setTextSize(spx(13f));
+    }
+
+    private void readMetrics() {
+        android.util.DisplayMetrics m = getResources().getDisplayMetrics();
+        den = m.density < 0.75f ? 1f : m.density;
+        sd = m.scaledDensity < 0.75f ? den : m.scaledDensity;
+    }
+
+    /** sp at the phone density, then the UI scale. */
+    private float spx(float sp) {
+        return sp * sd * labelMul;
+    }
+
+    private float px(float dp) {
+        return dp * den;
     }
 
     public void setLabelScale(float f) {
@@ -112,7 +130,7 @@ public class CubeView extends View {
             f = 2.2f;
         }
         labelMul = f;
-        ink.setTextSize(26f * labelMul);
+        readMetrics();
         invalidate();
     }
 
@@ -339,7 +357,8 @@ public class CubeView extends View {
         if (mx < mapL || my < mapT || mx >= mapR || my >= mapB) {
             return false;
         }
-        int best = -1, bd = 22 * 22;
+        int hit = Math.max(8, Math.round(px(22)));
+        int best = -1, bd = hit * hit;
         for (int i = 0; i < nsite; i++) {
             int dx = mx - mapSx[i], dy = my - mapSy[i], d = dx * dx + dy * dy;
             if (d < bd) {
@@ -355,7 +374,8 @@ public class CubeView extends View {
     }
 
     private boolean hitElec(int mx, int my) {
-        int best = -1, bd = 28 * 28;
+        int hit = Math.max(8, Math.round(px(28)));
+        int best = -1, bd = hit * hit;
         for (int c = 0; c < NCHAN; c++) {
             if (!chOn[c]) {
                 continue;
@@ -374,7 +394,8 @@ public class CubeView extends View {
     }
 
     private boolean hitSite(int mx, int my) {
-        int best = -1, bd = 24 * 24;
+        int hit = Math.max(8, Math.round(px(24)));
+        int best = -1, bd = hit * hit;
         for (int i = 0; i < nsite; i++) {
             int dx = mx - siteSx[i], dy = my - siteSy[i], d = dx * dx + dy * dy;
             if (d < bd) {
@@ -398,6 +419,7 @@ public class CubeView extends View {
         }
         cubeB = h;
         mode = 0;
+        readMetrics();
         tickViz();
         drawHive(c, w, h);
         postInvalidateOnAnimation();
@@ -407,9 +429,10 @@ public class CubeView extends View {
         float cx = w * 0.5f;
         float cy = h * 0.52f;
         ink.setColor(SPIKE);
-        ink.setTextSize(26f * labelMul);
+        ink.setTextSize(spx(13f));
         if (madeN < 1) {
-            c.drawText("add a cube — 8 bits, one per channel", 16, 36, ink);
+            Paint.FontMetrics fm = ink.getFontMetrics();
+            c.drawText("add a cube — 8 bits, one per channel", px(8), px(4) - fm.ascent, ink);
             return;
         }
         float gap = madeN > 1 ? 2.4f : 0f;
@@ -417,14 +440,17 @@ public class CubeView extends View {
             float ox = madeN == 1 ? 0f : (mi - (madeN - 1) * 0.5f) * gap;
             drawHiveOne(c, cx, cy, w, h, mi, ox);
         }
+        Paint.FontMetrics fm = ink.getFontMetrics();
+        float titleY = px(4) - fm.ascent;
         c.drawText(madeN + " cube" + (madeN == 1 ? "" : "s") + "  ·  " + algoName
-                + "  ·  drag", 16, 36, ink);
+                + "  ·  drag", px(8), titleY, ink);
         if (algoRule.length() > 0) {
-            ink.setTextSize(20f * labelMul);
+            ink.setTextSize(spx(11f));
             ink.setColor(0xAAEEC8CE);
-            c.drawText(algoRule, 16, 58, ink);
+            Paint.FontMetrics rf = ink.getFontMetrics();
+            c.drawText(algoRule, px(8), titleY + rf.descent - rf.ascent + px(2), ink);
             ink.setColor(SPIKE);
-            ink.setTextSize(26f * labelMul);
+            ink.setTextSize(spx(13f));
         }
     }
 
@@ -460,9 +486,9 @@ public class CubeView extends View {
             int ch = (int) cell[6];
             int q = (int) cell[5];
             ink.setColor(cell[3] > 0.5f ? 0xFFFFFFFF : 0xAAEEC8CE);
-            ink.setTextSize(22f * labelMul);
+            ink.setTextSize(spx(12f));
             String lab = ch < 1 ? ((q + 1) + " —") : ((q + 1) + "·ch" + ch);
-            c.drawText(lab, labp[0] - 22, labp[1] + 6, ink);
+            c.drawText(lab, labp[0] - ink.measureText(lab) * 0.5f, labp[1] + px(3), ink);
         }
     }
 
@@ -517,7 +543,7 @@ public class CubeView extends View {
             this.fill.setColor(fillArgb);
             c.drawPath(fp, this.fill);
             this.stroke.setColor(strokeArgb);
-            this.stroke.setStrokeWidth(on ? 1.2f : 0.5f);
+            this.stroke.setStrokeWidth(on ? px(1.2f) : px(0.6f));
             c.drawPath(fp, this.stroke);
         }
     }
@@ -546,10 +572,10 @@ public class CubeView extends View {
         float glow = mode == 0 ? (0.15f + Math.min(0.85f, onCount / 28f)) : 0f;
         if (mode == 0) {
             stroke.setColor(0xA08C050D);
-            stroke.setStrokeWidth(1.4f + 2.2f * glow);
+            stroke.setStrokeWidth(px(1.4f) + px(2.2f) * glow);
         } else {
             stroke.setColor(0xFF5A1220);
-            stroke.setStrokeWidth(3f);
+            stroke.setStrokeWidth(px(2f));
         }
         for (int i = 0; i < 12; i++) {
             project(p[e[i][0]][0], p[e[i][0]][1], p[e[i][0]][2], cx, cy, k, a);
@@ -652,11 +678,11 @@ public class CubeView extends View {
                     float jit = 8f + 18f * flash;
                     float ang = t * 40f + i;
                     stroke.setColor((int) (0xF2000000 | 0x00FF0D14));
-                    stroke.setStrokeWidth(2.4f);
+                    stroke.setStrokeWidth(px(1.6f));
                     c.drawLine(px[i], py[i],
                             px[i] + (float) Math.sin(ang) * jit,
                             py[i] + (float) Math.cos(ang * 1.3) * jit, stroke);
-                    stroke.setStrokeWidth(1.4f);
+                    stroke.setStrokeWidth(px(1.1f));
                     c.drawLine(px[i], py[i],
                             px[i] + (float) Math.cos(ang * 1.7) * jit * 1.3f,
                             py[i] + (float) Math.sin(ang * 2.1) * jit * 1.3f, stroke);
@@ -687,7 +713,7 @@ public class CubeView extends View {
             project(elecX[cb], elecY[cb], elecZ[cb], cx, cy, k, b);
             int alpha = (int) (50 + 180 * Math.min(1f, rel));
             stroke.setColor((alpha << 24) | 0x00FF141A);
-            stroke.setStrokeWidth(1.6f + 4.5f * rel);
+            stroke.setStrokeWidth(px(1.2f) + px(2.4f) * rel);
             c.drawLine(a[0], a[1], b[0], b[1], stroke);
         }
     }
@@ -743,12 +769,12 @@ public class CubeView extends View {
             int a = (rgba >>> 24) & 255;
             int on = a >= 160 ? 1 : 0;
             project(cellXyz[i * 3], cellXyz[i * 3 + 1], cellXyz[i * 3 + 2], cx, cy, k, p);
-            float r = Math.max(on != 0 ? 14f : 6f, cellS[i] * k * (on != 0 ? 0.72f : 0.35f));
+            float r = Math.max(on != 0 ? px(8f) : px(4f), cellS[i] * k * (on != 0 ? 0.72f : 0.35f));
             fill.setColor(on != 0 ? rgba : 0x55F22647);
             c.drawRect(p[0] - r, p[1] - r, p[0] + r, p[1] + r, fill);
             if (on != 0) {
                 stroke.setColor(0xFFFFFFFF);
-                stroke.setStrokeWidth(2f);
+                stroke.setStrokeWidth(px(1.2f));
                 c.drawRect(p[0] - r, p[1] - r, p[0] + r, p[1] + r, stroke);
             }
         }
@@ -779,7 +805,7 @@ public class CubeView extends View {
 
     private void drawSiteLabels(Canvas c, float cx, float cy, float k) {
         float[] p = new float[4];
-        ink.setTextSize(22f * labelMul);
+        ink.setTextSize(spx(12f));
         for (int i = 0; i < nsite; i++) {
             project(siteX[i], siteY[i], siteZ[i], cx, cy, k, p);
             siteSx[i] = (int) p[0];
@@ -792,13 +818,13 @@ public class CubeView extends View {
             int col = i == siteFocus ? 0xFFFFDC50
                     : (siteCh[i] >= 0 ? elecCol[siteCh[i]] : (isNeg ? 0xFFC8D0D8 : 0xFFA02832));
             ink.setColor(col);
-            c.drawText(siteName[i] != null ? siteName[i] : "?", p[0] + 6, p[1] + 6, ink);
+            c.drawText(siteName[i] != null ? siteName[i] : "?", p[0] + px(4), p[1] + px(4), ink);
         }
     }
 
     private void drawElecLabels(Canvas c, float cx, float cy, float k) {
         float[] p = new float[4];
-        ink.setTextSize(24f * labelMul);
+        ink.setTextSize(spx(13f));
         for (int ch = 0; ch < NCHAN; ch++) {
             if (!chOn[ch]) {
                 elecSx[ch] = -9999;
@@ -811,40 +837,43 @@ public class CubeView extends View {
             String lab = elecLab[ch] != null ? elecLab[ch] : ("ch" + (ch + 1));
             if (ch == elecSel) {
                 fill.setColor(0xCC000000);
-                c.drawRect(p[0] - 36, p[1] - 28, p[0] + 36, p[1] - 6, fill);
+                float half = ink.measureText(lab) * 0.5f + px(4);
+                c.drawRect(p[0] - half, p[1] - px(16), p[0] + half, p[1] - px(2), fill);
             }
             ink.setColor(ch == elecSel ? 0xFFFFE6E6 : elecCol[ch]);
-            c.drawText(lab, p[0] - ink.measureText(lab) * 0.5f, p[1] - 10, ink);
+            c.drawText(lab, p[0] - ink.measureText(lab) * 0.5f, p[1] - px(6), ink);
         }
     }
 
     private void drawScalp(Canvas c, int w, int h, int mapH) {
-        mapL = 16;
-        mapT = h - mapH + 8;
-        mapR = w - 16;
-        mapB = h - 8;
+        mapL = Math.round(px(8));
+        mapT = h - mapH + Math.round(px(4));
+        mapR = w - Math.round(px(8));
+        mapB = h - Math.round(px(4));
         fill.setColor(0xFF08060A);
         c.drawRect(mapL, mapT, mapR, mapB, fill);
         ink.setColor(0xFF8C2832);
-        ink.setTextSize(22f * labelMul);
-        c.drawText("10-10  (nose up)   tap a site to assign", mapL + 8, mapT + 24, ink);
+        ink.setTextSize(spx(12f));
+        Paint.FontMetrics fm = ink.getFontMetrics();
+        c.drawText("10-10  (nose up)   tap a site to assign", mapL + px(4), mapT + px(4) - fm.ascent, ink);
         int mw = mapR - mapL, mh = mapB - mapT;
         for (int i = 0; i < nsite; i++) {
-            int sx = mapL + mw / 2 + (int) (siteFx[i] * (mw / 2 - 28));
-            int sy = mapT + mh / 2 - (int) (siteFy[i] * (mh / 2 - 28));
+            int inset = Math.round(px(16));
+            int sx = mapL + mw / 2 + (int) (siteFx[i] * (mw / 2 - inset));
+            int sy = mapT + mh / 2 - (int) (siteFy[i] * (mh / 2 - inset));
             mapSx[i] = sx;
             mapSy[i] = sy;
             int taken = siteCh[i];
             boolean isNeg = negRail && siteIsNeg(i);
-            int r = i == siteFocus ? 10 : (taken >= 0 || isNeg || siteCore[i] ? 7 : 4);
+            int r = Math.round(px(i == siteFocus ? 7 : (taken >= 0 || isNeg || siteCore[i] ? 5 : 3)));
             int col = i == siteFocus ? 0xFFFFD246
                     : (taken >= 0 ? elecCol[taken] : (isNeg ? 0xFFC8D0D8 : 0xFF5A1820));
             fill.setColor(col);
             c.drawCircle(sx, sy, r, fill);
             if (i == siteFocus || taken >= 0 || isNeg || siteCore[i]) {
                 ink.setColor(i == siteFocus ? 0xFFFFE090 : 0xFFC8B4B8);
-                ink.setTextSize(20f * labelMul);
-                c.drawText(siteName[i] != null ? siteName[i] : "?", sx + 8, sy - 4, ink);
+                ink.setTextSize(spx(11f));
+                c.drawText(siteName[i] != null ? siteName[i] : "?", sx + px(5), sy - px(2), ink);
             }
         }
     }
@@ -859,24 +888,24 @@ public class CubeView extends View {
         if (nOn < 1) {
             return;
         }
-        int cell = Math.min(48, Math.max(28, (w - 32) / nOn));
-        int y = h - cell - 16;
+        int cell = Math.min(Math.round(px(36)), Math.max(Math.round(px(22)), (w - Math.round(px(16))) / nOn));
+        int y = h - cell - Math.round(px(8));
         ink.setColor(0xFFEEC8CE);
-        ink.setTextSize(22f * labelMul);
-        c.drawText("this second", 16, y - 8, ink);
+        ink.setTextSize(spx(12f));
+        c.drawText("this second", px(8), y - px(4), ink);
         int col = 0;
         for (int ch = 0; ch < 8; ch++) {
             if (!chOn[ch]) {
                 continue;
             }
-            int x = 16 + col * (cell + 6);
+            int x = Math.round(px(8)) + col * (cell + Math.round(px(4)));
             col++;
             boolean on = ((algoFold >> ch) & 1) != 0;
             fill.setColor(on ? SPIKE : 0xFF2A0508);
             c.drawRect(x, y, x + cell, y + cell, fill);
             ink.setColor(0xFFFFFFFF);
-            ink.setTextSize(20f * labelMul);
-            c.drawText(String.valueOf(ch + 1), x + 8, y + cell - 8, ink);
+            ink.setTextSize(spx(11f));
+            c.drawText(String.valueOf(ch + 1), x + px(4), y + cell - px(4), ink);
         }
     }
 }

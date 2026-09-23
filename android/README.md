@@ -2,7 +2,7 @@
 
 Same C host as `./np-exg`. Serial is USB Host. UI is Java. Native library is `libexg.so` from `src/np_core.c` — not the desktop SDL file.
 
-App: **2.85**, package `com.abysscore.exgc`, min SDK 28, ABI `arm64-v8a`.
+App: **2.86**, package `com.abysscore.exgc`, min SDK 28, ABI `arm64-v8a`.
 Quest 3: `com.oculus.intent.category.2D` so it runs as a 2D panel.
 
 How the app behaves: [../docs/APP.md](../docs/APP.md).  
@@ -22,7 +22,7 @@ Or `make android`. Output is `android/exg-c.apk` (debug-signed).
 
 ## First run
 
-**Phone:** Type-C in USB **host / OTG**. Gadget / MTP will not see the board.
+**Phone:** Type-C in USB **host / OTG**. Gadget / MTP will not see the board. The layout pads inside the status and navigation bars. Buttons are one compact row (scroll if the panel is narrow) so the traces keep the square screen. Plot text follows the phone density.
 
 **Quest 3:** the Knight is USB-host on the headset, not on a PC.
 

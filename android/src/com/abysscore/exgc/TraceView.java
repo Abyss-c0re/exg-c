@@ -5,6 +5,7 @@ import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.Path;
 import android.util.AttributeSet;
+import android.util.DisplayMetrics;
 import android.view.View;
 
 public class TraceView extends View {
@@ -23,7 +24,8 @@ public class TraceView extends View {
     private final Paint lab = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Path path = new Path();
     private int scaleUv = 200;
-    private float labelSp = 28f;
+    private float labelMul = 1f;
+    private float den = 1f;
     private boolean frozen;
 
     public TraceView(Context c) {
@@ -44,7 +46,7 @@ public class TraceView extends View {
         grid.setColor(0x22FFFFFF);
         grid.setStrokeWidth(1f);
         lab.setColor(0xFFB8C0CC);
-        lab.setTextSize(labelSp);
+        syncPaint();
         for (int i = 0; i < NCHAN; i++) {
             col[i] = 0xFF80C8FF;
             site[i] = "ch" + (i + 1);
@@ -58,9 +60,19 @@ public class TraceView extends View {
         if (f > 2.2f) {
             f = 2.2f;
         }
-        labelSp = 28f * f;
-        lab.setTextSize(labelSp);
+        labelMul = f;
+        syncPaint();
         invalidate();
+    }
+
+    /** 12sp at the phone density, then the UI 1.0/1.5/2.0 control. */
+    private void syncPaint() {
+        DisplayMetrics m = getResources().getDisplayMetrics();
+        den = m.density < 0.75f ? 1f : m.density;
+        float sd = m.scaledDensity < 0.75f ? den : m.scaledDensity;
+        lab.setTextSize(12f * labelMul * sd);
+        line.setStrokeWidth(Math.max(1.25f, 1.15f * den));
+        grid.setStrokeWidth(Math.max(1f, 0.6f * den));
     }
 
     public void pull() {
@@ -114,9 +126,12 @@ public class TraceView extends View {
                 nOn++;
             }
         }
+        syncPaint();
+        Paint.FontMetrics fm = lab.getFontMetrics();
+        float pad = 4f * den;
         if (nOn < 1) {
             lab.setColor(0xFF8B93A0);
-            c.drawText("no channels on", 16, 36, lab);
+            c.drawText("no channels on", pad, pad - fm.ascent, lab);
             return;
         }
         float row = h / (float) nOn;
@@ -131,16 +146,23 @@ public class TraceView extends View {
             float mid = y0 + row * 0.5f;
             c.drawLine(0, mid, w, mid, grid);
             lab.setColor(col[ch]);
+            float baseline = y0 + pad - fm.ascent;
+            float maxBase = y0 + row - 2f - fm.descent;
+            if (baseline > maxBase) {
+                baseline = Math.max(y0 - fm.ascent, maxBase);
+            }
             String rmsLab = rms[ch] >= 1000f
                     ? String.format(java.util.Locale.US, "%s  %.1f mV", site[ch], rms[ch] / 1000f)
                     : String.format(java.util.Locale.US, "%s  %.0f µV", site[ch], rms[ch]);
-            c.drawText(rmsLab, 12, y0 + 32, lab);
+            c.drawText(rmsLab, pad, baseline, lab);
             if (clip[ch]) {
                 lab.setColor(0xFFE05050);
-                c.drawText("CLIP", w - 140, y0 + 32, lab);
+                String tag = "CLIP";
+                c.drawText(tag, w - lab.measureText(tag) - pad, baseline, lab);
             } else if (frozen) {
                 lab.setColor(0xFFF0A040);
-                c.drawText("FROZEN", w - 180, y0 + 32, lab);
+                String tag = "FROZEN";
+                c.drawText(tag, w - lab.measureText(tag) - pad, baseline, lab);
             }
             int n = got[ch];
             if (n < 2) {

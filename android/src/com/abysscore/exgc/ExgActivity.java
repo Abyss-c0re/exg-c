@@ -14,6 +14,8 @@ import android.os.Looper;
 import android.text.InputType;
 import android.util.TypedValue;
 import android.view.View;
+import android.view.ViewGroup;
+import android.view.WindowInsets;
 import android.view.WindowManager;
 import android.view.inputmethod.EditorInfo;
 import android.widget.Button;
@@ -138,6 +140,7 @@ public class ExgActivity extends Activity {
         ExgNative.start(dir != null ? dir.getAbsolutePath() : getApplicationInfo().dataDir);
         ExgNative.setSelf(Build.MODEL);
         setContentView(R.layout.activity_exg);
+        applyPhoneBars();
         traces = findViewById(R.id.traces);
         fft = findViewById(R.id.fft);
         mainPane = findViewById(R.id.mainPane);
@@ -1156,6 +1159,35 @@ public class ExgActivity extends Activity {
         }
     }
 
+    /** Edge-to-edge phone window. Keep controls inside the status and navigation bars. */
+    private void applyPhoneBars() {
+        View content = findViewById(android.R.id.content);
+        if (!(content instanceof ViewGroup) || ((ViewGroup) content).getChildCount() < 1) {
+            return;
+        }
+        final View root = ((ViewGroup) content).getChildAt(0);
+        if (Build.VERSION.SDK_INT >= 30) {
+            getWindow().setDecorFitsSystemWindows(false);
+            root.setOnApplyWindowInsetsListener((v, insets) -> {
+                int types = WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout();
+                android.graphics.Insets b = insets.getInsets(types);
+                v.setPadding(b.left, b.top, b.right, b.bottom);
+                return WindowInsets.CONSUMED;
+            });
+        } else {
+            root.setOnApplyWindowInsetsListener((v, insets) -> {
+                v.setPadding(insets.getSystemWindowInsetLeft(), insets.getSystemWindowInsetTop(),
+                        insets.getSystemWindowInsetRight(), insets.getSystemWindowInsetBottom());
+                return insets.consumeSystemWindowInsets();
+            });
+        }
+        root.requestApplyInsets();
+    }
+
+    private int dp(int d) {
+        return Math.round(d * getResources().getDisplayMetrics().density);
+    }
+
     private void applyUiScale() {
         float f = ExgNative.uiScale() / 10f;
         View root = findViewById(android.R.id.content);
@@ -1168,8 +1200,8 @@ public class ExgActivity extends Activity {
     }
 
     private void scaleTree(View v, float f) {
-        if (v instanceof android.view.ViewGroup) {
-            android.view.ViewGroup vg = (android.view.ViewGroup) v;
+        if (v instanceof ViewGroup) {
+            ViewGroup vg = (ViewGroup) v;
             for (int i = 0; i < vg.getChildCount(); i++) {
                 scaleTree(vg.getChildAt(i), f);
             }
@@ -1179,6 +1211,10 @@ public class ExgActivity extends Activity {
         }
         TextView tv = (TextView) v;
         Float base = (Float) tv.getTag(R.id.base_sp);
+        float den = getResources().getDisplayMetrics().density;
+        if (den < 0.75f) {
+            den = 1f;
+        }
         if (base == null) {
             base = tv.getTextSize() / getResources().getDisplayMetrics().scaledDensity;
             tv.setTag(R.id.base_sp, base);
@@ -1189,12 +1225,12 @@ public class ExgActivity extends Activity {
             if (mh == null) {
                 int h = tv.getMinHeight();
                 if (h < 8) {
-                    h = (int) (48f * getResources().getDisplayMetrics().density);
+                    h = Math.round(36f * den);
                 }
-                mh = h;
+                mh = Math.max(32, Math.round(h / den));
                 tv.setTag(R.id.base_min_h, mh);
             }
-            int nh = Math.max(8, (int) (mh * f));
+            int nh = Math.max(dp(28), Math.round(mh * den * f));
             tv.setMinHeight(nh);
             tv.setMinimumHeight(nh);
         }
@@ -1443,7 +1479,7 @@ public class ExgActivity extends Activity {
             TextView empty = new TextView(this);
             empty.setText("Take rest, then an action. ID names only a unique winner.");
             empty.setTextColor(0xFF8B93A0);
-            empty.setPadding(8, 16, 8, 8);
+            empty.setPadding(dp(8), dp(8), dp(8), dp(4));
             learnChips.addView(empty);
             applyUiScale();
             return;
@@ -1499,7 +1535,7 @@ public class ExgActivity extends Activity {
         t.setText(s);
         t.setTextColor(col);
         t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f);
-        t.setPadding(8, 16, 8, 8);
+        t.setPadding(dp(8), dp(8), dp(8), dp(4));
         return t;
     }
 
@@ -1518,7 +1554,7 @@ public class ExgActivity extends Activity {
             int sec = ExgNative.atomSecs(i);
             LinearLayout row = new LinearLayout(this);
             row.setOrientation(LinearLayout.HORIZONTAL);
-            row.setPadding(0, 4, 0, 4);
+            row.setPadding(0, dp(2), 0, dp(2));
             Button lab = new Button(this);
             lab.setLayoutParams(new LinearLayout.LayoutParams(0,
                     LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
@@ -1559,7 +1595,7 @@ public class ExgActivity extends Activity {
                 final int idx = i;
                 LinearLayout row = new LinearLayout(this);
                 row.setOrientation(LinearLayout.HORIZONTAL);
-                row.setPadding(0, 4, 0, 4);
+                row.setPadding(0, dp(2), 0, dp(2));
                 Button lab = new Button(this);
                 lab.setLayoutParams(new LinearLayout.LayoutParams(0,
                         LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
