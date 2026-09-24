@@ -161,6 +161,8 @@ public final class ExgNative {
     public static native void setCubeView(int map);
     public static native void cubeSpin(float yaw, float pitch);
     public static native void cubeZoom(int dir);
+    public static native float cubeZoomF();
+    public static native void setCubeZoom(float z);
     public static native void cubeFront();
     public static native boolean cubeFloat();
     public static native void toggleCubeFloat();

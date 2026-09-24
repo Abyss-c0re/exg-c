@@ -21,6 +21,7 @@ import android.view.inputmethod.EditorInfo;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
+import android.widget.SeekBar;
 import android.widget.TextView;
 
 import java.io.File;
@@ -77,15 +78,20 @@ public class ExgActivity extends Activity {
     private Button match;
     private Button notch;
     private Button hp;
-    private Button scale;
-    private Button win;
+    private TextView scale;
+    private SeekBar scaleBar;
+    private TextView win;
+    private SeekBar winBar;
     private Button band;
     private Button car;
     private Button detrend;
     private Button env;
     private Button lp;
     private Button algo;
-    private Button uiScale;
+    private TextView uiScale;
+    private SeekBar uiBar;
+    private TextView cubeZoomLab;
+    private SeekBar cubeZoomBar;
     private Button board;
     private TextView apiLine;
     private Button apiOn, apiBind, apiHz, apiHttp, apiUdp, apiTcp, apiToken, apiPush;
@@ -250,7 +256,9 @@ public class ExgActivity extends Activity {
         notch = findViewById(R.id.notch);
         hp = findViewById(R.id.hp);
         scale = findViewById(R.id.scale);
+        scaleBar = findViewById(R.id.scaleBar);
         win = findViewById(R.id.win);
+        winBar = findViewById(R.id.winBar);
         band = findViewById(R.id.band);
         car = findViewById(R.id.car);
         detrend = findViewById(R.id.detrend);
@@ -258,6 +266,9 @@ public class ExgActivity extends Activity {
         lp = findViewById(R.id.lp);
         algo = findViewById(R.id.algo);
         uiScale = findViewById(R.id.uiScale);
+        uiBar = findViewById(R.id.uiBar);
+        cubeZoomLab = findViewById(R.id.cubeZoomLab);
+        cubeZoomBar = findViewById(R.id.cubeZoomBar);
         board = findViewById(R.id.board);
         apiLine = findViewById(R.id.apiLine);
         apiOn = findViewById(R.id.apiOn);
@@ -555,20 +566,48 @@ public class ExgActivity extends Activity {
                     ExgNative.setHp(hz[i]);
                     refreshChrome();
                 }));
-        scale.setOnClickListener(v -> pick("Scale",
-                new String[] {"±50 µV", "±100 µV", "±200 µV", "±500 µV",
-                        "±1000 µV", "±2000 µV", "±5000 µV"},
-                scaleIndex(), i -> {
-                    int[] uv = {50, 100, 200, 500, 1000, 2000, 5000};
-                    ExgNative.setScaleUv(uv[i]);
-                    refreshChrome();
-                }));
-        win.setOnClickListener(v -> pick("Time window",
-                new String[] {"1 s", "2 s", "4 s", "8 s"},
-                winIndex(), i -> {
-                    ExgNative.setWindowS(new int[] {1, 2, 4, 8}[i]);
-                    refreshChrome();
-                }));
+        ownDrag(scaleBar);
+        scaleBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar s, int p, boolean fromUser) {
+                if (!fromUser) {
+                    return;
+                }
+                int uv = uvFromProg(p);
+                ExgNative.setScaleUv(uv);
+                scale.setText(uvText(uv));
+            }
+
+            @Override
+            public void onStartTrackingTouch(SeekBar s) {
+            }
+
+            @Override
+            public void onStopTrackingTouch(SeekBar s) {
+                refreshChrome();
+            }
+        });
+        ownDrag(winBar);
+        winBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar s, int p, boolean fromUser) {
+                if (!fromUser) {
+                    return;
+                }
+                int sec = p + 1;
+                ExgNative.setWindowS(sec);
+                win.setText(sec + " s");
+            }
+
+            @Override
+            public void onStartTrackingTouch(SeekBar s) {
+            }
+
+            @Override
+            public void onStopTrackingTouch(SeekBar s) {
+                refreshChrome();
+            }
+        });
         band.setOnClickListener(v -> pick("Band preset",
                 new String[] {"raw", "line-kill", "EEG", "EMG"},
                 ExgNative.band(), i -> {
@@ -594,13 +633,50 @@ public class ExgActivity extends Activity {
                     refreshChrome();
                 }));
         algo.setOnClickListener(v -> showTab(2));
-        uiScale.setOnClickListener(v -> pick("UI scale",
-                new String[] {"1.0×", "1.5×", "2.0×"},
-                uiIndex(), i -> {
-                    ExgNative.setUiScale(new int[] {10, 15, 20}[i]);
-                    applyUiScale();
-                    refreshChrome();
-                }));
+        ownDrag(uiBar);
+        uiBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar s, int p, boolean fromUser) {
+                if (!fromUser) {
+                    return;
+                }
+                int tenths = 8 + p;
+                ExgNative.setUiScale(tenths);
+                uiScale.setText(uiText(tenths));
+                applyUiScale();
+            }
+
+            @Override
+            public void onStartTrackingTouch(SeekBar s) {
+            }
+
+            @Override
+            public void onStopTrackingTouch(SeekBar s) {
+                refreshChrome();
+            }
+        });
+        ownDrag(cubeZoomBar);
+        cubeZoomBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar s, int p, boolean fromUser) {
+                if (!fromUser) {
+                    return;
+                }
+                float z = 0.70f + p * 0.10f;
+                ExgNative.setCubeZoom(z);
+                cube.setZoom(z);
+                cubeZoomLab.setText(zoomText(z));
+            }
+
+            @Override
+            public void onStartTrackingTouch(SeekBar s) {
+            }
+
+            @Override
+            public void onStopTrackingTouch(SeekBar s) {
+                refreshChrome();
+            }
+        });
         board.setOnClickListener(v -> pick("Board",
                 new String[] {"8-ch + IMU", "8-ch EXG"},
                 ExgNative.boardImu() ? 0 : 1, i -> {
@@ -661,6 +737,7 @@ public class ExgActivity extends Activity {
         lastLearnN = -1;
         refreshLearnChips();
         applyUiScale();
+        refreshChrome();
         h.post(tick);
         takeFollowIntent(getIntent());
         h.postDelayed(() -> {
@@ -1109,8 +1186,7 @@ public class ExgActivity extends Activity {
             notch.setText(nh == 0 ? "notch off" : "notch " + nh);
         }
         hp.setText(ExgNative.hp() == 0 ? "hp off" : "hp " + ExgNative.hp() + "Hz");
-        scale.setText("±" + ExgNative.scaleUv() + " µV");
-        win.setText("win " + ExgNative.windowS() + "s");
+        syncBars();
         int bd = ExgNative.band();
         if (!ExgNative.bandFit()) {
             band.setText("band mix");
@@ -1122,8 +1198,6 @@ public class ExgActivity extends Activity {
         env.setText(ExgNative.envelope() ? "envelope" : "wave");
         lp.setText(ExgNative.lp() == 0 ? "lp off" : "lp " + ExgNative.lp() + "Hz");
         algo.setText("Algos tab");
-        int us = ExgNative.uiScale();
-        uiScale.setText("UI " + (us == 10 ? "1.0x" : (us == 20 ? "2.0x" : "1.5x")));
         board.setText(ExgNative.boardImu() ? "8-ch + IMU" : "8-ch EXG");
         boolean apion = ExgNative.apiOn();
         apiOn.setText(apion ? "share EXG" : "share off");
@@ -1881,29 +1955,120 @@ public class ExgActivity extends Activity {
         return 0;
     }
 
-    private int scaleIndex() {
-        int s = ExgNative.scaleUv();
-        int[] uv = {50, 100, 200, 500, 1000, 2000, 5000};
-        for (int i = 0; i < uv.length; i++) {
-            if (uv[i] == s) {
-                return i;
-            }
-        }
-        return 2;
+    private void ownDrag(View v) {
+        v.setOnTouchListener((view, ev) -> {
+            view.getParent().requestDisallowInterceptTouchEvent(true);
+            return false;
+        });
     }
 
-    private int winIndex() {
-        int w = ExgNative.windowS();
-        if (w <= 1) {
-            return 0;
+    private static int uvFromProg(int p) {
+        if (p < 0) {
+            p = 0;
         }
-        if (w <= 2) {
-            return 1;
+        if (p > 100) {
+            p = 100;
         }
-        if (w <= 4) {
-            return 2;
+        double t = p / 100.0;
+        int uv = (int) Math.round(20.0 * Math.pow(8000.0 / 20.0, t));
+        if (uv < 20) {
+            uv = 20;
         }
-        return 3;
+        if (uv > 8000) {
+            uv = 8000;
+        }
+        return uv;
+    }
+
+    private static int uvToProg(int uv) {
+        if (uv < 20) {
+            uv = 20;
+        }
+        if (uv > 8000) {
+            uv = 8000;
+        }
+        double t = Math.log(uv / 20.0) / Math.log(8000.0 / 20.0);
+        int p = (int) Math.round(t * 100.0);
+        if (p < 0) {
+            p = 0;
+        }
+        if (p > 100) {
+            p = 100;
+        }
+        return p;
+    }
+
+    private static String uvText(int uv) {
+        if (uv >= 1000 && uv % 100 == 0) {
+            if (uv % 1000 == 0) {
+                return "±" + (uv / 1000) + " mV";
+            }
+            return String.format(java.util.Locale.US, "±%.1f mV", uv / 1000.0);
+        }
+        return "±" + uv + " µV";
+    }
+
+    private static String uiText(int tenths) {
+        return String.format(java.util.Locale.US, "UI %.1f×", tenths / 10.0);
+    }
+
+    private static String zoomText(float z) {
+        return String.format(java.util.Locale.US, "zoom %.1f×", z);
+    }
+
+    private void syncBars() {
+        int uv = ExgNative.scaleUv();
+        if (uv < 20) {
+            uv = 20;
+        }
+        if (uv > 8000) {
+            uv = 8000;
+        }
+        scale.setText(uvText(uv));
+        if (!scaleBar.isPressed()) {
+            scaleBar.setProgress(uvToProg(uv));
+        }
+        int sec = ExgNative.windowS();
+        if (sec < 1) {
+            sec = 1;
+        }
+        if (sec > 8) {
+            sec = 8;
+        }
+        win.setText(sec + " s");
+        if (!winBar.isPressed()) {
+            winBar.setProgress(sec - 1);
+        }
+        int tenths = ExgNative.uiScale();
+        if (tenths < 8) {
+            tenths = 8;
+        }
+        if (tenths > 22) {
+            tenths = 22;
+        }
+        uiScale.setText(uiText(tenths));
+        if (!uiBar.isPressed()) {
+            uiBar.setProgress(tenths - 8);
+        }
+        float z = ExgNative.cubeZoomF();
+        if (z < 0.70f) {
+            z = 0.70f;
+        }
+        if (z > 2.80f) {
+            z = 2.80f;
+        }
+        cubeZoomLab.setText(zoomText(z));
+        cube.setZoom(z);
+        if (!cubeZoomBar.isPressed()) {
+            int p = Math.round((z - 0.70f) / 0.10f);
+            if (p < 0) {
+                p = 0;
+            }
+            if (p > 21) {
+                p = 21;
+            }
+            cubeZoomBar.setProgress(p);
+        }
     }
 
     private void askPort(String title, int current, java.util.function.IntConsumer on) {
@@ -1941,17 +2106,6 @@ public class ExgActivity extends Activity {
         }
         d.show();
         e.requestFocus();
-    }
-
-    private int uiIndex() {
-        int u = ExgNative.uiScale();
-        if (u == 10) {
-            return 0;
-        }
-        if (u == 20) {
-            return 2;
-        }
-        return 1;
     }
 
     private int gainIndex(int ch) {

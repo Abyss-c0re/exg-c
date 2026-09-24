@@ -158,6 +158,8 @@ int np_host_cube_view(void);
 void np_host_set_cube_view(int map);
 void np_host_cube_spin(float dyaw, float dpitch);
 void np_host_cube_zoom(int dir);
+float np_host_cube_zoom_get(void);
+void np_host_set_cube_zoom(float z);
 void np_host_cube_front(void);
 int np_host_cube_float(void);
 void np_host_toggle_cube_float(void);

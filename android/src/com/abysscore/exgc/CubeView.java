@@ -143,6 +143,20 @@ public class CubeView extends View {
         invalidate();
     }
 
+    public void setZoom(float z) {
+        if (z < 0.70f) {
+            z = 0.70f;
+        }
+        if (z > 2.80f) {
+            z = 2.80f;
+        }
+        if (Math.abs(zoom - z) < 0.001f) {
+            return;
+        }
+        zoom = z;
+        invalidate();
+    }
+
     public void nudgeZoom(int dir) {
         zoom += dir > 0 ? 0.20f : -0.20f;
         if (zoom < 0.70f) {

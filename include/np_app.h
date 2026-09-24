@@ -129,7 +129,7 @@ struct np_app {
     uint32_t stall_t;
     int recover_n;
     int tab;
-    int ui_scale; /* tenths: 10, 15, 20 → 1.0x 1.5x 2.0x */
+    int ui_scale; /* tenths: 8..22 → 0.8x..2.2x. 10 / 15 / 20 are the old steps. */
     int pref_w, pref_h;
     int chrgb[NP_NCHAN][3];
     pthread_mutex_t csv_mu;

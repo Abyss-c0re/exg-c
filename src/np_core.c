@@ -1631,7 +1631,7 @@ static int cfg_read(const char *path)
                 g.ui_scale = 15;
             } else if (v == 3) {
                 g.ui_scale = 20;
-            } else if (v == 10 || v == 15 || v == 20) {
+            } else if (v >= 8 && v <= 22) {
                 g.ui_scale = v;
             }
         } else if (sscanf(line, "width=%d", &v) == 1 && v >= 800) {
@@ -1736,10 +1736,13 @@ static int cfg_read(const char *path)
     if (g.window_s < 1) {
         g.window_s = 2;
     }
+    if (g.window_s > 8) {
+        g.window_s = 8;
+    }
     if (g.scale_uv < 20) {
         g.scale_uv = 200;
     }
-    if (g.ui_scale != 10 && g.ui_scale != 15 && g.ui_scale != 20) {
+    if (g.ui_scale < 8 || g.ui_scale > 22) {
         g.ui_scale = 15;
     }
     if (g.pref_w < 800) {
@@ -1749,9 +1752,6 @@ static int cfg_read(const char *path)
         g.pref_h = WIN_H;
     }
     link_sanitize();
-    if (g.window_s != 1 && g.window_s != 2 && g.window_s != 4 && g.window_s != 8) {
-        g.window_s = 2;
-    }
     if (g.scale_uv > 20000) {
         g.scale_uv = 5000;
     }
@@ -2332,7 +2332,7 @@ static void api_status_json(char *out, int n)
         }
     }
     snprintf(out, (size_t)n,
-             "{\"ok\":true,\"v\":\"2.86\",\"connected\":%s,\"paused\":%s,\"sps\":%.1f,"
+             "{\"ok\":true,\"v\":\"2.87\",\"connected\":%s,\"paused\":%s,\"sps\":%.1f,"
              "\"frames\":%u,\"status\":\"%s\",\"id\":\"%s\",\"id_best\":%d,"
              "\"notch\":%d,\"hp\":%d,\"lp\":%d,\"car\":%d,\"band\":%d,\"mask\":%u,"
              "\"api\":\"%s\"}",
@@ -5986,6 +5986,17 @@ void np_host_cube_zoom(int dir)
     cube_zoom_by(dir);
     cfg_save();
 }
+float np_host_cube_zoom_get(void)
+{
+    cube_zoom_clamp();
+    return g.cube_zoom;
+}
+void np_host_set_cube_zoom(float z)
+{
+    g.cube_zoom = z;
+    cube_zoom_clamp();
+    cfg_save();
+}
 void np_host_cube_front(void)
 {
     /* +z / Fp toward the camera. Not the 0.55/0.40 start pose. */
@@ -7113,16 +7124,16 @@ void np_host_set_board_imu(int imu)
 }
 int np_host_ui_scale(void)
 {
-    if (g.ui_scale != 10 && g.ui_scale != 15 && g.ui_scale != 20) {
+    if (g.ui_scale < 8 || g.ui_scale > 22) {
         return 15;
     }
     return g.ui_scale;
 }
 void np_host_cycle_ui_scale(void)
 {
-    if (g.ui_scale == 10) {
+    if (g.ui_scale < 15) {
         g.ui_scale = 15;
-    } else if (g.ui_scale == 15) {
+    } else if (g.ui_scale < 20) {
         g.ui_scale = 20;
     } else {
         g.ui_scale = 10;
@@ -7131,7 +7142,7 @@ void np_host_cycle_ui_scale(void)
 }
 void np_host_set_ui_scale(int tenths)
 {
-    if (tenths != 10 && tenths != 15 && tenths != 20) {
+    if (tenths < 8 || tenths > 22) {
         tenths = 15;
     }
     g.ui_scale = tenths;

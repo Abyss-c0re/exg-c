@@ -2,7 +2,7 @@
 
 Same C host as `./np-exg`. Serial is USB Host. UI is Java. Native library is `libexg.so` from `src/np_core.c` — not the desktop SDL file.
 
-App: **2.86**, package `com.abysscore.exgc`, min SDK 28, ABI `arm64-v8a`.
+App: **2.87**, package `com.abysscore.exgc`, min SDK 28, ABI `arm64-v8a`.
 Quest 3: `com.oculus.intent.category.2D` so it runs as a 2D panel.
 
 How the app behaves: [../docs/APP.md](../docs/APP.md).  
@@ -58,7 +58,7 @@ Tap a name to switch band/filters. Long-press to rename or delete. Electrode map
 
 **Export… / Import…** use the system document picker. No storage permission.
 
-**win** 1 / 2 / 4 / 8 s. **UI** 1.0 / 1.5 / 2.0× (including the cube). Cube **float on/off**, drag to spin, +/− or pinch to zoom. **board** `8-ch EXG` or `8-ch + IMU` — disconnect first.
+**Settings → View** bars: amplitude 20 µV–8 mV, window 1–8 s, UI 0.8×–2.2×. The plot corner draws the µV and time those lengths are. Cube tab has a zoom bar (0.7×–2.8×) plus +/− and pinch. **board** `8-ch EXG` or `8-ch + IMU` — disconnect first.
 
 **band:** `raw` / `line-kill` (hp 2, CAR, ±1000) / `EEG` (hp 2, lp 40, ±200) / `EMG` (hp 20, envelope, CAR, ±2000).
 

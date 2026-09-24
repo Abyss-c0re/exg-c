@@ -2169,14 +2169,7 @@ static void click(int x, int y)
             }
             break;
         case 32:
-            if (g.ui_scale == 10) {
-                g.ui_scale = 15;
-            } else if (g.ui_scale == 15) {
-                g.ui_scale = 20;
-            } else {
-                g.ui_scale = 10;
-            }
-            cfg_save();
+            np_host_cycle_ui_scale();
             break;
         case 33:
             {

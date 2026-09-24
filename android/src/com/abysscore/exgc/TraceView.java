@@ -22,8 +22,10 @@ public class TraceView extends View {
     private final Paint line = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint grid = new Paint();
     private final Paint lab = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint rule = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Path path = new Path();
     private int scaleUv = 200;
+    private int windowS = 2;
     private float labelMul = 1f;
     private float den = 1f;
     private boolean frozen;
@@ -46,6 +48,7 @@ public class TraceView extends View {
         grid.setColor(0x22FFFFFF);
         grid.setStrokeWidth(1f);
         lab.setColor(0xFFB8C0CC);
+        rule.setColor(0xFFE8EAF0);
         syncPaint();
         for (int i = 0; i < NCHAN; i++) {
             col[i] = 0xFF80C8FF;
@@ -71,6 +74,7 @@ public class TraceView extends View {
         den = m.density < 0.75f ? 1f : m.density;
         float sd = m.scaledDensity < 0.75f ? den : m.scaledDensity;
         lab.setTextSize(12f * labelMul * sd);
+        rule.setTextSize(11f * labelMul * sd);
         line.setStrokeWidth(Math.max(1.25f, 1.15f * den));
         grid.setStrokeWidth(Math.max(1f, 0.6f * den));
     }
@@ -91,6 +95,7 @@ public class TraceView extends View {
             }
         }
         scaleUv = Math.max(20, ExgNative.scaleUv());
+        windowS = Math.max(1, ExgNative.windowS());
         for (int c = 0; c < NCHAN; c++) {
             on[c] = ExgNative.active(c);
             if (!on[c]) {
@@ -188,5 +193,68 @@ public class TraceView extends View {
             line.setColor(col[ch]);
             c.drawPath(path, line);
         }
+        drawScaleBar(c, w, h, row);
+    }
+
+    /** Corner ruler: vertical length is a round µV step, horizontal length is a round time step. */
+    private void drawScaleBar(Canvas c, int w, int h, float row) {
+        float pxPerUv = (row * 0.42f) / Math.max(20, scaleUv);
+        float pxPerSec = (w - 8f) / Math.max(1, windowS);
+        float maxH = Math.min(row * 0.85f, 72f * den);
+        float maxW = w * 0.38f;
+        int showUv = 10;
+        int[] niceUv = {10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000};
+        for (int v : niceUv) {
+            if (v * pxPerUv <= maxH) {
+                showUv = v;
+            }
+        }
+        float barH = showUv * pxPerUv;
+        if (barH < 10f * den) {
+            barH = Math.min(maxH, 10f * den);
+            showUv = Math.max(1, Math.round(barH / Math.max(1e-4f, pxPerUv)));
+        }
+        float showT = 0.2f;
+        float[] niceT = {0.2f, 0.5f, 1f, 2f, 4f};
+        for (float t : niceT) {
+            if (t <= windowS + 0.01f && t * pxPerSec <= maxW) {
+                showT = t;
+            }
+        }
+        float barW = showT * pxPerSec;
+        if (barW < 16f * den) {
+            barW = Math.min(maxW, 28f * den);
+            showT = barW / Math.max(1f, pxPerSec);
+        }
+        float pad = 6f * den;
+        float xR = w - pad;
+        float yB = h - pad;
+        float yT = yB - barH;
+        float xL = xR - barW;
+        float sw = Math.max(1.6f, 1.3f * den);
+        rule.setStyle(Paint.Style.STROKE);
+        rule.setStrokeWidth(sw);
+        rule.setStrokeCap(Paint.Cap.SQUARE);
+        float tick = 5f * den;
+        c.drawLine(xR, yT, xR, yB, rule);
+        c.drawLine(xR - tick, yT, xR + tick * 0.2f, yT, rule);
+        c.drawLine(xL, yB, xR, yB, rule);
+        c.drawLine(xL, yB - tick, xL, yB + tick * 0.15f, rule);
+
+        rule.setStyle(Paint.Style.FILL);
+        String uvLab = showUv >= 1000
+                ? (showUv % 1000 == 0 ? (showUv / 1000) + " mV" : String.format(java.util.Locale.US, "%.1f mV", showUv / 1000f))
+                : (showUv + " µV");
+        Paint.FontMetrics fm = rule.getFontMetrics();
+        float tw = rule.measureText(uvLab);
+        float uvBase = yT - 2f * den - fm.descent;
+        if (uvBase < pad - fm.ascent) {
+            uvBase = pad - fm.ascent;
+        }
+        c.drawText(uvLab, Math.max(pad, xR - tw), uvBase, rule);
+        String tLab = showT >= 0.95f && Math.abs(showT - Math.round(showT)) < 0.05f
+                ? ((int) Math.round(showT) + " s")
+                : String.format(java.util.Locale.US, "%.1f s", showT);
+        c.drawText(tLab, Math.max(pad, xL), yB - 2f * den - fm.descent, rule);
     }
 }

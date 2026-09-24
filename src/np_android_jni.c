@@ -1179,6 +1179,22 @@ Java_com_abysscore_exgc_ExgNative_cubeZoom(JNIEnv *env, jclass cls, jint dir)
     np_host_cube_zoom(dir);
 }
 
+JNIEXPORT jfloat JNICALL
+Java_com_abysscore_exgc_ExgNative_cubeZoomF(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    return np_host_cube_zoom_get();
+}
+
+JNIEXPORT void JNICALL
+Java_com_abysscore_exgc_ExgNative_setCubeZoom(JNIEnv *env, jclass cls, jfloat z)
+{
+    (void)env;
+    (void)cls;
+    np_host_set_cube_zoom(z);
+}
+
 JNIEXPORT void JNICALL
 Java_com_abysscore_exgc_ExgNative_cubeFront(JNIEnv *env, jclass cls)
 {

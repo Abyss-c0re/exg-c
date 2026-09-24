@@ -1,4 +1,4 @@
-# App (2.86)
+# App (2.87)
 
 What the host does. The LAN wire is [API.md](API.md).
 
@@ -115,6 +115,7 @@ Per-channel **bias ON** (teal) / **bias off** (dark). Connect sends `RLDADD` or 
 ## Plot
 
 - Off channels are hidden on traces, map, and channel row.
+- The plot corner is a scale bar. Its height is a round µV step at the current amplitude. Its width is a round time step of the window. Settings → View drags amplitude (20 µV–8 mV), window (1–8 s), and UI scale. Cube zoom is a bar on the Cube tab (0.7×–2.8×). Pinch still zooms.
 - **Pause** freezes any channel that already has samples (not only ch 0).
 - FFT marks the **effective** notch only. AUTO with no plate → no 50 Hz sticker.
 - CLIP on the plot is `|v| > 4000 µV` after the view cook. CAR only skips **rails** (±250000 µV), not 4 mV.
@@ -158,7 +159,7 @@ A block after `THEN` can set several channels. `ELSE IF` works. Compares are 0/1
 ## Quest / handheld
 
 - Package `com.abysscore.exgc`. Quest uses `com.oculus.intent.category.2D`.
-- Phone: the window pads inside the status and navigation bars. Controls sit on one compact row so the traces keep a square screen. Plot, FFT, and cube text follow display density, then the UI 1.0 / 1.5 / 2.0× control.
+- Phone: the window pads inside the status and navigation bars. Controls sit on one compact row so the traces keep a square screen. Plot, FFT, and cube text follow display density, then the UI scale bar (0.8×–2.2×).
 - Stream service is `startService` from a visible activity, then `startForeground` (`dataSync`). Not `startForegroundService`.
 - Service stays up while the API **server** is on **or** the app is connected (USB or LAN client).
 - **USB / LAN** next to Connect. USB is the Knight here. LAN types a dest (`host` or `host:8765`). First connect POSTs `/pair`. The share shows **Allow / No** on the app **and** in a notification. After Allow, EXG rides UDP. Share EXG is how this device offers the board out. No Bluetooth. No nearby radio list.
