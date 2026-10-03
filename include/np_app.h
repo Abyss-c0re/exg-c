@@ -114,7 +114,7 @@ struct np_app {
     } off, on, cal, calm;
     int cal_arm;
     int cal_cut;
-    int set_gen; /* 1 EXG, 2 API off, 3 pair montage, 4 pair colors, 5 raw default */
+    int set_gen; /* 1 EXG, 2 API off, 3 pair montage, 4 pair colors, 5 raw default, 6 motor+visual */
     float cal_hz; /* line tone from noise plate; 0 = none */
     float noise_psd[NP_PSD_BINS];
     float noise_psd_ch[NP_NCHAN][NP_PSD_BINS];
@@ -146,7 +146,7 @@ struct np_app {
     int virt_focus; /* IMU / plugin slot */
     struct np_elec elec[NP_NCHAN];
     int elec_sel; /* 0..7 or -1 */
-    int neg_rail; /* 1 = negative rails: bias off, per-channel − site */
+    int neg_rail; /* 1 = NEG RAIL: bias off, per-channel − site, sample is V(+)−V(−) */
     int neg_site[NP_NCHAN]; /* 10-10 index of each channel's negative electrode, -1 unset */
     int neg_pick; /* 1 = map Assign writes neg_site[elec_sel] */
     int pair_mode; /* unused */

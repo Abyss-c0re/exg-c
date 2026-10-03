@@ -118,6 +118,14 @@ Java_com_abysscore_exgc_ExgNative_frames(JNIEnv *env, jclass cls)
 }
 
 JNIEXPORT jint JNICALL
+Java_com_abysscore_exgc_ExgNative_drops(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    return (jint)np_host_drops();
+}
+
+JNIEXPORT jint JNICALL
 Java_com_abysscore_exgc_ExgNative_copyWave(JNIEnv *env, jclass cls, jint ch, jfloatArray dst)
 {
     jfloat *p;
@@ -222,6 +230,14 @@ Java_com_abysscore_exgc_ExgNative_setNegRail(JNIEnv *env, jclass cls, jboolean o
     (void)env;
     (void)cls;
     np_host_set_neg_rail(on ? 1 : 0);
+}
+
+JNIEXPORT void JNICALL
+Java_com_abysscore_exgc_ExgNative_montageDefault(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    np_host_montage_default();
 }
 
 JNIEXPORT jint JNICALL

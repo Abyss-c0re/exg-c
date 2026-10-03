@@ -49,9 +49,13 @@ float np_atom_rms_close_to_pattern(const float *live, int nlive, const float *re
 /* Two NPAT files: log-RMS if both v2. 0 if either is empty or v1. */
 float np_atom_file_close(const char *pa, const char *pb);
 
-/* v2: NPAT + bits + 8×f32 RMS per second. v1 load still works (rms left 0). */
+/* v2: NPAT + bits + 8×f32 RMS per second. v1 load still works (rms left 0).
+ * n_ch byte bit 7 is the montage: 0 referential, 1 NEG RAIL pair. Old files read as 0. */
 int np_atom_save(const char *path, const uint64_t *a, int n, int win);
 int np_atom_save2(const char *path, const uint64_t *a, const float *rms, int n, int win);
+int np_atom_save_m(const char *path, const uint64_t *a, const float *rms, int n, int win, int pair);
+/* 0 referential or legacy, 1 NEG RAIL pair, -1 unreadable. */
+int np_atom_montage(const char *path);
 int np_atom_load(const char *path, uint64_t *a, int cap, int *win);
 int np_atom_load2(const char *path, uint64_t *a, float *rms, int cap, int *win, int *have_rms);
 

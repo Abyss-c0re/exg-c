@@ -281,6 +281,8 @@ static void wear_check(void)
     }
 }
 
+static void ch_tag(int c, char *out, int n);
+
 static void draw_waves(int x, int y, int w, int h)
 {
     int c;
@@ -357,15 +359,16 @@ static void draw_waves(int x, int y, int w, int h)
             }
             last = n ? buf[n - 1] : 0.f;
             fill(x, y1b - 1, w, 1, 32, 36, 44);
-            snprintf(lab, sizeof(lab), "%s", g.elec[c].name[0] ? g.elec[c].name : "?");
+            ch_tag(c, lab, sizeof(lab));
             text(x + 4, y0 + 4, lab, g.chrgb[c][0], g.chrgb[c][1], g.chrgb[c][2], 1);
             if (g.show_uv) {
+                int nx = 4 + (int)strlen(lab) * 6 + 8;
                 if (rms >= 1000.f) {
                     snprintf(lab, sizeof(lab), "%+.0f  rms %.1f mV", last, rms / 1000.f);
                 } else {
                     snprintf(lab, sizeof(lab), "%+.0f  rms %.0f uV", last, rms);
                 }
-                text(x + 40, y0 + 4, lab, 170, 176, 186, 1);
+                text(x + nx, y0 + 4, lab, 170, 176, 186, 1);
             }
             if (q == Q_OFF) {
                 text(x + 220, y0 + 4, "off", 110, 114, 124, 1);
@@ -1041,7 +1044,34 @@ static void draw_cube(int x, int y, int w, int h)
             }
             np_host_cook_uv(uv);
             np_host_pair_uv(puv);
-            for (p = 0; p < NP_PAIR_N; p++) {
+            for (c = 0; c < NP_NCHAN; c++) {
+                float rel, cax, cay, caz, cbx, cby, cbz;
+                int ax, ay, bx, by, rad, alpha;
+                if (!g.active[c] || g.elec[c].site < 0 || g.neg_site[c] < 0) {
+                    continue;
+                }
+                rel = 0.f;
+                if (g.neg_rail) {
+                    rel = fabsf(uv[c] / sc);
+                    if (rel > 2.f) {
+                        rel = 2.f;
+                    }
+                }
+                np_elec_cube_xyz(&g.elec[c], &cax, &cay, &caz);
+                np_1010_cube_xyz(g.neg_site[c], &cbx, &cby, &cbz);
+                cam_pt(cax, cay, caz, &ax, &ay, NULL);
+                cam_pt(cbx, cby, cbz, &bx, &by, NULL);
+                alpha = g.neg_rail ? (int)(50 + 180 * (rel > 1.f ? 1.f : rel)) : 80;
+                if (g.neg_rail && rel < 0.03f) {
+                    alpha = 70;
+                }
+                SDL_SetRenderDrawColor(R, g.chrgb[c][0], g.chrgb[c][1], g.chrgb[c][2],
+                                       (Uint8)alpha);
+                SDL_RenderDrawLine(R, ax, ay, bx, by);
+                rad = 3 + (int)(rel * 8.f * g.cube_zoom);
+                fill_disk(bx, by, rad, 180, 186, 196);
+            }
+            for (p = 0; p < NP_PAIR_N && !g.neg_rail; p++) {
                 int ca, cb, ax, ay, bx, by;
                 float rel, cax, cay, caz, cbx, cby, cbz;
                 if (np_host_pair_chs(p, &ca, &cb) != 0 || !g.active[ca] || !g.active[cb]) {
@@ -1074,14 +1104,13 @@ static void draw_cube(int x, int y, int w, int h)
                 cam_pt(cx, cy, cz, &sx, &sy, NULL);
                 s_elec_sx[c] = sx;
                 s_elec_sy[c] = sy;
-                rel = uv[c] / sc;
+                rel = fabsf(uv[c] / sc);
                 if (rel > 2.f) {
                     rel = 2.f;
                 }
                 rad = 4 + (int)(rel * 14.f * g.cube_zoom);
                 fill_disk(sx, sy, rad, g.chrgb[c][0], g.chrgb[c][1], g.chrgb[c][2]);
-                snprintf(nlab, sizeof(nlab), "%d %s", c + 1,
-                         g.elec[c].name[0] ? g.elec[c].name : "?");
+                ch_tag(c, nlab, sizeof(nlab));
                 text(sx - (int)strlen(nlab) * 3, sy - 18, nlab, g.chrgb[c][0], g.chrgb[c][1],
                      g.chrgb[c][2], 1);
             }
@@ -1125,10 +1154,25 @@ static void draw_cube(int x, int y, int w, int h)
         }
     }
 
+    /* Hardware pairs: + site to − site, motor belt and occipital pole. */
+    for (c = 0; c < NP_NCHAN; c++) {
+        float cax, cay, caz, cbx, cby, cbz;
+        int ax, ay, bx, by;
+        if (!g.active[c] || g.elec[c].site < 0 || g.neg_site[c] < 0) {
+            continue;
+        }
+        np_elec_cube_xyz(&g.elec[c], &cax, &cay, &caz);
+        np_1010_cube_xyz(g.neg_site[c], &cbx, &cby, &cbz);
+        cam_pt(cax, cay, caz, &ax, &ay, NULL);
+        cam_pt(cbx, cby, cbz, &bx, &by, NULL);
+        SDL_SetRenderDrawColor(R, g.chrgb[c][0], g.chrgb[c][1], g.chrgb[c][2], 200);
+        SDL_RenderDrawLine(R, ax, ay, bx, by);
+    }
+
     /* 10-10 names on the cube. Core + assigned + focus always; all names when zoomed. */
     for (i = 0; i < NP_1010_N; i++) {
         float cx, cy, cz, depth = 0.f;
-        int sx, sy, taken = -1, show;
+        int sx, sy, taken = -1, negch = -1, show, cr, cg, cb;
         np_1010_cube_xyz(i, &cx, &cy, &cz);
         cam_pt(cx, cy, cz, &sx, &sy, &depth);
         s_node_sx[i] = sx;
@@ -1136,31 +1180,43 @@ static void draw_cube(int x, int y, int w, int h)
         for (c = 0; c < NP_NCHAN; c++) {
             if (g.elec[c].site == i) {
                 taken = c;
-                break;
+            }
+            if (g.neg_site[c] == i) {
+                negch = c;
             }
         }
-        show = (i == g.site_focus) || taken >= 0 || np_1010_core(i);
+        show = (i == g.site_focus) || taken >= 0 || negch >= 0 || np_1010_core(i);
         if (show && depth > -0.25f) {
             const char *nm = np_1010_name(i);
             int bright = (i == g.site_focus);
-            text(sx - (int)strlen(nm) * 3, sy + 6, nm,
-                 bright ? 255 : (taken >= 0 ? g.chrgb[taken][0] : 160),
-                 bright ? 220 : (taken >= 0 ? g.chrgb[taken][1] : 40),
-                 bright ? 80 : (taken >= 0 ? g.chrgb[taken][2] : 50), 1);
+            if (taken >= 0) {
+                cr = g.chrgb[taken][0];
+                cg = g.chrgb[taken][1];
+                cb = g.chrgb[taken][2];
+            } else if (negch >= 0) {
+                cr = 180;
+                cg = 186;
+                cb = 196;
+            } else {
+                cr = 160;
+                cg = 40;
+                cb = 50;
+            }
+            text(sx - (int)strlen(nm) * 3, sy + 6, nm, bright ? 255 : cr, bright ? 220 : cg,
+                 bright ? 80 : cb, 1);
         }
     }
     for (c = 0; c < NP_NCHAN; c++) {
         float cx, cy, cz;
         int sx, sy;
-        char nlab[12];
+        char nlab[16];
         np_elec_cube_xyz(&g.elec[c], &cx, &cy, &cz);
         cam_pt(cx, cy, cz, &sx, &sy, NULL);
         s_elec_sx[c] = sx;
         s_elec_sy[c] = sy;
-        snprintf(nlab, sizeof(nlab), "%d %s", c + 1,
-                 g.elec[c].name[0] ? g.elec[c].name : "?");
+        ch_tag(c, nlab, sizeof(nlab));
         if (c == g.elec_sel) {
-            fill(sx - 20, sy - 18, 40, 12, 0, 0, 0);
+            fill(sx - 28, sy - 18, 56, 12, 0, 0, 0);
         }
         text(sx - (int)strlen(nlab) * 3, sy - 18, nlab,
              c == g.elec_sel ? 255 : g.chrgb[c][0],
@@ -1176,8 +1232,16 @@ static void draw_cube(int x, int y, int w, int h)
         text(x + 8, y + 6, lab, NP_CUBE_CR, NP_CUBE_CG, NP_CUBE_CB, 1);
     }
     if (g.elec_sel >= 0) {
-        snprintf(lab, sizeof(lab), "ch%d now %s   pick a 10-10 on the map or Assign",
-                 g.elec_sel + 1, g.elec[g.elec_sel].name[0] ? g.elec[g.elec_sel].name : "?");
+        if (g.neg_rail) {
+            char tag[16];
+            ch_tag(g.elec_sel, tag, sizeof(tag));
+            snprintf(lab, sizeof(lab), "ch%d %s   %s   pick a 10-10, Enter assign",
+                     g.elec_sel + 1, tag, g.neg_pick ? "assigning −" : "assigning +");
+        } else {
+            snprintf(lab, sizeof(lab), "ch%d now %s   pick a 10-10 on the map or Assign",
+                     g.elec_sel + 1,
+                     g.elec[g.elec_sel].name[0] ? g.elec[g.elec_sel].name : "?");
+        }
         text(x + 8, y + 18, lab, 200, 160, 80, 1);
     }
 
@@ -1206,7 +1270,7 @@ static void draw_cube(int x, int y, int w, int h)
                     break;
                 }
             }
-            if (taken < 0 && g.neg_rail) {
+            if (taken < 0) {
                 int k;
                 for (k = 0; k < NP_NCHAN; k++) {
                     if (g.neg_site[k] == i) {
@@ -1225,6 +1289,19 @@ static void draw_cube(int x, int y, int w, int h)
                      i == g.site_focus ? 255 : 200, i == g.site_focus ? 220 : 180,
                      i == g.site_focus ? 90 : 190, 1);
             }
+        }
+        for (c = 0; c < NP_NCHAN; c++) {
+            int a, b;
+            if (!g.active[c] || g.elec[c].site < 0 || g.neg_site[c] < 0) {
+                continue;
+            }
+            a = g.elec[c].site;
+            b = g.neg_site[c];
+            if (a < 0 || a >= NP_1010_N || b < 0 || b >= NP_1010_N) {
+                continue;
+            }
+            SDL_SetRenderDrawColor(R, g.chrgb[c][0], g.chrgb[c][1], g.chrgb[c][2], 210);
+            SDL_RenderDrawLine(R, s_map_sx[a], s_map_sy[a], s_map_sx[b], s_map_sy[b]);
         }
     }
 
@@ -1250,18 +1327,22 @@ cube_sot:
                     }
                 }
             }
-            if (g.cube_view == 0) {
-                fill(x + 8 + c * cell, gy + 5, cell - 3, 10,
-                     on ? NP_CUBE_CR : 40, on ? NP_CUBE_CG : 8, on ? NP_CUBE_CB : 14);
-                text(x + 8 + c * cell, gy + 6, g.elec[c].name[0] ? g.elec[c].name : "?",
-                     on ? 255 : 120, on ? 80 : 40, on ? 100 : 50, 1);
-            } else {
-                fill(x + 8 + c * cell, gy + 5, cell - 3, 10,
-                     on ? g.chrgb[c][0] : g.chrgb[c][0] / 4,
-                     on ? g.chrgb[c][1] : g.chrgb[c][1] / 4,
-                     on ? g.chrgb[c][2] : g.chrgb[c][2] / 4);
-                text(x + 8 + c * cell, gy + 6, g.elec[c].name[0] ? g.elec[c].name : "?",
-                     on ? 255 : 160, on ? 240 : 90, on ? 240 : 100, 1);
+            {
+                char tag[16];
+                ch_tag(c, tag, sizeof(tag));
+                if (g.cube_view == 0) {
+                    fill(x + 8 + c * cell, gy + 5, cell - 3, 10,
+                         on ? NP_CUBE_CR : 40, on ? NP_CUBE_CG : 8, on ? NP_CUBE_CB : 14);
+                    text(x + 8 + c * cell, gy + 6, tag, on ? 255 : 120, on ? 80 : 40, on ? 100 : 50,
+                         1);
+                } else {
+                    fill(x + 8 + c * cell, gy + 5, cell - 3, 10,
+                         on ? g.chrgb[c][0] : g.chrgb[c][0] / 4,
+                         on ? g.chrgb[c][1] : g.chrgb[c][1] / 4,
+                         on ? g.chrgb[c][2] : g.chrgb[c][2] / 4);
+                    text(x + 8 + c * cell, gy + 6, tag, on ? 255 : 160, on ? 240 : 90,
+                         on ? 240 : 100, 1);
+                }
             }
         }
     }
@@ -1277,6 +1358,24 @@ static const char *port_short(void)
         return p + 5;
     }
     return p;
+}
+
+static void ch_tag(int c, char *out, int n)
+{
+    const char *minus;
+    if (!out || n < 2) {
+        return;
+    }
+    if (c >= 0 && c < NP_NCHAN && g.neg_rail && g.neg_site[c] >= 0 &&
+        g.neg_site[c] < np_1010_count() && g.elec[c].name[0]) {
+        minus = np_1010_name(g.neg_site[c]);
+        if (minus && minus[0]) {
+            snprintf(out, (size_t)n, "%s-%s", g.elec[c].name, minus);
+            return;
+        }
+    }
+    snprintf(out, (size_t)n, "%s",
+             (c >= 0 && c < NP_NCHAN && g.elec[c].name[0]) ? g.elec[c].name : "?");
 }
 
 static int draw_channels(int x, int y)
@@ -1313,7 +1412,16 @@ static int draw_channels(int x, int y)
         snprintf(gn, sizeof(gn), "g%d", g.gain[c]);
         btn(bx + 102, by, 40, bh, gn, 1, 8, c, 40, 42, 52);
     }
-    return y + 4 * rh + 8;
+    y += 4 * rh;
+    btn(x + 10, y, 278, bh, "default pairs", 0, 39, 0, 32, 36, 44);
+    y += rh;
+    text(x + 12, y, "FC3-CP3 FC1-CP1 FCz-CPz FC2-CP2", 140, 148, 160, 1);
+    y += 12;
+    text(x + 12, y, "FC4-CP4 PO3-O1 POz-Oz PO4-O2", 140, 148, 160, 1);
+    y += 12;
+    text(x + 12, y, g.neg_rail ? "NEG RAIL stays on" : "bias RLD stays", 180, 170, 120, 1);
+    y += 14;
+    return y + 8;
 }
 
 static int draw_view_block(int x, int y)
@@ -1364,7 +1472,12 @@ static int draw_view_block(int x, int y)
     y += rh;
     snprintf(b, sizeof(b), "band %s", np_band_name(g.band));
     btn(x + 12, y, 136, bh, b, g.band != 0, 60, 0, 36, 40, 48);
-    btn(x + 152, y, 136, bh, g.car ? "CAR on" : "CAR off", g.car, 61, 0, 36, 40, 48);
+    if (g.neg_rail) {
+        btn(x + 152, y, 136, bh, "CAR off (rail)", 0, 61, 0, 74, 40, 48);
+    } else {
+        btn(x + 152, y, 136, bh, g.car ? "CAR on" : "CAR off", g.car, 61, 0,
+            g.car ? 28 : 36, g.car ? 90 : 40, g.car ? 60 : 48);
+    }
     y += rh;
     if (g.lp_hz) {
         snprintf(b, sizeof(b), "lp %dHz", g.lp_hz);
@@ -1374,6 +1487,86 @@ static int draw_view_block(int x, int y)
     btn(x + 12, y, 136, bh, b, g.lp_hz != 0, 62, 0, 36, 40, 48);
     btn(x + 152, y, 136, bh, g.envelope ? "envelope" : "wave", g.envelope, 63, 0, 36, 40, 48);
     return y + rh;
+}
+
+static const char *k_help[] = {
+    "# CAR, rail, restore",
+    "# CAR",
+    "Subtracts the mean of the channels.",
+    "A reference while each channel is",
+    "one site against bias.",
+    "In NEG RAIL the sample is already",
+    "+ minus -, so CAR stays off.",
+    "The button reads CAR off (rail).",
+    "EEG and EMG turn CAR on only while",
+    "NEG RAIL is off.",
+    "# NEG RAIL",
+    "Bias off. Each sample is + to -.",
+    "The bias button picks the - site.",
+    "A shared floor leaves CAR off.",
+    "# bias RLD",
+    "Per-channel bias. Sample is the +",
+    "site. Minus sites stay stored.",
+    "Bias is a separate contact.",
+    "# default pairs",
+    "FC3-CP3 FC1-CP1 FCz-CPz FC2-CP2",
+    "FC4-CP4 PO3-O1 POz-Oz PO4-O2",
+    "Five motor, three visual.",
+    "Leaves NEG RAIL where you set it.",
+    "On rail, bias and CAR stay off.",
+    "Off rail, bias and CAR stay.",
+    "# Connection",
+    "USB / LAN  where Connect opens.",
+    "Connect  open or close the board.",
+    "port  Knight port, or host:port.",
+    "# Main",
+    "CSV  raw file. Stop CSV ends it.",
+    "Take  longer recording. keep saves.",
+    "PAUSED / live  hold the plot.",
+    "# Filters",
+    "band  raw, line-kill, EEG, EMG.",
+    "detrend / raw DC  drift or offset.",
+    "envelope / wave  muscle or signed.",
+    "notch  50, 60, off, or AUTO.",
+    "hp / lp  high-pass and low-pass.",
+    "win  time window. scale  microvolts.",
+    "grid  plot grid. uV  labels.",
+    "# Channels",
+    "ON / off  acquire, or drop.",
+    "RLD  bias for that channel.",
+    "-site  minus end while NEG RAIL.",
+    "gN  amplifier gain.",
+    "Click a name to color that channel.",
+    "# Cube",
+    "viz  lattice. map  assign 10-10.",
+    "Assign + / Assign -  write the site.",
+    "NONE  clear the site.",
+    "front  face the cube. +/-  zoom.",
+    "default pairs  same eight pairs.",
+    "algo  CubalC lights the cube.",
+    "# Settings",
+    "Save / Load  filters and view.",
+    "The electrode map stays.",
+    "UI  size. window size beside it.",
+    "# Help",
+    "This page. h opens it.",
+    NULL,
+};
+
+static int draw_help(int x, int y)
+{
+    int i;
+    for (i = 0; k_help[i]; i++) {
+        const char *s = k_help[i];
+        if (s[0] == '#') {
+            y += 6;
+            text(x + 12, y, s + 2, 231, 194, 122, 1);
+        } else {
+            text(x + 12, y, s, 200, 204, 214, 1);
+        }
+        y += 12;
+    }
+    return y + 8;
 }
 
 static void draw_side(int x)
@@ -1412,12 +1605,13 @@ static void draw_side(int x)
         text(x + 90, y + 4, "offline", 120, 128, 140, 1);
     }
     y += NP_TOUCH ? 24 : 20;
-    btn(x + 12, y, 84, bh, "Main", g.tab == 0, 30, 0, g.tab == 0 ? 36 : 28, g.tab == 0 ? 50 : 32,
-        44);
-    btn(x + 100, y, 84, bh, "Cube", g.tab == 2, 36, 0, g.tab == 2 ? 70 : 28, g.tab == 2 ? 22 : 32,
+    btn(x + 8, y, 68, bh, "Main", g.tab == 0, 30, 0, g.tab == 0 ? 36 : 28, g.tab == 0 ? 50 : 32, 44);
+    btn(x + 78, y, 64, bh, "Cube", g.tab == 2, 36, 0, g.tab == 2 ? 70 : 28, g.tab == 2 ? 22 : 32,
         g.tab == 2 ? 32 : 44);
-    btn(x + 188, y, 88, bh, "Settings", g.tab == 1, 31, 0, g.tab == 1 ? 36 : 28,
+    btn(x + 144, y, 86, bh, "Settings", g.tab == 1, 31, 0, g.tab == 1 ? 36 : 28,
         g.tab == 1 ? 50 : 32, 44);
+    btn(x + 232, y, 60, bh, "Help", g.tab == 3, 75, 0, g.tab == 3 ? 70 : 40, g.tab == 3 ? 58 : 42,
+        g.tab == 3 ? 28 : 36);
     y += rh;
     btn(x + 12, y, 80, bh, g.link == 1 ? "LAN" : "USB", 1, 70, 0,
         g.link ? 30 : 32, g.link ? 80 : 36, g.link ? 100 : 44);
@@ -1457,6 +1651,11 @@ static void draw_side(int x)
     }
     hit_in_body = 1;
     y -= g.side_scroll;
+    if (g.tab == 3) {
+        y = draw_help(x, y);
+        side_end(x, y);
+        return;
+    }
     if (g.tab == 2) {
         char b[48];
         snprintf(b, sizeof(b), "SMX  %u ch  %us", (unsigned)g.smx.nch, g.smx.have);
@@ -1484,7 +1683,7 @@ static void draw_side(int x)
             }
             y += rh;
             btn(x + 12, y, 130, bh, "front", 0, 38, 0, 32, 36, 44);
-            btn(x + 146, y, 130, bh, "default 8", 0, 39, 0, 32, 36, 44);
+            btn(x + 146, y, 130, bh, "default pairs", 0, 39, 0, 32, 36, 44);
             y += rh;
             snprintf(b, sizeof(b), "algo %s", np_algo_name(g.algo));
             btn(x + 12, y, sidew() - 24, bh, b, g.algo != 0, 44, 0, 36, 40, 48);
@@ -1543,7 +1742,7 @@ static void draw_side(int x)
         }
         y += rh;
         btn(x + 12, y, 130, bh, "front", 0, 38, 0, 32, 36, 44);
-        btn(x + 146, y, 130, bh, "default 8", 0, 39, 0, 32, 36, 44);
+        btn(x + 146, y, 130, bh, "default pairs", 0, 39, 0, 32, 36, 44);
         y += rh;
         btn(x + 12, y, 130, bh, "Save profile", 0, 41, 0, 28, 80, 48);
         btn(x + 146, y, 130, bh, "Load profile", 0, 42, 0, 28, 80, 48);
@@ -1832,16 +2031,17 @@ static void draw_status(void)
 {
     char st[240];
     uint64_t tot = 0;
-    uint32_t good = 0, bad = 0;
+    uint32_t good = 0, bad = 0, drops = 0;
     uint8_t lp = 0, ln = 0;
     np_ring_stats(&g.ring, &tot, &good, &bad);
+    drops = np_ring_drops(&g.ring);
     np_ring_loff(&g.ring, &lp, &ln);
     pthread_mutex_lock(&g.mu);
     if (g.connected) {
         snprintf(st, sizeof(st),
-                 "%s   %.0f sps   %llu frames   bad %u   %s   loff %02X/%02X%s",
+                 "%s   %.0f sps   %llu frames   drop %u   bad %u   %s   loff %02X/%02X%s",
                  g.status, g.sps > 1.f ? g.sps : (float)NP_DEFAULT_SPS,
-                 (unsigned long long)tot, bad, g.parser.locked ? "lock" : "sync", lp, ln,
+                 (unsigned long long)tot, drops, bad, g.parser.locked ? "lock" : "sync", lp, ln,
                  g.paused ? "   PAUSE" : "");
     } else {
         snprintf(st, sizeof(st), "%s", g.status);
@@ -2101,6 +2301,10 @@ static void click(int x, int y)
             g.tab = 2;
             g.side_scroll = 0;
             break;
+        case 75:
+            g.tab = 3;
+            g.side_scroll = 0;
+            break;
         case 45:
             g.side_scroll -= 48;
             side_clamp();
@@ -2123,9 +2327,7 @@ static void click(int x, int y)
             np_host_cube_front();
             break;
         case 39:
-            np_elec_default(g.elec);
-            cfg_save();
-            set_status(1, "default  FCz-CPz CP4-FC3 FC4-CP3 C3-C4");
+            np_host_montage_default();
             break;
         case 47:
             cube_zoom_by(-1);
@@ -2488,6 +2690,9 @@ static int run_gui(void)
                 } else if (k == SDLK_b) {
                     g.tab = 2;
                     g.side_scroll = 0;
+                } else if (k == SDLK_h) {
+                    g.tab = 3;
+                    g.side_scroll = 0;
                 } else if (g.tab == 2 && k == SDLK_v) {
                     g.cube_view = g.cube_view ? 0 : 1;
                     cfg_save();
@@ -2660,8 +2865,8 @@ static int run_cli(const char *port, int seconds)
     while (time(NULL) < end && g.connected) {
         usleep(100000);
         np_ring_stats(&g.ring, &tot, &good, &bad);
-        printf("\rframes %llu  good %u  bad %u   %s", (unsigned long long)tot, good, bad,
-               g.status);
+        printf("\rframes %llu  good %u  bad %u  drop %u   %s", (unsigned long long)tot, good,
+               bad, np_ring_drops(&g.ring), g.status);
         fflush(stdout);
     }
     putchar('\n');

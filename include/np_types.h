@@ -25,4 +25,16 @@ enum np_board {
 static const int NP_GAINS[] = {1, 2, 3, 4, 6, 8, 12};
 #define NP_NGAINS 7
 
+/* Firmware applies only these. Any other value leaves the ADS1299 gain unchanged. */
+static inline int np_gain_ok(int g)
+{
+    int i;
+    for (i = 0; i < NP_NGAINS; i++) {
+        if (NP_GAINS[i] == g) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 #endif

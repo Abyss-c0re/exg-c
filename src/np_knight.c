@@ -49,7 +49,7 @@ void np_parser_init(struct np_parser *p, enum np_board board)
 
 void np_parser_set_gain(struct np_parser *p, int ch, int gain)
 {
-    if (ch >= 1 && ch <= NP_NCHAN && gain >= 1) {
+    if (ch >= 1 && ch <= NP_NCHAN && np_gain_ok(gain)) {
         p->gain[ch - 1] = gain;
     }
 }
@@ -61,7 +61,7 @@ void np_parser_set_gains(struct np_parser *p, const int gain[NP_NCHAN])
         return;
     }
     for (i = 0; i < NP_NCHAN; i++) {
-        if (gain[i] >= 1) {
+        if (np_gain_ok(gain[i])) {
             p->gain[i] = gain[i];
         }
     }
@@ -104,64 +104,60 @@ static int decode_frame(struct np_parser *p, int n, struct np_sample *out)
 
 int np_parser_feed(struct np_parser *p, unsigned char b, struct np_sample *out)
 {
-    const int cand_imu[] = {57, 21, 22};
-    const int cand_eeg[] = {21, 57, 22};
-    const int *cand = p->board == NP_BOARD_KNIGHT_IMU ? cand_imu : cand_eeg;
-    int i;
+    int want, i, from;
+
+    /* The board mode is the frame length. A 0xC0 inside the IMU floats
+     * must not lock a 21-byte frame, and there is no 22-byte format. */
+    want = (p->locked && p->frame_len > 0) ? p->frame_len
+                                            : (p->board == NP_BOARD_KNIGHT_IMU ? NP_FRAME_IMU
+                                                                               : NP_FRAME_EEG);
 
     if (p->have == 0) {
         if (b != NP_START) {
             return 0;
         }
-        p->buf[p->have++] = b;
+        p->buf[0] = b;
+        p->have = 1;
         return 0;
     }
-
-    if (p->have < NP_FRAME_MAX) {
-        p->buf[p->have++] = b;
-    } else {
-        p->have = 0;
-        p->resyncs++;
-        if (b == NP_START) {
-            p->buf[p->have++] = b;
-        }
-        return -1;
-    }
-
-    /* Locked length: only accept exact end. */
-    if (p->locked && p->frame_len > 0) {
-        if (p->have < p->frame_len) {
-            return 0;
-        }
-        if (p->buf[p->frame_len - 1] == NP_END && decode_frame(p, p->frame_len, out)) {
-            p->have = 0;
-            return 1;
-        }
+    if (p->have >= NP_FRAME_MAX) {
         p->have = 0;
         p->locked = 0;
         p->resyncs++;
         if (b == NP_START) {
-            p->buf[p->have++] = b;
+            p->buf[0] = b;
+            p->have = 1;
         }
         return -1;
+    }
+    p->buf[p->have++] = b;
+    if (p->have < want) {
+        return 0;
+    }
+    if (p->buf[want - 1] == NP_END && decode_frame(p, want, out)) {
+        p->frame_len = want;
+        p->locked = 1;
+        p->have = 0;
+        return 1;
     }
 
-    /* Hunt: C0 at a known frame end. */
-    for (i = 0; i < 3; i++) {
-        int n = cand[i];
-        if (p->have == n && p->buf[n - 1] == NP_END && decode_frame(p, n, out)) {
-            p->frame_len = n;
-            p->locked = 1;
-            p->have = 0;
-            return 1;
+    /* Missed the end marker. Keep a later start byte, including this one. */
+    p->locked = 0;
+    p->resyncs++;
+    from = 0;
+    for (i = 1; i < p->have; i++) {
+        if (p->buf[i] == NP_START) {
+            from = i;
+            break;
         }
     }
-    if (p->have >= NP_FRAME_MAX) {
+    if (from > 0) {
+        memmove(p->buf, p->buf + from, (size_t)(p->have - from));
+        p->have -= from;
+    } else {
         p->have = 0;
-        p->resyncs++;
-        return -1;
     }
-    return 0;
+    return -1;
 }
 
 /* Official command set: ≥1 s between commands (2 s after stream

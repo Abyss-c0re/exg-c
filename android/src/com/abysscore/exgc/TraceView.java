@@ -106,6 +106,12 @@ public class TraceView extends View {
             col[c] = ExgNative.color(c);
             clip[c] = ExgNative.clipped(c);
             String n = ExgNative.elecName(c);
+            if (ExgNative.negRail()) {
+                String nn = ExgNative.negName(c);
+                if (n != null && nn != null && nn.length() > 0 && !"NONE".equals(nn)) {
+                    n = n + "-" + nn;
+                }
+            }
             site[c] = (n == null || n.length() == 0) ? ("ch" + (c + 1)) : n;
             float e = 0f;
             int nSamp = got[c];

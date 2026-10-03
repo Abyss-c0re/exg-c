@@ -435,8 +435,123 @@ public class CubeView extends View {
         mode = 0;
         readMetrics();
         tickViz();
-        drawHive(c, w, h);
+        int band = Math.round(px(132));
+        int hiveH = h - band;
+        if (hiveH < h / 2) {
+            hiveH = h;
+            band = 0;
+        }
+        drawHive(c, w, hiveH);
+        float hk = Math.min(w, hiveH) * (madeN > 1 ? 0.85f : 1.15f) * zoom / 3.2f;
+        drawMontage(c, w * 0.5f, hiveH * 0.52f, hk);
+        if (band > 0) {
+            drawPairFlat(c, w, h, band);
+        }
         postInvalidateOnAnimation();
+    }
+
+    /** Directed segments from each + site to its − site. Brightness is pair magnitude. */
+    private void drawMontage(Canvas c, float cx, float cy, float k) {
+        float[] a = new float[4];
+        float[] b = new float[4];
+        float sc = ExgNative.scaleUv();
+        if (sc < 25f) {
+            sc = 25f;
+        }
+        for (int ch = 0; ch < NCHAN; ch++) {
+            if (!chOn[ch]) {
+                elecSx[ch] = -9999;
+                elecSy[ch] = -9999;
+                continue;
+            }
+            int neg = negSite[ch];
+            if (neg < 0 || neg >= nsite) {
+                continue;
+            }
+            project(elecX[ch], elecY[ch], elecZ[ch], cx, cy, k, a);
+            project(siteX[neg], siteY[neg], siteZ[neg], cx, cy, k, b);
+            elecSx[ch] = Math.round(a[0]);
+            elecSy[ch] = Math.round(a[1]);
+            float rel = 0f;
+            if (negRail) {
+                rel = Math.abs(cook[ch] / sc);
+                if (rel > 2f) {
+                    rel = 2f;
+                }
+            }
+            int col = elecCol[ch] & 0x00FFFFFF;
+            int alpha = negRail ? (int) (50 + 180 * Math.min(1f, rel)) : 90;
+            if (negRail && rel < 0.03f) {
+                alpha = 70;
+            }
+            stroke.setColor((alpha << 24) | col);
+            stroke.setStrokeWidth(px(1.4f) + px(2.4f) * rel);
+            c.drawLine(a[0], a[1], b[0], b[1], stroke);
+            fill.setStyle(Paint.Style.FILL);
+            fill.setColor(0xFFB4BAC4);
+            c.drawCircle(b[0], b[1], px(3.5f) + px(4f) * rel, fill);
+            fill.setColor(0xFF000000 | col);
+            c.drawCircle(a[0], a[1], px(4f) + px(5f) * rel, fill);
+        }
+        stroke.setStrokeWidth(px(1.2f));
+    }
+
+    /** Nose-up scalp of the eight pairs, with the names beside it. */
+    private void drawPairFlat(Canvas c, int w, int h, int band) {
+        int top = h - band;
+        float headW = w * 0.40f;
+        float cx = px(10) + headW * 0.5f;
+        float cy = top + band * 0.58f;
+        float rad = Math.min(headW, band * 0.72f) * 0.46f;
+        fill.setStyle(Paint.Style.FILL);
+        fill.setColor(0xFF10080C);
+        c.drawRect(0, top, w, h, fill);
+        stroke.setStyle(Paint.Style.STROKE);
+        stroke.setColor(0xFF5A1820);
+        stroke.setStrokeWidth(px(1.1f));
+        c.drawCircle(cx, cy, rad, stroke);
+        fill.setStyle(Paint.Style.FILL);
+        fill.setColor(0xFF8C2832);
+        c.drawCircle(cx, cy - rad, px(3.2f), fill);
+        ink.setColor(0xFFB4BAC4);
+        ink.setTextSize(spx(11f));
+        float textX = headW + px(18);
+        float textY = top + px(16);
+        float step = (band - px(20)) / NCHAN;
+        for (int ch = 0; ch < NCHAN; ch++) {
+            int neg = negSite[ch];
+            int plus = -1;
+            if (!chOn[ch] || neg < 0 || neg >= nsite) {
+                continue;
+            }
+            for (int i = 0; i < nsite; i++) {
+                if (siteCh[i] == ch) {
+                    plus = i;
+                    break;
+                }
+            }
+            if (plus < 0) {
+                continue;
+            }
+            float x1 = cx + siteFx[plus] * rad;
+            float y1 = cy - siteFy[plus] * rad;
+            float x2 = cx + siteFx[neg] * rad;
+            float y2 = cy - siteFy[neg] * rad;
+            int col = elecCol[ch] & 0x00FFFFFF;
+            stroke.setColor(0xFF000000 | col);
+            stroke.setStrokeWidth(px(2f));
+            c.drawLine(x1, y1, x2, y2, stroke);
+            fill.setColor(0xFF000000 | col);
+            c.drawCircle(x1, y1, px(3.2f), fill);
+            fill.setColor(0xFFB4BAC4);
+            c.drawCircle(x2, y2, px(3f), fill);
+            String ps = siteName[plus] != null ? siteName[plus] : "?";
+            String ns = siteName[neg] != null ? siteName[neg] : "?";
+            ink.setColor(0xFF000000 | col);
+            c.drawText((ch + 1) + "  " + ps + "-" + ns, textX, textY, ink);
+            textY += step;
+        }
+        stroke.setStrokeWidth(px(1.2f));
     }
 
     private void drawHive(Canvas c, int w, int h) {
@@ -500,8 +615,15 @@ public class CubeView extends View {
             int ch = (int) cell[6];
             int q = (int) cell[5];
             ink.setColor(cell[3] > 0.5f ? 0xFFFFFFFF : 0xAAEEC8CE);
-            ink.setTextSize(spx(12f));
-            String lab = ch < 1 ? ((q + 1) + " —") : ((q + 1) + "·ch" + ch);
+            ink.setTextSize(spx(11f));
+            String lab;
+            if (ch >= 1 && ch <= NCHAN && elecLab[ch - 1] != null && elecLab[ch - 1].length() > 0) {
+                lab = elecLab[ch - 1].replaceFirst("^\\d+\\s+", "");
+            } else if (ch < 1) {
+                lab = (q + 1) + " —";
+            } else {
+                lab = (q + 1) + "·ch" + ch;
+            }
             c.drawText(lab, labp[0] - ink.measureText(lab) * 0.5f, labp[1] + px(3), ink);
         }
     }

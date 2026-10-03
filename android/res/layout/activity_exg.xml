@@ -115,56 +115,73 @@
         android:textColor="@color/muted"
         android:textSize="13sp" />
 
-    <LinearLayout
+    <HorizontalScrollView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:background="@color/panel">
+        android:background="@color/panel"
+        android:fillViewport="true"
+        android:scrollbars="none">
 
-        <Button
-            android:id="@+id/tabMain"
-            android:layout_width="0dp"
+        <LinearLayout
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:backgroundTint="#24322C"
-            android:text="Main"
-            android:textColor="@color/ink" />
+            android:orientation="horizontal">
 
-        <Button
-            android:id="@+id/tabCube"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:backgroundTint="@color/btn"
-            android:text="Cube"
-            android:textColor="@color/ink" />
+            <Button
+                android:id="@+id/tabMain"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:minWidth="72dp"
+                android:backgroundTint="#24322C"
+                android:text="Main"
+                android:textColor="@color/ink" />
 
-        <Button
-            android:id="@+id/tabAlgos"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:backgroundTint="@color/btn"
-            android:text="Algos"
-            android:textColor="@color/ink" />
+            <Button
+                android:id="@+id/tabCube"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:minWidth="72dp"
+                android:backgroundTint="@color/btn"
+                android:text="Cube"
+                android:textColor="@color/ink" />
 
-        <Button
-            android:id="@+id/tabPoses"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:backgroundTint="@color/btn"
-            android:text="Takes"
-            android:textColor="@color/ink" />
+            <Button
+                android:id="@+id/tabAlgos"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:minWidth="72dp"
+                android:backgroundTint="@color/btn"
+                android:text="Algos"
+                android:textColor="@color/ink" />
 
-        <Button
-            android:id="@+id/tabSet"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:backgroundTint="@color/btn"
-            android:text="Settings"
-            android:textColor="@color/ink" />
-    </LinearLayout>
+            <Button
+                android:id="@+id/tabPoses"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:minWidth="72dp"
+                android:backgroundTint="@color/btn"
+                android:text="Takes"
+                android:textColor="@color/ink" />
+
+            <Button
+                android:id="@+id/tabSet"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:minWidth="88dp"
+                android:backgroundTint="@color/btn"
+                android:text="Settings"
+                android:textColor="@color/ink" />
+
+            <Button
+                android:id="@+id/tabHelp"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:minWidth="72dp"
+                android:backgroundTint="@color/btn"
+                android:text="Help"
+                android:textColor="@color/ink" />
+        </LinearLayout>
+    </HorizontalScrollView>
 
     <FrameLayout
         android:layout_width="match_parent"
@@ -664,7 +681,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:paddingTop="12dp"
-                    android:text="Process — line-kill + CAR is the readable EXG. Raw is the open-input check. Bias (RLD) is per channel: tap bias ON / bias off."
+                    android:text="Process — Band sets the filters. CAR subtracts the shared mean while each channel is one site (bias RLD). In NEG RAIL the sample is already a pair, so CAR stays off. Raw is the open-input check. Hold a button, or open Help."
                     android:textColor="@color/muted" />
 
                 <LinearLayout
@@ -685,6 +702,16 @@
                         android:layout_weight="1"
                         android:text="CAR" />
                 </LinearLayout>
+
+                <TextView
+                    android:id="@+id/carNote"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:paddingBottom="4dp"
+                    android:text="CAR stays off in NEG RAIL. Each sample is already + minus −, and that mean is left alone."
+                    android:textColor="@color/muted"
+                    android:textSize="13sp"
+                    android:visibility="gone" />
 
                 <LinearLayout
                     android:layout_width="match_parent"
@@ -893,7 +920,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:paddingTop="12dp"
-                    android:text="Locations — tap the site to assign 10-10. Color is its own button. ON = acquire. bias = RLD. gN = gain. NEG RAIL turns bias off; the bias button becomes that channel's − site."
+                    android:text="Locations — tap the name for the + site. With NEG RAIL the label is +− and the next button picks the − site. Hold a button for one line. Help lists every button."
                     android:textColor="@color/muted" />
 
                 <Button
@@ -905,12 +932,72 @@
                     android:text="bias RLD"
                     android:textColor="@color/ink" />
 
+                <Button
+                    android:id="@+id/restorePairs"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:backgroundTint="@color/btn"
+                    android:text="Restore default pairs"
+                    android:textColor="@color/ink" />
+
+                <TextView
+                    android:id="@+id/restoreHint"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:fontFamily="monospace"
+                    android:paddingTop="2dp"
+                    android:paddingBottom="4dp"
+                    android:text="FC3–CP3   FC1–CP1   FCz–CPz   FC2–CP2   FC4–CP4\nPO3–O1    POz–Oz    PO4–O2\nLeaves NEG RAIL where you set it."
+                    android:textColor="@color/muted"
+                    android:textSize="12sp" />
+
                 <LinearLayout
                     android:id="@+id/chGrid"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
                     android:paddingTop="12dp" />
+            </LinearLayout>
+        </ScrollView>
+
+        <ScrollView
+            android:id="@+id/helpPane"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:fillViewport="true"
+            android:visibility="gone">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="16dp">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:paddingBottom="4dp"
+                    android:text="Buttons"
+                    android:textColor="@color/ink"
+                    android:textSize="20sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:paddingBottom="8dp"
+                    android:text="Hold any button for the same line in the status strip."
+                    android:textColor="@color/muted"
+                    android:textSize="14sp" />
+
+                <TextView
+                    android:id="@+id/helpBody"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:lineSpacingMultiplier="1.2"
+                    android:textColor="@color/ink"
+                    android:textSize="15sp" />
             </LinearLayout>
         </ScrollView>
     </FrameLayout>

@@ -189,6 +189,22 @@ static void test_parser(void)
         }
     }
     expect(nout == 1, "parser resync after junk");
+
+    /* 0xC0 is legal inside the first IMU float. It must not lock a 21-byte frame. */
+    fr[20] = NP_END;
+    np_parser_init(&p, NP_BOARD_KNIGHT_IMU);
+    nout = 0;
+    nlock = 0;
+    for (i = 0; i < 57; i++) {
+        if (np_parser_feed(&p, fr[i], &s) > 0) {
+            nout++;
+        }
+        if (p.locked) {
+            nlock = 1;
+        }
+    }
+    expect(nout == 1 && nlock && p.frame_len == 57, "IMU 0xC0 in payload stays 57");
+    expect(s.seq == 7, "IMU payload 0xC0 keeps seq");
 }
 
 static void test_ring(void)
@@ -627,19 +643,69 @@ static void test_elec_view(void)
            "10-20 names are core markings");
     expect(!np_1010_core(np_1010_find("AF3")) && !np_1010_core(np_1010_find("FCz")),
            "10-10 intermediates are not 10-20 core");
-    expect(strcmp(e[0].name, "FCz") == 0 && strcmp(e[1].name, "CPz") == 0, "default ch1 FCz ch2 CPz");
-    expect(strcmp(e[6].name, "C3") == 0 && strcmp(e[7].name, "C4") == 0, "default C3 C4");
+    expect(strcmp(e[0].name, "FC3") == 0 && strcmp(e[1].name, "FC1") == 0, "default ch1 FC3 ch2 FC1");
+    expect(strcmp(e[2].name, "FCz") == 0 && strcmp(e[6].name, "POz") == 0, "default FCz and POz");
+    expect(strcmp(e[4].name, "FC4") == 0 && strcmp(e[7].name, "PO4") == 0, "default ch5 FC4 ch8 PO4");
+    {
+        int neg[NP_NCHAN], ni;
+        const char *want[NP_NCHAN] = {"CP3", "CP1", "CPz", "CP2", "CP4", "O1", "Oz", "O2"};
+        np_neg_default(neg);
+        for (ni = 0; ni < NP_NCHAN; ni++) {
+            if (strcmp(np_1010_name(neg[ni]), want[ni]) != 0 || neg[ni] == e[ni].site) {
+                expect(0, "default minus end");
+            }
+        }
+        expect(1, "default minus ends CP3 CP1 CPz CP2 CP4 O1 Oz O2");
+    }
+    {
+        struct np_elec kept[NP_NCHAN];
+        int neg[NP_NCHAN], rld[NP_NCHAN], car, c, cleared;
+        memset(kept, 0, sizeof kept);
+        for (c = 0; c < NP_NCHAN; c++) {
+            np_elec_set_site(&kept[c], np_1010_find("Cz"));
+            neg[c] = np_1010_find("A1");
+            rld[c] = 1;
+        }
+        car = 1;
+        np_montage_restore(kept, neg, 0, &car, rld);
+        expect(car == 1 && rld[0] == 1 && rld[7] == 1, "restore off-rail keeps CAR and bias");
+        expect(strcmp(kept[0].name, "FC3") == 0 && strcmp(np_1010_name(neg[0]), "CP3") == 0,
+               "restore off-rail writes FC3-CP3");
+        expect(strcmp(kept[7].name, "PO4") == 0 && strcmp(np_1010_name(neg[7]), "O2") == 0,
+               "restore off-rail writes PO4-O2");
+        car = 1;
+        for (c = 0; c < NP_NCHAN; c++) {
+            rld[c] = 1;
+            np_elec_set_site(&kept[c], np_1010_find("Cz"));
+        }
+        np_montage_restore(kept, neg, 1, &car, rld);
+        cleared = 1;
+        for (c = 0; c < NP_NCHAN; c++) {
+            if (rld[c]) {
+                cleared = 0;
+            }
+        }
+        expect(car == 0 && cleared, "restore on-rail clears CAR and bias");
+        expect(strcmp(kept[5].name, "PO3") == 0 && strcmp(np_1010_name(neg[5]), "O1") == 0,
+               "restore on-rail writes PO3-O1");
+    }
+    expect(np_blink_end("Fp1", "A1") == 1, "blink end Fp1-A1");
+    expect(np_blink_end("Fp1", "C3") == 1, "blink end Fp1-C3");
+    expect(np_blink_end("Fp1", "Fp2") == 0, "Fp1-Fp2 is not a blink pair");
+    expect(np_blink_end("C3", "C4") == 0, "C3-C4 is not a blink pair");
+    expect(np_blink_end("Fpz", NULL) == 1, "referential Fpz is a blink site");
+    expect(np_blink_end("FCz", "NONE") == 0, "unset minus falls back to plus");
     {
         int p, ca, cb, ok = 1;
-        expect(np_pair_count() == 4, "four EXG pairs");
-        expect(strcmp(np_pair_site_a(0), "FCz") == 0 && strcmp(np_pair_site_b(0), "CPz") == 0,
-               "pair 0 FCz-CPz");
-        expect(strcmp(np_pair_site_a(1), "CP4") == 0 && strcmp(np_pair_site_b(1), "FC3") == 0,
-               "pair 1 CP4-FC3");
-        expect(strcmp(np_pair_site_a(2), "FC4") == 0 && strcmp(np_pair_site_b(2), "CP3") == 0,
-               "pair 2 FC4-CP3");
-        expect(strcmp(np_pair_site_a(3), "C3") == 0 && strcmp(np_pair_site_b(3), "C4") == 0,
-               "pair 3 C3-C4");
+        expect(np_pair_count() == 4, "four referential contrasts");
+        expect(strcmp(np_pair_site_a(0), "FC4") == 0 && strcmp(np_pair_site_b(0), "FC3") == 0,
+               "pair 0 FC4-FC3");
+        expect(strcmp(np_pair_site_a(1), "FC2") == 0 && strcmp(np_pair_site_b(1), "FC1") == 0,
+               "pair 1 FC2-FC1");
+        expect(strcmp(np_pair_site_a(2), "PO4") == 0 && strcmp(np_pair_site_b(2), "PO3") == 0,
+               "pair 2 PO4-PO3");
+        expect(strcmp(np_pair_site_a(3), "FCz") == 0 && strcmp(np_pair_site_b(3), "POz") == 0,
+               "pair 3 FCz-POz");
         for (p = 0; p < 4; p++) {
             if (np_pair_chs(e, p, &ca, &cb) != 0 || ca < 0 || cb < 0 || ca == cb) {
                 ok = 0;
@@ -649,8 +715,8 @@ static void test_elec_view(void)
         expect(np_bipolar_count() == 2, "two bipolar pairs");
         expect(strcmp(np_bipolar_site_a(0), "FC4") == 0 && strcmp(np_bipolar_site_b(0), "FC3") == 0,
                "bipolar 0 FC4-FC3");
-        expect(strcmp(np_bipolar_site_a(1), "CP4") == 0 && strcmp(np_bipolar_site_b(1), "CP3") == 0,
-               "bipolar 1 CP4-CP3");
+        expect(strcmp(np_bipolar_site_a(1), "PO4") == 0 && strcmp(np_bipolar_site_b(1), "PO3") == 0,
+               "bipolar 1 PO4-PO3");
         expect(np_bipolar_chs(e, 0, &ca, &cb) == 0 && ca != cb, "bipolar 0 maps two channels");
         expect(np_bipolar_chs(e, 1, &ca, &cb) == 0 && ca != cb, "bipolar 1 maps two channels");
     }
@@ -673,7 +739,7 @@ static void test_elec_view(void)
     np_elec_from_xyz(x, y, z, &back);
     expect(fabsf(back.az - e[0].az) < 0.05f && fabsf(back.el - e[0].el) < 0.05f,
            "xyz round-trip az/el");
-    expect(strcmp(np_1010_name(np_1010_nearest(e[6].az, e[6].el)), "C3") == 0, "nearest snap C3");
+    expect(strcmp(np_1010_name(np_1010_nearest(e[6].az, e[6].el)), "POz") == 0, "nearest snap POz");
 
     np_view_apply(0.7f, 0.4f, 1.f, 0.f, 0.f, &x, &y, &z);
     np_view_undo(0.7f, 0.4f, x, y, z, &x2, &y2, &z2);
@@ -690,12 +756,13 @@ static void test_elec_view(void)
     expect(n > 10 && n <= NP_CUBE_BUDGET, "cube lattice under budget 40");
     {
         float x1, y1, z1, x2, y2, z2;
-        np_elec_cube_xyz(&e[0], &x1, &y1, &z1);
-        np_elec_cube_xyz(&e[0], &x2, &y2, &z2);
+        np_elec_cube_xyz(&e[2], &x1, &y1, &z1);
+        np_elec_cube_xyz(&e[2], &x2, &y2, &z2);
         expect(x1 == x2 && y1 == y2 && z1 == z2, "channel cell does not move");
         expect(fabsf(x1) < 0.35f && z1 > 0.f, "FCz cube cell is midline-front");
-        np_elec_cube_xyz(&e[1], &x2, &y2, &z2);
-        expect(!(x1 == x2 && z1 == z2), "FCz and CPz occupy different cells");
+        np_elec_cube_xyz(&e[0], &x2, &y2, &z2);
+        expect(x2 < 0.f && z2 > 0.f, "FC3 cube cell is left-front");
+        expect(!(x1 == x2 && z1 == z2), "FCz and FC3 occupy different cells");
         {
             struct np_elec fp;
             np_elec_set_site(&fp, np_1010_find("Fp1"));
@@ -1263,6 +1330,12 @@ static void test_atom(void)
             expect(np_atom_save2(pb, ring, act, 1, 125) == 0, "save act");
             close = np_atom_file_close(pa, pb);
             expect(close > 0.90f && close < 0.99f, "file close rest vs a ~94%");
+            expect(np_atom_montage(pa) == 0, "legacy take is referential");
+            expect(np_atom_save_m(pb, ring, act, 1, 125, 1) == 0, "save NEG RAIL take");
+            expect(np_atom_montage(pb) == 1, "pair take keeps montage bit");
+            expect(np_atom_load2(pb, got, rms2, 4, &win, &have) == 1 && have == 1,
+                   "pair take still loads RMS");
+            expect(np_atom_file_close(pa, pb) < 0.f, "ref vs NEG RAIL does not compare");
             remove(pa);
             remove(pb);
         }
@@ -1601,7 +1674,7 @@ static void test_api(void)
          strstr(body, "/stream") && strstr(body, "EXG1");
     expect(ok, "api GET / index lists stream");
     expect(strstr(body, "stream.json") == NULL, "api index has no NDJSON live path");
-    expect(strstr(body, "\"v\":\"2.87\"") != NULL, "api index version 2.87");
+    expect(strstr(body, "\"v\":\"2.90\"") != NULL, "api index version 2.90");
     expect(strstr(body, "/pair") != NULL, "api index lists /pair");
     expect(strstr(body, "\"ip\":\"127.0.0.1\"") != NULL, "api local ip is loopback");
     {

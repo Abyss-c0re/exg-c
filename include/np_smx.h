@@ -49,8 +49,8 @@ struct np_elec {
 };
 
 #define NP_HEAD_R 1.15f
-#define NP_PAIR_N 4 /* FCz-CPz, CP4-FC3, FC4-CP3, C3-C4 */
-#define NP_BIPOLAR_N 2 /* motor square: FC4-FC3, CP4-CP3 */
+#define NP_PAIR_N 4 /* referential: FC4-FC3, FC2-FC1, PO4-PO3, FCz-POz */
+#define NP_BIPOLAR_N 2 /* laterality: FC4-FC3 motor, PO4-PO3 visual */
 
 void np_smx_init(struct np_smx *m);
 void np_smx_push(struct np_smx *m, const uint8_t bits[NP_NCHAN], int nch, uint8_t mask);
@@ -64,6 +64,13 @@ unsigned int np_smx_fold_ch(const struct np_smx *m);
 int np_smx_cubes(const struct np_smx *m, struct np_cube *out, int cap);
 
 void np_elec_default(struct np_elec e[NP_NCHAN]);
+/* Minus ends of the default pairs, same channel order as np_elec_default. */
+void np_neg_default(int site[NP_NCHAN]);
+/* Write the default +/− sites. rail is only read.
+ * rail on: *car becomes 0 and every rld flag is cleared.
+ * rail off: *car and rld are left as the caller set them. */
+void np_montage_restore(struct np_elec e[NP_NCHAN], int neg[NP_NCHAN], int rail, int *car,
+                        int rld[NP_NCHAN]);
 int np_pair_count(void);
 const char *np_pair_site_a(int pair);
 const char *np_pair_site_b(int pair);
@@ -73,6 +80,9 @@ int np_bipolar_count(void);
 const char *np_bipolar_site_a(int pair);
 const char *np_bipolar_site_b(int pair);
 int np_bipolar_chs(const struct np_elec e[NP_NCHAN], int pair, int *cha, int *chb);
+/* 1 when a differential can carry a blink: exactly one end is Fp*.
+ * Empty or NONE minus falls back to the plus name. */
+int np_blink_end(const char *plus, const char *minus);
 void np_elec_set_site(struct np_elec *e, int site);
 void np_elec_to_xyz(const struct np_elec *e, float r, float *x, float *y, float *z);
 void np_elec_from_xyz(float x, float y, float z, struct np_elec *e);

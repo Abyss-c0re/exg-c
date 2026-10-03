@@ -11,6 +11,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.text.Html;
 import android.text.InputType;
 import android.util.TypedValue;
 import android.view.View;
@@ -69,7 +70,9 @@ public class ExgActivity extends Activity {
     private LinearLayout followList;
     private LinearLayout allowList;
     private Button kitSend, kitTake, kitBoth;
-    private Button tabMain, tabCube, tabAlgos, tabPoses, tabSet;
+    private Button tabMain, tabCube, tabAlgos, tabPoses, tabSet, tabHelp;
+    private Button restorePairs;
+    private View helpPane;
     private View posesPane;
     private LinearLayout poseList;
     private TextView poseHint;
@@ -84,6 +87,7 @@ public class ExgActivity extends Activity {
     private SeekBar winBar;
     private Button band;
     private Button car;
+    private TextView carNote;
     private Button detrend;
     private Button env;
     private Button lp;
@@ -247,6 +251,10 @@ public class ExgActivity extends Activity {
         tabAlgos = findViewById(R.id.tabAlgos);
         tabPoses = findViewById(R.id.tabPoses);
         tabSet = findViewById(R.id.tabSet);
+        tabHelp = findViewById(R.id.tabHelp);
+        helpPane = findViewById(R.id.helpPane);
+        restorePairs = findViewById(R.id.restorePairs);
+        ((TextView) findViewById(R.id.helpBody)).setText(helpHtml());
         posesPane = findViewById(R.id.poses);
         poseList = findViewById(R.id.poseList);
         poseHint = findViewById(R.id.poseHint);
@@ -261,6 +269,7 @@ public class ExgActivity extends Activity {
         winBar = findViewById(R.id.winBar);
         band = findViewById(R.id.band);
         car = findViewById(R.id.car);
+        carNote = findViewById(R.id.carNote);
         detrend = findViewById(R.id.detrend);
         env = findViewById(R.id.env);
         lp = findViewById(R.id.lp);
@@ -289,6 +298,7 @@ public class ExgActivity extends Activity {
             refreshChannels();
             refreshChrome();
         });
+        restorePairs.setOnClickListener(v -> confirmRestore());
         learnChips = findViewById(R.id.learnChips);
 
         pairYes.setOnClickListener(v -> {
@@ -342,6 +352,7 @@ public class ExgActivity extends Activity {
         tabAlgos.setOnClickListener(v -> showTab(2));
         tabPoses.setOnClickListener(v -> showTab(3));
         tabSet.setOnClickListener(v -> showTab(4));
+        tabHelp.setOnClickListener(v -> showTab(5));
         cubeAdd.setOnClickListener(v -> {
             ExgNative.madeAdd();
             refreshCubeChrome();
@@ -731,6 +742,7 @@ public class ExgActivity extends Activity {
             }
         });
         buildChannels();
+        wireHints();
         refreshCubeChrome();
         refreshProfiles();
         showTab(0);
@@ -829,6 +841,164 @@ public class ExgActivity extends Activity {
         super.onDestroy();
     }
 
+    private boolean hold(String line) {
+        status.setText(line);
+        return true;
+    }
+
+    private void wireHints() {
+        hint(port, "Knight port. On USB this is the serial device. On LAN this is host:port.");
+        hint(link, "USB talks to a cable. LAN talks to another exg-c that is sharing.");
+        hint(connect, "Open or close the Knight. LAN asks for a destination first.");
+        hint(pairYes, "Allow this follower to receive the live EXG.");
+        hint(pairNo, "Refuse this follower.");
+        hint(calibrate, "Capture the desk noise plate, then a still worn plate. ID uses both.");
+        hint(clean, "DC on the trace. Cycles the cleaner. The plates stay.");
+        hint(learnName, "Name used by Record and by Take.");
+        hint(record, "Save one second of the current pattern for blink or clench ID.");
+        hint(match, "ID on compares the live second with saved patterns and names one winner.");
+        hint(csv, "Start or stop a raw CSV file of the live channels.");
+        hint(pause, "Hold the plot. The board keeps running.");
+        hint(atom, "Start or stop a take. A take is the longer recording used on the Takes tab.");
+        hint(atomVs, "Live take compared with the one you picked. Different montage refuses the score.");
+        hint(band, "Preset. raw is the board. line-kill, EEG, and EMG set filters. EEG and EMG want CAR only when NEG RAIL is off.");
+        hint(car, "Common average reference. Subtracts the mean of the channels. With NEG RAIL the mean of pair voltages is not a reference, so CAR stays off.");
+        hint(detrend, "Pull a slow drift out of the plot. raw DC leaves the offset in view.");
+        hint(env, "Envelope rectifies the wave. Useful for muscle. Wave keeps the signed trace.");
+        hint(notch, "Mains notch, 50 or 60 Hz, or off. AUTO follows the noise plate.");
+        hint(hp, "High-pass. Removes what is slower than this frequency.");
+        hint(lp, "Low-pass. Removes what is faster than this frequency.");
+        hint(algo, "Opens the Algos tab. CubalC decides which cube cells light.");
+        hint(board, "8-ch + IMU expects the 57-byte Knight frame. 8-ch EXG expects EEG only.");
+        hint(negRail, "NEG RAIL turns bias off on every channel. Each sample is the + electrode minus the − electrode. bias RLD restores per-channel bias and reads each channel as one site.");
+        hint(restorePairs, "Put back FC3-CP3, FC1-CP1, FCz-CPz, FC2-CP2, FC4-CP4, PO3-O1, POz-Oz, PO4-O2. NEG RAIL stays as it is.");
+        hint(apiOn, "Share EXG on the network so another device can follow.");
+        hint(apiBind, "wifi listens on the LAN address. this device listens only here.");
+        hint(apiHz, "How often shared frames go out. The board rate stays 125 samples per second.");
+        hint(apiHttp, "Port for settings and control, after Allow.");
+        hint(apiUdp, "Port for the live traces.");
+        hint(apiTcp, "Spare port. Following does not need it.");
+        hint(apiToken, "Lock word. Empty leaves the share open after Allow.");
+        hint(apiPush, "Also send live EXG to name:port.");
+        hint(kitSend, "Send this map and these settings to the follower.");
+        hint(kitTake, "Ask the follower for their map and settings.");
+        hint(kitBoth, "Copy the map and settings both ways.");
+        hint(cubeAdd, "Add a 2×2×2 cube. Each cell is one channel bit.");
+        hint(cubeDel, "Remove the selected cube.");
+        hint(cubeColor, "Color of the selected cube.");
+        hint(cubeFloat, "Let the cube turn on its own. Off keeps the angle where you leave it.");
+        hint(findViewById(R.id.cubeFront), "Face the cube to the front.");
+        hint(findViewById(R.id.cubeZoomIn), "Zoom the cube in.");
+        hint(findViewById(R.id.cubeZoomOut), "Zoom the cube out.");
+        hint(tabMain, "Traces, FFT, and the record bar.");
+        hint(tabCube, "Hive of channel bits, and the scalp pairs under it.");
+        hint(tabAlgos, "CubalC source for the cube. Help on that tab is the syntax.");
+        hint(tabPoses, "Saved takes. Tap one to compare it with the live plot.");
+        hint(tabSet, "Filters, share, profiles, and the electrode map.");
+        hint(tabHelp, "What each button does.");
+        hint(findViewById(R.id.profNew), "Save the current filters and view as a named profile. The electrode map stays with the app.");
+        hint(findViewById(R.id.profExport), "Share the profile file.");
+        hint(findViewById(R.id.profImport), "Open a profile file.");
+    }
+
+    private void hint(View v, String line) {
+        if (v == null) {
+            return;
+        }
+        v.setOnLongClickListener(view -> hold(line));
+    }
+
+    private void confirmRestore() {
+        boolean rail = ExgNative.negRail();
+        String keep = rail
+                ? "NEG RAIL stays on. Bias stays off and CAR stays off."
+                : "bias RLD stays. The − sites are stored until you turn NEG RAIL on.";
+        new AlertDialog.Builder(this)
+                .setTitle("Restore default pairs")
+                .setMessage("Puts back FC3–CP3, FC1–CP1, FCz–CPz, FC2–CP2, FC4–CP4, PO3–O1, POz–Oz, and PO4–O2.\n\n"
+                        + keep)
+                .setPositiveButton("Restore", (d, w) -> {
+                    ExgNative.montageDefault();
+                    refreshChannels();
+                    refreshChrome();
+                    status.setText(ExgNative.status());
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    private static String helpSec(String title) {
+        return "<br/><font color=\"#E7C27A\"><b>" + title + "</b></font><br/>";
+    }
+
+    private static String helpRow(String name, String body) {
+        return "<b>" + name + "</b> — " + body + "<br/>";
+    }
+
+    private static CharSequence helpHtml() {
+        String html = helpSec("CAR, rail, restore")
+                + helpRow("CAR", "Common average reference. Subtracts the mean of the active channels. That mean is a reference while each channel is one site against bias (bias RLD). In NEG RAIL each sample is already the + electrode minus the − electrode, so the mean of those pairs is left alone. The button then reads CAR off (rail) and stays off. EEG and EMG presets turn CAR on only while NEG RAIL is off.")
+                + helpRow("NEG RAIL", "Bias off on every channel. The sample is the voltage from the + electrode to the − electrode. The bias button on each row becomes the − site picker. A shared millivolt floor means the body is floating; the status says so and leaves CAR off.")
+                + helpRow("bias RLD", "Per-channel bias. The sample is read as the + site. Minus sites stay stored for the next time NEG RAIL is on. Bias is a separate contact from the pair.")
+                + helpRow("Restore default pairs", "Puts back FC3–CP3, FC1–CP1, FCz–CPz, FC2–CP2, FC4–CP4, PO3–O1, POz–Oz, PO4–O2. Five pairs cross motor cortex (front +, back −). Three enter visual cortex. Leaves NEG RAIL where you set it. While NEG RAIL is on, bias and CAR stay off. While bias RLD is on, bias and CAR stay as they are.")
+                + helpSec("Connection")
+                + helpRow("Port", "Knight serial port on USB, or host:port on LAN.")
+                + helpRow("USB / LAN", "Where Connect opens.")
+                + helpRow("Connect", "Open or close the board.")
+                + helpRow("Allow / No", "A follower asked for the live EXG.")
+                + helpSec("Main")
+                + helpRow("Calibrate", "Desk noise plate, then a still worn plate. ID needs both.")
+                + helpRow("DC / CLEAN", "How DC sits on the trace. Cycles the cleaner. The plates stay.")
+                + helpRow("Name", "Label for Record and Take.")
+                + helpRow("Record", "One second, for blink or clench.")
+                + helpRow("ID / MATCH", "Names the live second when one saved pattern wins. With saved takes the button reads ID. With none it reads MATCH.")
+                + helpRow("CSV", "Raw file of the live channels. Stop CSV ends it.")
+                + helpRow("Pause", "Holds the plot. The board keeps running.")
+                + helpRow("Take", "Longer recording. Compare it on Takes. Stop ends the take.")
+                + helpRow("Compare line", "Scores the live take against the one you picked. A different montage (NEG RAIL versus bias RLD) refuses the score.")
+                + helpSec("Filters")
+                + helpRow("Band", "raw, line-kill, EEG, or EMG. raw is the board. line-kill, EEG, and EMG set filters. EEG and EMG want CAR only while NEG RAIL is off. band mix means the knobs left the preset.")
+                + helpRow("CAR", "See the top of this page. CAR on subtracts the mean. CAR off leaves each channel as it is. CAR off (rail) is locked while NEG RAIL is on.")
+                + helpRow("detrend / raw DC", "Pulls a slow drift out of the plot, or leaves the offset in view.")
+                + helpRow("envelope / wave", "Rectified muscle view, or the signed trace.")
+                + helpRow("notch", "Mains notch, 50 or 60 Hz, off, or AUTO from the noise plate.")
+                + helpRow("hp / lp", "High-pass removes what is slower than this frequency. Low-pass removes what is faster.")
+                + helpRow("Algos tab", "Opens Algos. CubalC decides which cube cells light.")
+                + helpSec("Electrodes")
+                + helpRow("Name button", "Pick the + site. With NEG RAIL the label shows +−.")
+                + helpRow("color", "Channel color on the plot and on the cube.")
+                + helpRow("ON / off", "ON acquires this channel. off drops it from the plot, CAR, and the cube.")
+                + helpRow("bias ON / − site", "Bias for that channel, or the − site while NEG RAIL is on.")
+                + helpRow("gN", "Amplifier gain. Higher gain makes a smaller signal fill the plot.")
+                + helpSec("Cube")
+                + helpRow("add cube / del / color", "The 2×2×2 hive. Each cell is one channel bit.")
+                + helpRow("− / + / front / float", "Zoom, face the front, or let the cube turn.")
+                + helpRow("1–8", "Which channel feeds that cell. The scalp under the hive draws each + site to its − site.")
+                + helpSec("Algos")
+                + helpRow("help", "CubalC syntax, on the Algos tab. This Help tab is the buttons.")
+                + helpRow("save CubalC", "Keeps source that parses.")
+                + helpRow("use on cube", "Applies the selected algo to the cube.")
+                + helpSec("Takes")
+                + helpRow("A take", "Tap one to compare with the live plot. Long-press deletes. A take saved in the other montage is marked different montage.")
+                + helpSec("Share")
+                + helpRow("share EXG", "Publish on the network so another device can follow.")
+                + helpRow("wifi / this device", "Who can connect.")
+                + helpRow("rate", "Shared frames per second. The board stays at 125.")
+                + helpRow("settings / EXG / spare", "Ports. 0 is off.")
+                + helpRow("lock", "A word required after Allow. Empty leaves the share open after Allow.")
+                + helpRow("extra send", "Also push live EXG to name:port.")
+                + helpRow("send mine / take theirs / both ways", "Copy the map and settings.")
+                + helpRow("Profiles", "Filters and view. The electrode map stays with the app.")
+                + helpSec("Tabs")
+                + helpRow("Main", "Traces, FFT, and the record bar.")
+                + helpRow("Cube", "Hive of channel bits, and the scalp pairs under it.")
+                + helpRow("Algos", "CubalC source for the cube.")
+                + helpRow("Takes", "Saved takes.")
+                + helpRow("Settings", "Filters, share, profiles, and the electrode map.")
+                + helpRow("Help", "This page.");
+        return Html.fromHtml(html, Html.FROM_HTML_MODE_COMPACT);
+    }
+
     private void showTab(int t) {
         tab = t;
         mainPane.setVisibility(t == 0 ? View.VISIBLE : View.GONE);
@@ -836,12 +1006,14 @@ public class ExgActivity extends Activity {
         algosPane.setVisibility(t == 2 ? View.VISIBLE : View.GONE);
         posesPane.setVisibility(t == 3 ? View.VISIBLE : View.GONE);
         settings.setVisibility(t == 4 ? View.VISIBLE : View.GONE);
+        helpPane.setVisibility(t == 5 ? View.VISIBLE : View.GONE);
         learnBar.setVisibility(t == 0 ? View.VISIBLE : View.GONE);
         tabMain.setBackgroundTintList(android.content.res.ColorStateList.valueOf(t == 0 ? 0xFF24322C : 0xFF2A3038));
         tabCube.setBackgroundTintList(android.content.res.ColorStateList.valueOf(t == 1 ? 0xFF3A1820 : 0xFF2A3038));
         tabAlgos.setBackgroundTintList(android.content.res.ColorStateList.valueOf(t == 2 ? 0xFF3A3020 : 0xFF2A3038));
         tabPoses.setBackgroundTintList(android.content.res.ColorStateList.valueOf(t == 3 ? 0xFF3A3020 : 0xFF2A3038));
         tabSet.setBackgroundTintList(android.content.res.ColorStateList.valueOf(t == 4 ? 0xFF243044 : 0xFF2A3038));
+        tabHelp.setBackgroundTintList(android.content.res.ColorStateList.valueOf(t == 5 ? 0xFF243044 : 0xFF2A3038));
         if (t == 1) {
             refreshCubeChrome();
         }
@@ -1087,6 +1259,10 @@ public class ExgActivity extends Activity {
         int fr = ExgNative.frames();
         if (on && sps > 1f) {
             st = st + "   " + (int) sps + " sps   " + fr + " frames";
+            int drop = ExgNative.drops();
+            if (drop > 0) {
+                st = st + "   drop " + drop;
+            }
         }
         if (ExgNative.apiOn()) {
             st = st + "   " + ExgNative.apiLine();
@@ -1193,7 +1369,25 @@ public class ExgActivity extends Activity {
         } else {
             band.setText(bd == 1 ? "band line-kill" : (bd == 2 ? "band EEG" : (bd == 3 ? "band EMG" : "band raw")));
         }
-        car.setText(ExgNative.car() ? "CAR on" : "CAR off");
+        if (ExgNative.negRail()) {
+            car.setText("CAR off (rail)");
+            car.setBackgroundTintList(android.content.res.ColorStateList.valueOf(0xFF4A3038));
+            if (carNote != null) {
+                carNote.setVisibility(View.VISIBLE);
+            }
+        } else if (ExgNative.car()) {
+            car.setText("CAR on");
+            car.setBackgroundTintList(android.content.res.ColorStateList.valueOf(0xFF2E8A58));
+            if (carNote != null) {
+                carNote.setVisibility(View.GONE);
+            }
+        } else {
+            car.setText("CAR off");
+            car.setBackgroundTintList(android.content.res.ColorStateList.valueOf(0xFF2A3038));
+            if (carNote != null) {
+                carNote.setVisibility(View.GONE);
+            }
+        }
         detrend.setText(ExgNative.detrend() ? "detrend" : "raw DC");
         env.setText(ExgNative.envelope() ? "envelope" : "wave");
         lp.setText(ExgNative.lp() == 0 ? "lp off" : "lp " + ExgNative.lp() + "Hz");
@@ -1460,6 +1654,7 @@ public class ExgActivity extends Activity {
                             refreshChannels();
                         });
             });
+            colb.setOnLongClickListener(v -> hold("Color of this channel on the plot and on the cube."));
             Button on = new Button(this);
             Button rld = new Button(this);
             Button gn = new Button(this);
@@ -1472,6 +1667,7 @@ public class ExgActivity extends Activity {
                 refreshChannels();
                 refreshChrome();
             });
+            on.setOnLongClickListener(v -> hold("ON acquires this channel. off drops it from the plot, CAR, and the cube."));
             rld.setOnClickListener(v -> {
                 if (ExgNative.negRail()) {
                     pickNegSite(ch);
@@ -1481,12 +1677,16 @@ public class ExgActivity extends Activity {
                 refreshChannels();
                 refreshChrome();
             });
+            rld.setOnLongClickListener(v -> hold(ExgNative.negRail()
+                    ? "− site. With NEG RAIL this picks the back end of the pair. Bias stays off."
+                    : "Bias for this channel. The bias drive is a separate contact from the pair."));
             gn.setOnClickListener(v -> pick(ExgNative.elecName(ch) + " gain",
                     new String[] {"1", "2", "3", "4", "6", "8", "12"},
                     gainIndex(ch), i -> {
                         ExgNative.setGain(ch, new int[] {1, 2, 3, 4, 6, 8, 12}[i]);
                         refreshChannels();
                     }));
+            gn.setOnLongClickListener(v -> hold("Amplifier gain for this channel. Higher gain makes a smaller signal fill the plot."));
             row.addView(lab, lpLab);
             row.addView(colb, lpBtn);
             row.addView(on, lpBtn);
@@ -1529,7 +1729,16 @@ public class ExgActivity extends Activity {
             }
             gn.setText("g" + ExgNative.gain(ch));
             Button lab = (Button) row.getChildAt(0);
-            lab.setText((ch + 1) + "  " + ExgNative.elecName(ch));
+            String plus = ExgNative.elecName(ch);
+            String shown = plus == null ? "" : plus;
+            if (rail) {
+                String nn = ExgNative.negName(ch);
+                if (nn != null && nn.length() > 0 && !"NONE".equals(nn)) {
+                    shown = shown + "-" + nn;
+                }
+            }
+            lab.setOnLongClickListener(v -> hold("Channel name. Tap to pick the + site. With NEG RAIL the label is + site minus − site."));
+            lab.setText((ch + 1) + "  " + shown);
             int col = ExgNative.color(ch) | 0xFF000000;
             colb.setTextColor(col);
             colb.setBackgroundTintList(android.content.res.ColorStateList.valueOf(

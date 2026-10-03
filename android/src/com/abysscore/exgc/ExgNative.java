@@ -17,6 +17,7 @@ public final class ExgNative {
     public static native boolean statusOk();
     public static native float sps();
     public static native int frames();
+    public static native int drops();
     public static native int copyWave(int ch, float[] dst);
     public static native int scaleUv();
     public static native void cycleScale();
@@ -29,6 +30,8 @@ public final class ExgNative {
     public static native boolean rld(int ch);
     public static native boolean negRail();
     public static native void setNegRail(boolean on);
+    /** Restore the eight default pairs. Leaves NEG RAIL as it is. */
+    public static native void montageDefault();
     public static native int negSite(int ch);
     public static native void setNegSite(int ch, int site);
     public static native String negName(int ch);

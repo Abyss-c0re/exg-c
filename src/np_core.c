@@ -92,6 +92,12 @@ static int rld_want(int ch)
     return (ch >= 0 && ch < NP_NCHAN && g.rld[ch]) ? 1 : 0;
 }
 
+/* NEG RAIL samples are already V(+)−V(−). Their mean is not a reference. */
+static int car_on(void)
+{
+    return g.car && !g.neg_rail;
+}
+
 static int neg_site_ok(int s)
 {
     return s >= 0 && s < np_1010_count();
@@ -234,7 +240,7 @@ static float clean_ch[NP_NCHAN][NP_RING];
 static int filt_sig(void)
 {
     return g.hp_hz + (g.notch_hz + 3) * 97 + (int)(notch_hz_eff() * 10.f) + g.cal_cut * 10007 +
-           g.lp_hz * 13 + g.car * 17 + g.envelope * 19 + g.band * 23;
+           g.lp_hz * 13 + car_on() * 17 + g.envelope * 19 + g.band * 23 + g.neg_rail * 29;
 }
 
 void filt_reset(void)
@@ -818,21 +824,29 @@ static void learn_write_cube(const uint8_t bits[NP_NCHAN], uint8_t cube[64])
             np_1010_ijk(g.elec[c].site, &ix, &iy, &iz);
             np_cube_set(&g.smx, ix, iy, iz, bits[c] ? 1 : 0, NP_CELL_EEG);
         }
+        if (bits[c] && g.neg_rail && neg_site_ok(g.neg_site[c])) {
+            np_1010_ijk(g.neg_site[c], &ix, &iy, &iz);
+            np_cube_set(&g.smx, ix, iy, iz, 1, NP_CELL_EEG);
+        }
     }
     np_cube_pack_bin(&g.smx, cube);
 }
 
 static int site_is_fp(int ch)
 {
-    const char *n;
+    const char *plus, *minus;
     if (ch < 0 || ch >= NP_NCHAN) {
         return 0;
+    }
+    plus = (g.elec[ch].site >= 0) ? np_1010_name(g.elec[ch].site) : "";
+    if (g.neg_rail && neg_site_ok(g.neg_site[ch])) {
+        minus = np_1010_name(g.neg_site[ch]);
+        return np_blink_end(plus, minus);
     }
     if (g.elec[ch].site < 0) {
         return ch == 0 || ch == 1;
     }
-    n = np_1010_name(g.elec[ch].site);
-    return n && n[0] == 'F' && n[1] == 'p';
+    return np_blink_end(plus, NULL);
 }
 
 /* Last ~0.5 s EXG vs a rolling quiet floor. Shared 2 mV is not a pose. */
@@ -914,8 +928,16 @@ static int stream_id(float *ratio)
             med = tmp[n / 2];
         }
     }
-    /* Lockstep millivolt floor: turn display CAR on so the plot is EXG. */
-    if (!g.car && nlive >= 4 && mx > 800.f && med > 400.f && mx < med * 1.25f) {
+    /* Lockstep millivolt floor. Referential: turn CAR on.
+     * NEG RAIL already subtracted in the amp — a shared floor means no bias. */
+    if (g.neg_rail && nlive >= 4 && mx > 800.f && med > 400.f && mx < med * 1.25f) {
+        static int noted;
+        if (!noted) {
+            noted = 1;
+            set_status(0, "shared floor — NEG RAIL, bias is off");
+        }
+    } else if (!g.neg_rail && !g.car && nlive >= 4 && mx > 800.f && med > 400.f &&
+               mx < med * 1.25f) {
         g.car = 1;
         if (g.hp_hz < 1) {
             g.hp_hz = 2;
@@ -1672,7 +1694,7 @@ static int cfg_read(const char *path)
         } else {
             int ch, gn, r, gc, b;
             if (sscanf(line, "gain%d=%d", &ch, &gn) == 2 && ch >= 1 && ch <= NP_NCHAN &&
-                gn >= 1) {
+                np_gain_ok(gn)) {
                 g.gain[ch - 1] = gn;
             } else if (sscanf(line, "color%d=%d,%d,%d", &ch, &r, &gc, &b) == 4 && ch >= 1 &&
                        ch <= NP_NCHAN) {
@@ -1732,6 +1754,7 @@ static int cfg_read(const char *path)
         for (c = 0; c < NP_NCHAN; c++) {
             g.rld[c] = 0;
         }
+        g.car = 0;
     }
     if (g.window_s < 1) {
         g.window_s = 2;
@@ -2110,7 +2133,7 @@ static void cook_all(float buf[NP_NCHAN][NP_RING], uint32_t nn[NP_NCHAN], uint32
             nmax = nn[c];
         }
     }
-    if (g.car && nmax > 0) {
+    if (car_on() && nmax > 0) {
         for (t = 0; t < (int)nmax; t++) {
             float v[NP_NCHAN];
             int use[NP_NCHAN];
@@ -2178,17 +2201,19 @@ static void cook_id(float buf[NP_NCHAN][NP_RING], uint32_t nn[NP_NCHAN])
             nmax = nn[c];
         }
     }
-    for (t = 0; t < (int)nmax; t++) {
-        float v[NP_NCHAN];
-        int use[NP_NCHAN];
-        for (c = 0; c < NP_NCHAN; c++) {
-            use[c] = g.active[c] && nn[c] > (uint32_t)t;
-            v[c] = use[c] ? buf[c][t] : 0.f;
-        }
-        np_car_sample(v, use);
-        for (c = 0; c < NP_NCHAN; c++) {
-            if (use[c]) {
-                buf[c][t] = v[c];
+    if (!g.neg_rail) {
+        for (t = 0; t < (int)nmax; t++) {
+            float v[NP_NCHAN];
+            int use[NP_NCHAN];
+            for (c = 0; c < NP_NCHAN; c++) {
+                use[c] = g.active[c] && nn[c] > (uint32_t)t;
+                v[c] = use[c] ? buf[c][t] : 0.f;
+            }
+            np_car_sample(v, use);
+            for (c = 0; c < NP_NCHAN; c++) {
+                if (use[c]) {
+                    buf[c][t] = v[c];
+                }
             }
         }
     }
@@ -2202,16 +2227,19 @@ static void cook_id(float buf[NP_NCHAN][NP_RING], uint32_t nn[NP_NCHAN])
 static int band_from_filters(void)
 {
     int notch_on = g.notch_hz != 0;
+    int want_car = g.neg_rail ? 0 : 1;
     if (g.hp_hz == 0 && g.lp_hz == 0 && !g.car && !g.envelope && !g.detrend && !notch_on) {
         return NP_BAND_RAW;
     }
-    if (g.hp_hz == 2 && g.lp_hz == 0 && g.car && !g.envelope && g.detrend && notch_on) {
+    if (g.hp_hz == 2 && g.lp_hz == 0 && g.car == want_car && !g.envelope && g.detrend && notch_on) {
         return NP_BAND_LINE;
     }
-    if (g.hp_hz == 2 && g.lp_hz == 40 && g.car && !g.envelope && g.detrend && notch_on) {
+    if (g.hp_hz == 2 && g.lp_hz == 40 && g.car == want_car && !g.envelope && g.detrend &&
+        notch_on) {
         return NP_BAND_EEG;
     }
-    if (g.hp_hz == 20 && g.lp_hz == 0 && g.car && g.envelope && g.detrend && g.notch_hz == 50) {
+    if (g.hp_hz == 20 && g.lp_hz == 0 && g.car == want_car && g.envelope && g.detrend &&
+        g.notch_hz == 50) {
         return NP_BAND_EMG;
     }
     return -1;
@@ -2242,7 +2270,7 @@ static void band_apply(int band)
         g.notch_hz = g.cal_hz > 1.f ? -1 : 50;
         g.hp_hz = 2;
         g.lp_hz = 0;
-        g.car = 1;
+        g.car = g.neg_rail ? 0 : 1;
         g.envelope = 0;
         g.detrend = 1;
         g.scale_uv = 1000;
@@ -2253,7 +2281,7 @@ static void band_apply(int band)
         g.notch_hz = g.cal_hz > 1.f ? -1 : 50;
         g.hp_hz = 2;
         g.lp_hz = 40;
-        g.car = 1;
+        g.car = g.neg_rail ? 0 : 1;
         g.envelope = 0;
         g.detrend = 1;
         g.scale_uv = 200;
@@ -2264,7 +2292,7 @@ static void band_apply(int band)
         g.notch_hz = 50;
         g.hp_hz = 20;
         g.lp_hz = 0;
-        g.car = 1;
+        g.car = g.neg_rail ? 0 : 1;
         g.envelope = 1;
         g.detrend = 1;
         g.scale_uv = 2000;
@@ -2332,7 +2360,7 @@ static void api_status_json(char *out, int n)
         }
     }
     snprintf(out, (size_t)n,
-             "{\"ok\":true,\"v\":\"2.87\",\"connected\":%s,\"paused\":%s,\"sps\":%.1f,"
+             "{\"ok\":true,\"v\":\"2.90\",\"connected\":%s,\"paused\":%s,\"sps\":%.1f,"
              "\"frames\":%u,\"status\":\"%s\",\"id\":\"%s\",\"id_best\":%d,"
              "\"notch\":%d,\"hp\":%d,\"lp\":%d,\"car\":%d,\"band\":%d,\"mask\":%u,"
              "\"api\":\"%s\"}",
@@ -2449,6 +2477,7 @@ static void apply_link_cfg(const char *js)
             for (c = 0; c < NP_NCHAN; c++) {
                 g.rld[c] = 0;
             }
+            g.car = 0;
         }
     }
     p = strstr(js, "\"neg\":[");
@@ -2761,7 +2790,7 @@ static void live_sync_u(void)
             v[c] = x;
             use[c] = g.active[c] && i < got[c];
         }
-        if (g.car) {
+        if (car_on()) {
             np_car_sample(v, use);
         }
         for (c = 0; c < NP_NCHAN; c++) {
@@ -3351,9 +3380,69 @@ static void *cmd_thread(void *arg)
     return NULL;
 }
 
+static char boot_note[96];
+
+static void note_boot(const char *s)
+{
+    pthread_mutex_lock(&g.mu);
+    snprintf(boot_note, sizeof(boot_note), "%s", s);
+    pthread_mutex_unlock(&g.mu);
+    set_status(1, "%s", s);
+}
+
+static void boot_note_clear(void)
+{
+    pthread_mutex_lock(&g.mu);
+    boot_note[0] = 0;
+    pthread_mutex_unlock(&g.mu);
+}
+
+static void boot_note_copy(char *dst, int n)
+{
+    pthread_mutex_lock(&g.mu);
+    snprintf(dst, (size_t)n, "%s", boot_note);
+    pthread_mutex_unlock(&g.mu);
+}
+
+/* Firmware prints ASCII status before the first 0xA0. Keep one line. */
+static void boot_byte(unsigned char b, int locked, char *line, int *ln)
+{
+    int k, letters;
+
+    if (locked) {
+        *ln = 0;
+        return;
+    }
+    if (b == '\n' || b == '\r') {
+        if (*ln >= 4) {
+            line[*ln] = 0;
+            letters = 0;
+            for (k = 0; k < *ln; k++) {
+                if ((line[k] >= 'A' && line[k] <= 'Z') || (line[k] >= 'a' && line[k] <= 'z')) {
+                    letters++;
+                }
+            }
+            if (letters >= 2) {
+                note_boot(line);
+            }
+        }
+        *ln = 0;
+        return;
+    }
+    if (b >= 32 && b < 127) {
+        if (*ln < 95) {
+            line[(*ln)++] = (char)b;
+        }
+        return;
+    }
+    *ln = 0;
+}
+
 static void *reader_thread(void *arg)
 {
     unsigned char buf[256];
+    char line[96];
+    int ln = 0;
     (void)arg;
     while (g.running && g.connected && g.fd >= 0) {
         int n, i;
@@ -3388,6 +3477,7 @@ static void *reader_thread(void *arg)
             r = np_parser_feed(&g.parser, buf[i], &s);
             locked = g.parser.locked;
             pthread_mutex_unlock(&g.parse_mu);
+            boot_byte(buf[i], locked, line, &ln);
             if (r < 0) {
                 if (locked) {
                     pthread_mutex_lock(&g.ring.mu);
@@ -3469,8 +3559,12 @@ static void parser_rearm(void)
 static void *enable_thread(void *arg)
 {
     int c;
+    char note[96];
     (void)arg;
-    set_status(1, "waiting for stream...");
+    boot_note_copy(note, (int)sizeof(note));
+    if (!note[0]) {
+        set_status(1, "waiting for stream...");
+    }
 #ifdef __ANDROID__
     if (!wait_live(20, 40, 100000)) {
         set_status(1, "uart idle - one board kick");
@@ -3479,7 +3573,12 @@ static void *enable_thread(void *arg)
     }
 #endif
     if (!wait_live(50, 120, 100000)) {
-        set_status(0, "no live stream - tap Connect again");
+        boot_note_copy(note, (int)sizeof(note));
+        if (note[0]) {
+            set_status(0, "no live stream - %s", note);
+        } else {
+            set_status(0, "no live stream - tap Connect again");
+        }
         g.en_running = 0;
         return NULL;
     }
@@ -3489,6 +3588,13 @@ static void *enable_thread(void *arg)
     set_status(1, "enabling channels...");
     for (c = 0; c < NP_NCHAN && g.connected; c++) {
         if (!g.active[c]) {
+            cmd_push(CMD_CHOFF, c + 1, 0);
+            cmd_drain(8000);
+            if (!g.connected) {
+                break;
+            }
+            cmd_push(CMD_RLDRM, c + 1, 0);
+            cmd_drain(8000);
             continue;
         }
         cmd_push(CMD_CHON, c + 1, g.gain[c]);
@@ -3529,6 +3635,7 @@ void stream_recover(void)
         return;
     }
     g.recover_n++;
+    boot_note_clear();
     set_status(0, "stream stalled - board reset %d/3", g.recover_n);
     parser_rearm();
 #ifndef __ANDROID__
@@ -3600,6 +3707,7 @@ void do_connect(void)
     np_parser_init(&g.parser, g.board);
     np_parser_set_gains(&g.parser, g.gain);
     filt_reset();
+    boot_note_clear();
 #ifndef __ANDROID__
     /* Android: do not DTR-reset on the UI thread. The Knight is already
      * running; a pulse blacks the GL surface and reboots the Nano. */
@@ -3626,7 +3734,13 @@ void do_connect(void)
         return;
     }
     pthread_detach(g.en_thr);
-    set_status(1, "connected %s - enabling channels", path);
+    {
+        char note[96];
+        boot_note_copy(note, (int)sizeof(note));
+        if (!note[0]) {
+            set_status(1, "connected %s - enabling channels", path);
+        }
+    }
 }
 
 void do_disconnect(void)
@@ -4255,6 +4369,24 @@ void next_gain(int ch)
 }
 static int host_ready;
 
+void np_host_montage_default(void)
+{
+    int c;
+    int rail = g.neg_rail ? 1 : 0;
+    /* Sites only. NEG RAIL stays whatever the user already chose.
+     * On rail, bias and CAR stay off. Off rail, bias and CAR stay as they are. */
+    np_montage_restore(g.elec, g.neg_site, rail, &g.car, g.rld);
+    if (rail && g.connected) {
+        for (c = 0; c < NP_NCHAN; c++) {
+            cmd_push(CMD_RLDRM, c + 1, 0);
+        }
+    }
+    filt_reset();
+    cfg_save();
+    set_status(1, rail ? "defaults restored — NEG RAIL stays on"
+                       : "defaults restored — bias RLD stays");
+}
+
 int np_host_start(const char *files_dir)
 {
     int i;
@@ -4340,6 +4472,11 @@ int np_host_start(const char *files_dir)
         apply_readable_defaults();
         g.set_gen = 5;
         filt_reset();
+        cfg_save();
+    }
+    if (g.set_gen < 6) {
+        np_host_montage_default();
+        g.set_gen = 6;
         cfg_save();
     }
     if (g.api_http == 8788) {
@@ -4569,6 +4706,10 @@ unsigned int np_host_frames(void)
     np_ring_stats(&g.ring, &tot, NULL, NULL);
     return (unsigned int)tot;
 }
+unsigned int np_host_drops(void)
+{
+    return np_ring_drops(&g.ring);
+}
 int np_host_copy_wave(int ch, float *dst, int max)
 {
     uint32_t want;
@@ -4752,17 +4893,19 @@ void np_host_set_neg_rail(int on)
     g.neg_rail = on ? 1 : 0;
     if (g.neg_rail) {
         g.neg_pick = 1;
+        g.car = 0;
         for (c = 0; c < NP_NCHAN; c++) {
             g.rld[c] = 0;
             if (g.connected) {
                 cmd_push(CMD_RLDRM, c + 1, 0);
             }
         }
-        set_status(1, "neg rail — bias off, pick − site per channel");
+        set_status(1, "NEG RAIL — bias off, each channel is + to −");
     } else {
         g.neg_pick = 0;
         set_status(1, "bias RLD — per channel");
     }
+    filt_reset();
     cfg_save();
 }
 int np_host_neg_site(int ch)
@@ -5227,6 +5370,13 @@ void np_host_copy_cube(unsigned char dst[512])
         if (idx >= 0) {
             dst[idx] = 1;
         }
+        if (g.neg_rail && neg_site_ok(g.neg_site[c])) {
+            np_1010_ijk(g.neg_site[c], &ix, &iy, &iz);
+            idx = np_cube_idx(ix, iy, iz);
+            if (idx >= 0) {
+                dst[idx] = 1;
+            }
+        }
     }
 }
 
@@ -5237,6 +5387,10 @@ void np_host_cook_uv(float uv[8])
 
 int np_host_pair_n(void)
 {
+    /* Hardware pairs are the eight channels. Do not subtract them again. */
+    if (g.neg_rail) {
+        return 0;
+    }
     return g.pair_mode ? np_bipolar_count() : np_pair_count();
 }
 
@@ -5254,6 +5408,15 @@ void np_host_pair_label(int i, char *out, int n)
 
 int np_host_pair_chs(int i, int *a, int *b)
 {
+    if (g.neg_rail) {
+        if (a) {
+            *a = -1;
+        }
+        if (b) {
+            *b = -1;
+        }
+        return -1;
+    }
     if (g.pair_mode) {
         return np_bipolar_chs(g.elec, i, a, b);
     }
@@ -5269,7 +5432,7 @@ void np_host_set_pair_mode(int on)
 {
     g.pair_mode = on ? 1 : 0;
     cfg_save();
-    set_status(1, g.pair_mode ? "2 pairs — diffs on the motor square" : "8 channels");
+    set_status(1, g.pair_mode ? "2 pairs — motor FC and visual PO" : "8 channels");
 }
 
 int np_host_copy_pair(int p, float *dst, int max)
@@ -5447,10 +5610,19 @@ void np_host_set_lp(int hz)
 }
 int np_host_car(void)
 {
-    return g.car;
+    return car_on();
 }
 void np_host_toggle_car(void)
 {
+    if (g.neg_rail) {
+        g.car = 0;
+        set_status(0, "NEG RAIL — CAR stays off");
+        band_resync();
+        filt_reset();
+        cfg_save();
+        prof_autosave();
+        return;
+    }
     g.car = !g.car;
     band_resync();
     filt_reset();
@@ -6193,6 +6365,11 @@ void np_host_elec_label(int ch, char *out, int n)
         out[0] = 0;
         return;
     }
+    if (g.neg_rail && neg_site_ok(g.neg_site[ch]) && g.elec[ch].name[0]) {
+        snprintf(out, (size_t)n, "%d %s-%s", ch + 1, g.elec[ch].name,
+                 np_1010_name(g.neg_site[ch]));
+        return;
+    }
     snprintf(out, (size_t)n, "%d %s", ch + 1, g.elec[ch].name[0] ? g.elec[ch].name : "NONE");
 }
 void np_host_elec_name(int ch, char *out, int n)
@@ -6558,7 +6735,7 @@ int np_host_atom_save(void)
             set_status(0, "take is loud (%.0f uV) — saved anyway", (double)rms[0]);
         }
     }
-    if (np_atom_save2(path, live, rms, n, NP_ATOM_WIN) != 0) {
+    if (np_atom_save_m(path, live, rms, n, NP_ATOM_WIN, g.neg_rail) != 0) {
         set_status(0, "ATOM cannot write %s", path);
         return -1;
     }
@@ -6626,7 +6803,9 @@ void np_host_atom_line(char *out, int n)
     if (g.atom_on) {
         snprintf(out, (size_t)n, "recording %d s", g.atom_n);
     } else if (g.atom_a[0] && g.atom_b[0]) {
-        if (g.atom_ab >= 0.90f) {
+        if (g.atom_ab < 0.f) {
+            snprintf(out, (size_t)n, "%s vs %s  different montage", g.atom_a, g.atom_b);
+        } else if (g.atom_ab >= 0.90f) {
             snprintf(out, (size_t)n, "%s vs %s  same head — not distinct",
                      g.atom_a, g.atom_b);
         } else if (g.atom_ab <= 0.f) {
@@ -6776,7 +6955,11 @@ static void data_recook(void)
             np_atom_rms8(win, NP_NCHAN, NP_ATOM_WIN, NP_ATOM_WIN, rms + sec * 8);
         }
         if (atom_path(path, (int)sizeof(path), atom_listed[i]) == 0) {
-            np_atom_save2(path, bits, rms, nsec, NP_ATOM_WIN);
+            int pair = np_atom_montage(path);
+            if (pair < 0) {
+                pair = g.neg_rail ? 1 : 0;
+            }
+            np_atom_save_m(path, bits, rms, nsec, NP_ATOM_WIN, pair);
         }
         free(planar);
     }
@@ -6937,7 +7120,9 @@ void np_host_atom_pick(int i)
     }
     snprintf(g.atom_b, sizeof(g.atom_b), "%s", name);
     atom_pair_score();
-    if (g.atom_ab >= 0.90f) {
+    if (g.atom_ab < 0.f) {
+        set_status(0, "%s vs %s  different montage", g.atom_a, g.atom_b);
+    } else if (g.atom_ab >= 0.90f) {
         set_status(0, "%s vs %s  same head — not distinct", g.atom_a, g.atom_b);
     } else if (g.atom_ab <= 0.f) {
         set_status(0, "%s vs %s  no RMS — cannot compare", g.atom_a, g.atom_b);
@@ -6952,7 +7137,9 @@ void np_host_atom_pair(char *out, int n)
         return;
     }
     if (g.atom_a[0] && g.atom_b[0]) {
-        if (g.atom_ab >= 0.90f) {
+        if (g.atom_ab < 0.f) {
+            snprintf(out, (size_t)n, "%s vs %s  different montage", g.atom_a, g.atom_b);
+        } else if (g.atom_ab >= 0.90f) {
             snprintf(out, (size_t)n, "%s vs %s  same head — not distinct",
                      g.atom_a, g.atom_b);
         } else if (g.atom_ab <= 0.f) {
@@ -7019,7 +7206,10 @@ static void atom_identify(void)
             }
             tn = np_atom_load2(path, liveb, base, NP_ATOM_RING, &win, &have);
             if (tn > 0 && have) {
-                nbase = tn;
+                int mont = np_atom_montage(path);
+                if (mont < 0 || mont == (g.neg_rail ? 1 : 0)) {
+                    nbase = tn;
+                }
             }
             break;
         }
@@ -7039,6 +7229,12 @@ static void atom_identify(void)
             tn = np_atom_load2(path, tb, tr, NP_ATOM_RING, &win, &have_rms);
             if (tn < 1) {
                 continue;
+            }
+            {
+                int mont = np_atom_montage(path);
+                if (mont >= 0 && mont != (g.neg_rail ? 1 : 0)) {
+                    continue;
+                }
             }
             r = have_rms ? np_atom_rms_close_to_pattern(liver, k, tr, tn, base, nbase) : 0.f;
             s = r;

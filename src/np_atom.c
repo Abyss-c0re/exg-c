@@ -363,6 +363,9 @@ float np_atom_file_close(const char *pa, const char *pb)
     if (na < 1 || nb < 1) {
         return 0.f;
     }
+    if (np_atom_montage(pa) != np_atom_montage(pb)) {
+        return -1.f;
+    }
     if (ha && hb) {
         return np_atom_rms_close(ra, na, rb, nb);
     }
@@ -436,6 +439,33 @@ int np_atom_save(const char *path, const uint64_t *a, int n, int win)
 
 int np_atom_save2(const char *path, const uint64_t *a, const float *rms, int n, int win)
 {
+    return np_atom_save_m(path, a, rms, n, win, 0);
+}
+
+int np_atom_montage(const char *path)
+{
+    FILE *f;
+    unsigned char hdr[12];
+    if (!path) {
+        return -1;
+    }
+    f = fopen(path, "rb");
+    if (!f) {
+        return -1;
+    }
+    if (fread(hdr, 1, 12, f) != 12 || memcmp(hdr, "NPAT", 4) != 0) {
+        fclose(f);
+        return -1;
+    }
+    fclose(f);
+    if (hdr[4] != 1 && hdr[4] != 2) {
+        return -1;
+    }
+    return (hdr[5] & 0x80) ? 1 : 0;
+}
+
+int np_atom_save_m(const char *path, const uint64_t *a, const float *rms, int n, int win, int pair)
+{
     FILE *f;
     unsigned char hdr[12];
     int i;
@@ -451,7 +481,7 @@ int np_atom_save2(const char *path, const uint64_t *a, const float *rms, int n, 
     }
     memcpy(hdr, "NPAT", 4);
     hdr[4] = rms ? 2 : 1;
-    hdr[5] = 8;
+    hdr[5] = (unsigned char)(8 | (pair ? 0x80 : 0));
     wr_u16(hdr + 6, (unsigned)win);
     wr_u32(hdr + 8, (unsigned)n);
     if (fwrite(hdr, 1, 12, f) != 12) {

@@ -25,7 +25,7 @@ struct np_parser {
     unsigned char buf[NP_FRAME_MAX];
     int have;
     int locked;
-    int frame_len; /* 21 (NP_DEFAULT), 57 (NP_IMU); 22 is a hunt leftover */
+    int frame_len; /* 21 in EXG mode, 57 in IMU mode. No 22-byte frame. */
     int have_seq;
     uint8_t last_seq;
     uint32_t resyncs;

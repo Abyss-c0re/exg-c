@@ -617,29 +617,64 @@ void np_elec_set_site(struct np_elec *e, int site)
     np_1010_elaz(site, &e->az, &e->el);
 }
 
-static const char *k_elec_default[NP_NCHAN] = {"FCz", "CPz", "CP4", "FC3",
-                                               "FC4", "CP3", "C3", "C4"};
+/* + end of each hardware pair. Front is +, back is −. */
+static const char *k_elec_default[NP_NCHAN] = {"FC3", "FC1", "FCz", "FC2",
+                                               "FC4", "PO3", "POz", "PO4"};
+static const char *k_neg_default[NP_NCHAN] = {"CP3", "CP1", "CPz", "CP2",
+                                              "CP4", "O1", "Oz", "O2"};
+/* Referential contrasts among the + electrodes. Right is +, left is −. */
 static const char *k_pair[NP_PAIR_N][2] = {
-    {"FCz", "CPz"},
-    {"CP4", "FC3"},
-    {"FC4", "CP3"},
-    {"C3", "C4"},
+    {"FC4", "FC3"},
+    {"FC2", "FC1"},
+    {"PO4", "PO3"},
+    {"FCz", "POz"},
 };
-/* Plus is right, minus is left. Four corners of one cube face. */
+/* One motor laterality pair and one visual laterality pair. */
 static const char *k_bipolar[NP_BIPOLAR_N][2] = {
     {"FC4", "FC3"},
-    {"CP4", "CP3"},
+    {"PO4", "PO3"},
 };
 
 void np_elec_default(struct np_elec e[NP_NCHAN])
 {
-    /* Sensorimotor belt: four EXG pairs, not Fp/O. */
+    /* Five motor pairs across the central sulcus, three into visual cortex. */
     int i;
     if (!e) {
         return;
     }
     for (i = 0; i < NP_NCHAN; i++) {
         np_elec_set_site(&e[i], np_1010_find(k_elec_default[i]));
+    }
+}
+
+void np_neg_default(int site[NP_NCHAN])
+{
+    int i;
+    if (!site) {
+        return;
+    }
+    for (i = 0; i < NP_NCHAN; i++) {
+        site[i] = np_1010_find(k_neg_default[i]);
+    }
+}
+
+void np_montage_restore(struct np_elec e[NP_NCHAN], int neg[NP_NCHAN], int rail, int *car,
+                        int rld[NP_NCHAN])
+{
+    int c;
+    np_elec_default(e);
+    np_neg_default(neg);
+    if (!rail) {
+        return;
+    }
+    if (car) {
+        *car = 0;
+    }
+    if (!rld) {
+        return;
+    }
+    for (c = 0; c < NP_NCHAN; c++) {
+        rld[c] = 0;
     }
 }
 
@@ -723,6 +758,17 @@ const char *np_bipolar_site_b(int pair)
         return "";
     }
     return k_bipolar[pair][1];
+}
+
+int np_blink_end(const char *plus, const char *minus)
+{
+    int a, b;
+    a = plus && plus[0] == 'F' && plus[1] == 'p';
+    if (!minus || !minus[0] || strcmp(minus, "NONE") == 0 || strcmp(minus, "none") == 0) {
+        return a;
+    }
+    b = minus[0] == 'F' && minus[1] == 'p';
+    return a != b;
 }
 
 int np_bipolar_chs(const struct np_elec e[NP_NCHAN], int pair, int *cha, int *chb)

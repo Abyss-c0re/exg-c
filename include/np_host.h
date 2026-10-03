@@ -15,6 +15,7 @@ void np_host_status(char *out, int n);
 int np_host_status_ok(void);
 float np_host_sps(void);
 unsigned int np_host_frames(void);
+unsigned int np_host_drops(void);
 
 int np_host_copy_wave(int ch, float *dst, int max);
 int np_host_scale_uv(void);
@@ -32,9 +33,12 @@ void np_host_cycle_gain(int ch);
 void np_host_set_gain(int ch, int gain);
 int np_host_active(int ch);
 int np_host_rld(int ch);
-/* Negative rails: bias off on every channel. Each channel has its own − site. */
+/* NEG RAIL stays: bias off on every channel, each channel keeps its own − site.
+ * The sample is then the drop from + to −. CAR and software re-pairs stay off. */
 int np_host_neg_rail(void);
 void np_host_set_neg_rail(int on);
+/* Put back the eight motor/visual pairs. Does not change NEG RAIL. */
+void np_host_montage_default(void);
 int np_host_neg_site(int ch);
 void np_host_set_neg_site(int ch, int site);
 void np_host_neg_name(int ch, char *out, int n);
