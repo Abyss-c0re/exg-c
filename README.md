@@ -4,7 +4,7 @@ A C host for a **[Knight](https://www.neuropawn.tech/)** ADS1299 board — or an
 
 Not a medical device. Not affiliated with NeuroPawn.
 
-Shipped app: **2.87** (`com.abysscore.exgc`, versionCode 95). One framework, two skins:
+Shipped app: **2.91** (`com.abysscore.exgc`, versionCode 99). One framework, two skins:
 
 | Piece | Role |
 |-------|------|
@@ -76,7 +76,7 @@ On a phone the Knight is USB-host on the phone. On Quest 3 the Knight is USB-hos
 5. **Take rest**, then **Take** an action. ID names only a unique winner.
 6. Settings → **API on** only if you want the LAN stream.
 
-Do not hammer Disconnect / Connect. Each DTR pulse resets the Nano.
+Do not hammer Disconnect / Connect. Each DTR pulse resets the Nano. CH340 and CP210x come up at 115200 8N1 with DTR high — a low DTR line holds the Nano in reset.
 
 ## Compatible boards
 

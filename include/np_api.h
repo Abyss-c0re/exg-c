@@ -68,6 +68,18 @@ int np_api_latest(struct np_api_sample *s);
 int np_api_pack(unsigned char *dst, int cap, const struct np_api_sample *s);
 int np_api_unpack(const unsigned char *src, int n, struct np_api_sample *s);
 
+/* One USB read spread onto a 1/sps grid. Sample i is start_us + i*step_us.
+ * A fresh burst ends on now_us. The next burst continues that grid unless
+ * the frame counter jumped or the gap is longer than 150 ms. */
+struct np_api_grid {
+    uint64_t start_us;
+    uint64_t step_us;
+};
+
+void np_api_stamp_reset(void);
+void np_api_stamp_burst(uint32_t frame0, int n, int sps, uint64_t now_us,
+                        struct np_api_grid *out);
+
 /* Host tick drains these. Returns 1 if an op was taken. */
 int np_api_take_op(int *op, int *arg);
 

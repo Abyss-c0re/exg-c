@@ -44,11 +44,13 @@ public final class UsbSerial {
     private static UsbDeviceConnection conn;
     private static UsbInterface iface;
     private static UsbEndpoint epIn, epOut;
-    private static int kind; /* 1 ftdi 2 cdc 3 other */
+    private static int kind; /* 1 ftdi 2 cdc 3 ch340 4 cp210 */
     private static final Object lock = new Object();
     private static CountDownLatch permLatch;
     private static boolean permOk;
     private static int sTick, sPay;
+    private static final int RD_MAX = 1024;
+    private static final byte[] rdTmp = new byte[RD_MAX];
 
     private UsbSerial() {}
 
@@ -124,6 +126,7 @@ public final class UsbSerial {
             } catch (Exception e) {
                 Log.w(TAG, "setConfiguration: " + e.getMessage());
             }
+            kind = kindOf(dev);
             if (!claim(dev)) {
                 close();
                 return -1;
@@ -160,21 +163,21 @@ public final class UsbSerial {
 
     public static int read(byte[] buf, int n) {
         synchronized (lock) {
-            if (conn == null || epIn == null || n <= 0) {
+            if (conn == null || epIn == null || buf == null || n <= 0) {
                 return 0;
             }
-            int chunk = Math.min(n + (kind == 1 ? 2 : 0), epIn.getMaxPacketSize());
-            if (chunk < 3) {
-                chunk = kind == 1 ? 64 : Math.min(n, 64);
+            int maxp = epIn.getMaxPacketSize();
+            if (maxp < 8 || maxp > RD_MAX) {
+                maxp = 64;
             }
-            byte[] tmp = new byte[Math.max(chunk, 64)];
             int out = 0;
-            int loops = kind == 1 ? 8 : 1;
+            int loops = 8;
             for (int li = 0; li < loops && out < n; li++) {
-                int got = conn.bulkTransfer(epIn, tmp, tmp.length, li == 0 ? 80 : 2);
+                int cap = kind == 1 ? maxp : Math.min(n - out, RD_MAX);
+                int got = conn.bulkTransfer(epIn, rdTmp, cap, li == 0 ? 80 : 2);
                 if (got < 0) {
                     if (out == 0 && sTick++ % 40 == 0) {
-                        Log.w(TAG, "bulk IN " + got + " (timeout — no FTDI packet)");
+                        Log.w(TAG, "bulk IN " + got + " (timeout — no serial packet)");
                     }
                     break;
                 }
@@ -182,27 +185,42 @@ public final class UsbSerial {
                     break;
                 }
                 if (kind == 1) {
-                    if (got <= 2) {
-                        if (sTick++ == 0) {
-                            Log.i(TAG, "ftdi status-only packet (uart idle)");
+                    /* Status word is the first two bytes of every packet.
+                     * Stripping only the first pair corrupts the Knight stream
+                     * once a transfer contains more than one packet. */
+                    int src = 0;
+                    int produced = 0;
+                    while (src < got && out < n) {
+                        int len = Math.min(maxp, got - src);
+                        if (len <= 2) {
+                            if (sTick++ == 0) {
+                                Log.i(TAG, "ftdi status-only packet (uart idle)");
+                            }
+                        } else {
+                            int pay = len - 2;
+                            if (pay > n - out) {
+                                pay = n - out;
+                            }
+                            System.arraycopy(rdTmp, src + 2, buf, out, pay);
+                            out += pay;
+                            produced += pay;
                         }
+                        if (len < maxp) {
+                            break;
+                        }
+                        src += maxp;
+                    }
+                    if (produced == 0) {
                         continue;
                     }
-                    int payload = got - 2;
-                    if (payload > n - out) {
-                        payload = n - out;
-                    }
-                    System.arraycopy(tmp, 2, buf, out, payload);
-                    out += payload;
                 } else {
                     int take = got > n - out ? n - out : got;
-                    System.arraycopy(tmp, 0, buf, out, take);
+                    System.arraycopy(rdTmp, 0, buf, out, take);
                     out += take;
-                    break;
                 }
             }
             if (out > 0 && sPay == 0) {
-                Log.i(TAG, "ftdi payload " + out + " bytes");
+                Log.i(TAG, "serial payload " + out + " bytes kind=" + kind);
                 sPay = 1;
             }
             return out;
@@ -233,21 +251,30 @@ public final class UsbSerial {
             }
             if (kind == 1) {
                 conn.controlTransfer(FTDI_HOST, FTDI_MODEM, 0x0100, 0, null, 0, 200);
-                try {
-                    Thread.sleep(100);
-                } catch (InterruptedException ignored) {
-                }
+                pauseMs(100);
                 conn.controlTransfer(FTDI_HOST, FTDI_MODEM, 0x0101, 0, null, 0, 200);
             } else if (kind == 2) {
                 byte[] line = new byte[] {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08};
                 conn.controlTransfer(0x21, 0x22, 0x00, 0, null, 0, 200);
-                try {
-                    Thread.sleep(100);
-                } catch (InterruptedException ignored) {
-                }
+                pauseMs(100);
                 conn.controlTransfer(0x21, 0x22, 0x03, 0, null, 0, 200);
                 conn.controlTransfer(0x21, 0x20, 0, 0, line, line.length, 200);
+            } else if (kind == 3) {
+                ch340Lines(false, true);
+                pauseMs(100);
+                ch340Lines(true, true);
+            } else if (kind == 4) {
+                cpOut(0x07, 0x0302, 0); /* DTR low, RTS high */
+                pauseMs(100);
+                cpOut(0x07, 0x0303, 0);
             }
+        }
+    }
+
+    private static void pauseMs(int ms) {
+        try {
+            Thread.sleep(ms);
+        } catch (InterruptedException ignored) {
         }
     }
 
@@ -335,7 +362,9 @@ public final class UsbSerial {
             }
             if (cls == UsbConstants.USB_CLASS_CDC_DATA) {
                 data = ui;
-                kind = 2;
+                if (kind == 0) {
+                    kind = 2;
+                }
             } else if (cls == UsbConstants.USB_CLASS_COMM) {
                 comm = ui;
                 if (kind == 0) {
@@ -343,7 +372,9 @@ public final class UsbSerial {
                 }
             } else if (data == null) {
                 data = ui;
-                kind = 3;
+                if (kind == 0) {
+                    kind = 3;
+                }
             }
         }
         if (data == null) {
@@ -398,18 +429,98 @@ public final class UsbSerial {
                     + " max=" + epIn.getMaxPacketSize());
             return true;
         }
+        if (kind == 4) {
+            return configureCp210();
+        }
+        if (kind == 3) {
+            return configureCh340();
+        }
         if (kind == 2) {
             byte[] line = new byte[] {(byte) 0x00, (byte) 0xc2, 0x01, 0x00, 0x00, 0x00, 0x08};
             conn.controlTransfer(0x21, 0x20, 0, 0, line, line.length, 200);
             conn.controlTransfer(0x21, 0x22, 0x03, 0, null, 0, 200);
             return true;
         }
-        if (kind == 3) {
-            /* CH340: set baud 115200 */
-            conn.controlTransfer(0x40, 0x9a, 0x1312, 0xcc83, null, 0, 200);
-            conn.controlTransfer(0x40, 0xa1, 0, 0, null, 0, 200);
-            return true;
+        return true;
+    }
+
+    private static int kindOf(UsbDevice dev) {
+        int vid = dev.getVendorId();
+        if (vid == VID_FTDI) {
+            return 1;
         }
+        if (vid == VID_CH340) {
+            return 3;
+        }
+        if (vid == VID_CP210) {
+            return 4;
+        }
+        for (int i = 0; i < dev.getInterfaceCount(); i++) {
+            int cls = dev.getInterface(i).getInterfaceClass();
+            if (cls == UsbConstants.USB_CLASS_CDC_DATA
+                    || cls == UsbConstants.USB_CLASS_COMM) {
+                return 2;
+            }
+        }
+        return 3;
+    }
+
+    private static int vendOut(int req, int value, int index) {
+        return conn.controlTransfer(0x40, req, value, index, null, 0, 200);
+    }
+
+    private static int cpOut(int req, int value, int index) {
+        return conn.controlTransfer(0x41, req, value, index, null, 0, 200);
+    }
+
+    /* 115200 → factor 0xCC09, divisor 0x83. Both registers are required.
+     * Writing only 0x1312/0xCC83 leaves the factor's low byte unset, so the
+     * UART is not 115200 and Knight frames never lock. */
+    private static boolean ch340Baud(int baud) {
+        long factor = 1532620800L / baud;
+        long divisor = 3;
+        int val1, val2;
+        while (factor > 0xfff0L && divisor > 0) {
+            factor >>= 3;
+            divisor--;
+        }
+        factor = 0x10000L - factor;
+        divisor |= 0x80L; /* else a CH341 waits until the buffer is full */
+        val1 = (int) ((factor & 0xff00L) | divisor);
+        val2 = (int) (factor & 0xffL);
+        return vendOut(0x9a, 0x1312, val1) >= 0 && vendOut(0x9a, 0x0f2c, val2) >= 0;
+    }
+
+    private static boolean ch340Lines(boolean dtr, boolean rts) {
+        int bits = (dtr ? 0x20 : 0) | (rts ? 0x40 : 0);
+        return vendOut(0xa4, (~bits) & 0xffff, 0) >= 0;
+    }
+
+    private static boolean configureCh340() {
+        boolean baud, lines;
+        vendOut(0xa1, 0, 0);
+        baud = ch340Baud(115200);
+        vendOut(0x9a, 0x2518, 0x00c3); /* RX | TX | 8N1 */
+        vendOut(0xa1, 0x501f, 0xd90a);
+        ch340Baud(115200);
+        lines = ch340Lines(true, true); /* low DTR holds the Nano in reset */
+        Log.i(TAG, "ch340 115200 8N1 DTR/RTS " + (lines ? "on" : "fail"));
+        return baud || lines;
+    }
+
+    private static boolean configureCp210() {
+        byte[] baud = new byte[] {0x00, (byte) 0xc2, 0x01, 0x00}; /* 115200 LE */
+        int en = cpOut(0x00, 0x0001, 0);
+        int rate, mhs;
+        if (en < 0) {
+            Log.w(TAG, "cp210 enable failed");
+            return false;
+        }
+        rate = conn.controlTransfer(0x41, 0x1e, 0, 0, baud, 4, 200);
+        cpOut(0x03, 0x0800, 0); /* 8N1 */
+        mhs = cpOut(0x07, 0x0303, 0); /* DTR and RTS high */
+        Log.i(TAG, "cp210 115200 8N1 DTR/RTS " + (mhs >= 0 ? "on" : "fail")
+                + " baud=" + rate);
         return true;
     }
 }

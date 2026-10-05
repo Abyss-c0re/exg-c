@@ -2,7 +2,7 @@
 
 Same C host as `./np-exg`. Serial is USB Host. UI is Java. Native library is `libexg.so` from `src/np_core.c` — not the desktop SDL file.
 
-App: **2.87**, package `com.abysscore.exgc`, min SDK 28, ABI `arm64-v8a`.
+App: **2.91**, package `com.abysscore.exgc`, min SDK 28, ABI `arm64-v8a`.
 Quest 3: `com.oculus.intent.category.2D` so it runs as a 2D panel.
 
 How the app behaves: [../docs/APP.md](../docs/APP.md).  
@@ -34,7 +34,7 @@ Or `make android`. Output is `android/exg-c.apk` (debug-signed).
 6. **ID** should say `still Nx`. Blink / clench change the class. That is EXG vs baseline, not a take.
 7. **Take rest**, then an action. ID names only a unique winner. **Record** poses are listed separately; they are not take chips.
 
-Do not hammer Disconnect / Connect. Each DTR pulse resets the Nano.
+Do not hammer Disconnect / Connect. Each DTR pulse resets the Nano. CH340 opens at 115200 8N1 with DTR and RTS high. CP210x uses its own enable and modem bits. FTDI status bytes are removed on every USB packet.
 
 **API** is **off** until Settings → **API on**. A persistent notification stays up while the stream is on so Quest can close the 2D panel. The service is started with `startService` from a visible activity (`dataSync`). If API is off, the service stops.
 

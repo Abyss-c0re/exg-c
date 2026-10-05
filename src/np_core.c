@@ -2360,7 +2360,7 @@ static void api_status_json(char *out, int n)
         }
     }
     snprintf(out, (size_t)n,
-             "{\"ok\":true,\"v\":\"2.90\",\"connected\":%s,\"paused\":%s,\"sps\":%.1f,"
+             "{\"ok\":true,\"v\":\"2.91\",\"connected\":%s,\"paused\":%s,\"sps\":%.1f,"
              "\"frames\":%u,\"status\":\"%s\",\"id\":\"%s\",\"id_best\":%d,"
              "\"notch\":%d,\"hp\":%d,\"lp\":%d,\"car\":%d,\"band\":%d,\"mask\":%u,"
              "\"api\":\"%s\"}",
@@ -2630,11 +2630,10 @@ void api_apply(void)
     }
 }
 
-static void api_emit(const float *v, uint32_t frames)
+static void api_emit(const float *v, uint32_t frames, uint64_t t_us)
 {
     static uint32_t hold;
     struct np_api_sample s;
-    struct timespec ts;
     int c, hz, sps;
     if (!np_api_on() || !v) {
         return;
@@ -2653,8 +2652,7 @@ static void api_emit(const float *v, uint32_t frames)
     }
     hold -= (uint32_t)sps;
     memset(&s, 0, sizeof(s));
-    clock_gettime(CLOCK_REALTIME, &ts);
-    s.t_us = (uint64_t)ts.tv_sec * 1000000ull + (uint64_t)ts.tv_nsec / 1000ull;
+    s.t_us = t_us;
     s.frames = frames;
     s.nch = NP_NCHAN;
     for (c = 0; c < NP_NCHAN; c++) {
@@ -2749,6 +2747,8 @@ static void live_sync_u(void)
     float nh = 0.f;
     float tmp[NP_NCHAN][NP_RING];
     uint32_t got[NP_NCHAN];
+    struct np_api_grid grid;
+    int have_grid = 0;
 
     np_ring_stats(&g.ring, &tot, NULL, NULL);
     if (sig != live_sig) {
@@ -2767,6 +2767,18 @@ static void live_sync_u(void)
     if (need > NP_RING) {
         need = NP_RING;
         live_seen = tot - need;
+    }
+    if (np_api_on()) {
+        int sps_i = (int)(design_sps() + 0.5f);
+        struct timespec ts;
+        uint64_t now;
+        if (sps_i < 50 || sps_i > 250) {
+            sps_i = NP_DEFAULT_SPS;
+        }
+        clock_gettime(CLOCK_REALTIME, &ts);
+        now = (uint64_t)ts.tv_sec * 1000000ull + (uint64_t)ts.tv_nsec / 1000ull;
+        np_api_stamp_burst((uint32_t)(live_seen + 1u), (int)need, sps_i, now, &grid);
+        have_grid = 1;
     }
     if (g.notch_hz != 0) {
         nh = notch_hz_eff();
@@ -2802,7 +2814,8 @@ static void live_sync_u(void)
             }
             live_ch[c][(live_wr + i) % NP_RING] = v[c];
         }
-        api_emit(v, (uint32_t)(live_seen + i + 1));
+        api_emit(v, (uint32_t)(live_seen + i + 1),
+                 have_grid ? grid.start_us + (uint64_t)i * grid.step_us : 0);
     }
     live_wr += need;
     live_seen = tot;
@@ -3438,6 +3451,55 @@ static void boot_byte(unsigned char b, int locked, char *line, int *ln)
     *ln = 0;
 }
 
+/* Push one USB read, then cook it once so EXG1 timestamps share that burst. */
+static void commit_frames(const struct np_sample *fr, int n)
+{
+    int i;
+    if (n <= 0 || !fr) {
+        return;
+    }
+    pthread_mutex_lock(&live_mu);
+    for (i = 0; i < n; i++) {
+        np_ring_push(&g.ring, &fr[i]);
+    }
+    live_sync_u();
+    pthread_mutex_unlock(&live_mu);
+    for (i = 0; i < n; i++) {
+        struct timespec now;
+        const struct np_sample *s = &fr[i];
+        g.sps_n++;
+        clock_gettime(CLOCK_MONOTONIC, &now);
+        if (g.sps_t.tv_sec == 0) {
+            g.sps_t = now;
+        } else {
+            double dt = (double)(now.tv_sec - g.sps_t.tv_sec) +
+                (now.tv_nsec - g.sps_t.tv_nsec) / 1e9;
+            if (dt >= 1.0) {
+                g.sps = (float)g.sps_n / (float)dt;
+                g.sps_n = 0;
+                g.sps_t = now;
+            }
+        }
+        if (g.recording) {
+            pthread_mutex_lock(&g.csv_mu);
+            if (g.csv) {
+                int c;
+                struct timespec ts;
+                clock_gettime(CLOCK_REALTIME, &ts);
+                fprintf(g.csv, "%ld.%09ld,%u", (long)ts.tv_sec, ts.tv_nsec, s->seq);
+                for (c = 0; c < NP_NCHAN; c++) {
+                    fprintf(g.csv, ",%.3f", s->uv[c]);
+                }
+                fprintf(g.csv, ",%u,%u\n", s->loff_p, s->loff_n);
+                if ((s->seq % 125u) == 0u) {
+                    fflush(g.csv);
+                }
+            }
+            pthread_mutex_unlock(&g.csv_mu);
+        }
+    }
+}
+
 static void *reader_thread(void *arg)
 {
     unsigned char buf[256];
@@ -3470,54 +3532,33 @@ static void *reader_thread(void *arg)
         if (n == 0) {
             continue;
         }
-        for (i = 0; i < n; i++) {
-            struct np_sample s;
-            int r, locked;
-            pthread_mutex_lock(&g.parse_mu);
-            r = np_parser_feed(&g.parser, buf[i], &s);
-            locked = g.parser.locked;
-            pthread_mutex_unlock(&g.parse_mu);
-            boot_byte(buf[i], locked, line, &ln);
-            if (r < 0) {
-                if (locked) {
-                    pthread_mutex_lock(&g.ring.mu);
-                    g.ring.bad++;
-                    pthread_mutex_unlock(&g.ring.mu);
-                }
-            } else if (r > 0) {
-                struct timespec now;
-                np_ring_push(&g.ring, &s);
-                live_sync();
-                g.sps_n++;
-                clock_gettime(CLOCK_MONOTONIC, &now);
-                if (g.sps_t.tv_sec == 0) {
-                    g.sps_t = now;
-                } else {
-                    double dt = (double)(now.tv_sec - g.sps_t.tv_sec) +
-                        (now.tv_nsec - g.sps_t.tv_nsec) / 1e9;
-                    if (dt >= 1.0) {
-                        g.sps = (float)g.sps_n / (float)dt;
-                        g.sps_n = 0;
-                        g.sps_t = now;
+        {
+            struct np_sample batch[16];
+            int nb = 0;
+            for (i = 0; i < n; i++) {
+                struct np_sample s;
+                int r, locked;
+                pthread_mutex_lock(&g.parse_mu);
+                r = np_parser_feed(&g.parser, buf[i], &s);
+                locked = g.parser.locked;
+                pthread_mutex_unlock(&g.parse_mu);
+                boot_byte(buf[i], locked, line, &ln);
+                if (r < 0) {
+                    if (locked) {
+                        pthread_mutex_lock(&g.ring.mu);
+                        g.ring.bad++;
+                        pthread_mutex_unlock(&g.ring.mu);
                     }
-                }
-                if (g.recording) {
-                    pthread_mutex_lock(&g.csv_mu);
-                    if (g.csv) {
-                        int c;
-                        struct timespec ts;
-                        clock_gettime(CLOCK_REALTIME, &ts);
-                        fprintf(g.csv, "%ld.%09ld,%u", (long)ts.tv_sec, ts.tv_nsec, s.seq);
-                        for (c = 0; c < NP_NCHAN; c++) {
-                            fprintf(g.csv, ",%.3f", s.uv[c]);
-                        }
-                        fprintf(g.csv, ",%u,%u\n", s.loff_p, s.loff_n);
-                        if ((s.seq % 125u) == 0u) {
-                            fflush(g.csv);
-                        }
+                } else if (r > 0) {
+                    if (nb == 16) {
+                        commit_frames(batch, nb);
+                        nb = 0;
                     }
-                    pthread_mutex_unlock(&g.csv_mu);
+                    batch[nb++] = s;
                 }
+            }
+            if (nb) {
+                commit_frames(batch, nb);
             }
         }
     }

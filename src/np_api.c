@@ -40,11 +40,15 @@ struct http_cli {
     int stream; /* 0 request 1 binary EXG1 */
     int hdr_ok;
     int off;
+    int hold_n; /* unsent tail of one EXG1 frame */
+    unsigned char hold[NP_API_FRAME];
     char buf[REQ_MAX];
 };
 
 struct tcp_cli {
     int fd;
+    int hold_n;
+    unsigned char hold[NP_API_FRAME];
 };
 
 struct udp_sub {
@@ -201,6 +205,56 @@ int np_api_unpack(const unsigned char *src, int n, struct np_api_sample *s)
     return NP_API_FRAME;
 }
 
+static uint64_t stamp_next_us;
+static uint32_t stamp_last_fr;
+static int stamp_ok;
+
+void np_api_stamp_reset(void)
+{
+    stamp_next_us = 0;
+    stamp_last_fr = 0;
+    stamp_ok = 0;
+}
+
+void np_api_stamp_burst(uint32_t frame0, int n, int sps, uint64_t now_us, struct np_api_grid *out)
+{
+    uint64_t step, span, start;
+    int hole, late;
+    if (!out) {
+        return;
+    }
+    if (n < 1) {
+        out->start_us = now_us;
+        out->step_us = 8000ull;
+        return;
+    }
+    if (sps < 1) {
+        sps = 125;
+    }
+    step = 1000000ull / (uint64_t)sps;
+    if (step < 1ull) {
+        step = 1ull;
+    }
+    span = (uint64_t)(n - 1) * step;
+    hole = stamp_ok && frame0 != stamp_last_fr + 1u;
+    late = stamp_ok && now_us > stamp_next_us + 150000ull;
+    if (!stamp_ok || hole || late) {
+        start = now_us > span ? now_us - span : 0;
+        /* A late catch-up must not rewrite a stamp already sent. */
+        if (late && start < stamp_next_us) {
+            start = stamp_next_us;
+        }
+    } else {
+        /* Same spacing across a USB read that was split in two. */
+        start = stamp_next_us;
+    }
+    out->start_us = start;
+    out->step_us = step;
+    stamp_next_us = start + (uint64_t)n * step;
+    stamp_last_fr = frame0 + (uint32_t)n - 1u;
+    stamp_ok = 1;
+}
+
 void np_api_cfg_default(struct np_api_cfg *c)
 {
     if (!c) {
@@ -316,6 +370,10 @@ static int bind_udp(const char *ip, int port)
         return -1;
     }
     setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on));
+    {
+        int snd = 256 * 1024;
+        setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &snd, sizeof(snd));
+    }
     memset(&a, 0, sizeof(a));
     a.sin_family = AF_INET;
     a.sin_port = htons((uint16_t)port);
@@ -401,6 +459,7 @@ static void drop_tcp(int i)
         }
     }
     tcp_c[i].fd = -1;
+    tcp_c[i].hold_n = 0;
 }
 
 static void sockets_close(void)
@@ -511,17 +570,53 @@ static int send_all(int fd, const void *p, int n)
     return off;
 }
 
-/* Stream path: never stall the API thread on a slow client. */
-static int send_nb(int fd, const void *p, int n)
+/* One EXG1 frame, aligned. A short write stays in hold and is finished
+ * before the next frame. 1 = this frame was accepted, 0 = still draining
+ * the previous frame (this one is dropped), -1 = dead socket.
+ * Never blocks the API thread. */
+static int send_frame(int fd, unsigned char *hold, int *hold_n, const void *p, int n)
 {
-    int w = (int)send(fd, p, (size_t)n, MSG_NOSIGNAL);
-    if (w < 0) {
-        if (errno == EAGAIN || errno == EWOULDBLOCK) {
-            return 0;
-        }
+    const unsigned char *raw = p;
+    if (!hold || !hold_n || n < 1 || n > NP_API_FRAME) {
         return -1;
     }
-    return w == n ? n : 0;
+    if (*hold_n > 0) {
+        int w = (int)send(fd, hold, (size_t)*hold_n, MSG_NOSIGNAL);
+        if (w < 0) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                return 0;
+            }
+            return -1;
+        }
+        if (w == 0) {
+            return -1;
+        }
+        if (w < *hold_n) {
+            memmove(hold, hold + w, (size_t)(*hold_n - w));
+            *hold_n -= w;
+            return 0;
+        }
+        *hold_n = 0;
+    }
+    {
+        int w = (int)send(fd, raw, (size_t)n, MSG_NOSIGNAL);
+        if (w < 0) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                memcpy(hold, raw, (size_t)n);
+                *hold_n = n;
+                return 1;
+            }
+            return -1;
+        }
+        if (w == 0) {
+            return -1;
+        }
+        if (w < n) {
+            memcpy(hold, raw + w, (size_t)(n - w));
+            *hold_n = n - w;
+        }
+        return 1;
+    }
 }
 
 static void http_reply(int fd, int code, const char *ctype, const char *body)
@@ -793,7 +888,7 @@ static void handle_req(struct http_cli *c)
 
     if (!strcmp(path, "/") || !strcmp(path, "/index")) {
         snprintf(js, sizeof(js),
-                 "{\"ok\":true,\"v\":\"2.90\",\"api\":\"exg\","
+                 "{\"ok\":true,\"v\":\"2.91\",\"api\":\"exg\","
                  "\"bind\":\"%s\",\"ip\":\"%s\",\"http\":%d,\"udp\":%d,\"tcp\":%d,"
                  "\"hz\":%d,\"token\":%s,\"push\":\"%s\","
                  "\"get\":[\"/health\",\"/status\",\"/sample\",\"/stream\",\"/cfg\",\"/kit\",\"/pair\"],"
@@ -806,7 +901,7 @@ static void handle_req(struct http_cli *c)
     }
     if (!strcmp(path, "/health")) {
         snprintf(js, sizeof(js),
-                 "{\"ok\":true,\"v\":\"2.90\",\"on\":true,\"bind\":\"%s\","
+                 "{\"ok\":true,\"v\":\"2.91\",\"on\":true,\"bind\":\"%s\","
                  "\"ip\":\"%s\",\"http\":%d,\"udp\":%d,\"tcp\":%d,\"hz\":%d,"
                  "\"clients\":{\"http\":%d,\"tcp\":%d,\"udp\":%d}}",
                  cfg.lan ? "lan" : "local", self_ip, cfg.http, cfg.udp, cfg.tcp, cfg.hz,
@@ -1013,6 +1108,7 @@ static void accept_tcp(void)
         for (i = 0; i < MAX_TCP; i++) {
             if (tcp_c[i].fd < 0) {
                 tcp_c[i].fd = fd;
+                tcp_c[i].hold_n = 0;
                 n_tcp++;
                 break;
             }
@@ -1132,7 +1228,7 @@ static void emit_frame(const struct np_api_sample *s)
     }
     for (i = 0; i < MAX_TCP; i++) {
         if (tcp_c[i].fd >= 0) {
-            if (send_nb(tcp_c[i].fd, raw, n) < 0) {
+            if (send_frame(tcp_c[i].fd, tcp_c[i].hold, &tcp_c[i].hold_n, raw, n) < 0) {
                 drop_tcp(i);
             }
         }
@@ -1141,7 +1237,7 @@ static void emit_frame(const struct np_api_sample *s)
         if (http_c[i].fd < 0 || http_c[i].stream != 1) {
             continue;
         }
-        if (send_nb(http_c[i].fd, raw, n) < 0) {
+        if (send_frame(http_c[i].fd, http_c[i].hold, &http_c[i].hold_n, raw, n) < 0) {
             drop_http(i);
         }
     }

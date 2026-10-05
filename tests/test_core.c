@@ -1554,6 +1554,36 @@ static int t_pair_ask(const char *name, char *grant, int gn)
     return t_pair_st;
 }
 
+static void test_stamp(void)
+{
+    struct np_api_grid g;
+    int i, bad = 0;
+    np_api_stamp_reset();
+    np_api_stamp_burst(1, 4, 125, 1000000ull, &g);
+    expect(g.step_us == 8000ull, "stamp step is 8 ms");
+    expect(g.start_us == 1000000ull - 24000ull, "stamp burst ends at now");
+    np_api_stamp_burst(5, 4, 125, 1032000ull, &g);
+    expect(g.start_us == 1008000ull, "next burst abuts the grid");
+    np_api_stamp_burst(9, 4, 125, 1032000ull, &g);
+    expect(g.start_us == 1040000ull, "split read does not overlap");
+    np_api_stamp_burst(13, 4, 125, 1532000ull, &g);
+    expect(g.start_us == 1532000ull - 24000ull, "150 ms stall starts a new grid");
+    np_api_stamp_reset();
+    np_api_stamp_burst(1, 2, 125, 5000000ull, &g);
+    np_api_stamp_burst(50, 2, 125, 5008000ull, &g);
+    expect(g.start_us == 5000000ull, "frame hole is not continuous time");
+    np_api_stamp_reset();
+    for (i = 0; i < 125; i++) {
+        uint64_t now = 8000000ull + (uint64_t)i * 8000ull;
+        np_api_stamp_burst((uint32_t)(i + 1), 1, 125, now, &g);
+        if (g.start_us != now) {
+            bad++;
+        }
+    }
+    expect(bad == 0, "125 Hz grid does not drift");
+    np_api_stamp_reset();
+}
+
 static void test_api(void)
 {
     struct np_api_sample a, b;
@@ -1589,7 +1619,7 @@ static void test_api(void)
     c.lan = 0;
     c.http = 18765;
     c.udp = 18766;
-    c.tcp = 0;
+    c.tcp = 18767;
     c.hz = 125;
     c.token[0] = 0;
     expect(np_api_apply(&c) == 0, "api listen local");
@@ -1674,7 +1704,7 @@ static void test_api(void)
          strstr(body, "/stream") && strstr(body, "EXG1");
     expect(ok, "api GET / index lists stream");
     expect(strstr(body, "stream.json") == NULL, "api index has no NDJSON live path");
-    expect(strstr(body, "\"v\":\"2.90\"") != NULL, "api index version 2.90");
+    expect(strstr(body, "\"v\":\"2.91\"") != NULL, "api index version 2.91");
     expect(strstr(body, "/pair") != NULL, "api index lists /pair");
     expect(strstr(body, "\"ip\":\"127.0.0.1\"") != NULL, "api local ip is loopback");
     {
@@ -1757,6 +1787,60 @@ static void test_api(void)
         np_api_set_pair_ask_fn(NULL);
     }
 
+    {
+        int fd = socket(AF_INET, SOCK_STREAM, 0);
+        struct sockaddr_in ha;
+        unsigned char raw[32 * NP_API_FRAME];
+        int got = 0, spins, k, aligned = 1;
+        uint32_t prev = 0;
+        memset(&ha, 0, sizeof(ha));
+        ha.sin_family = AF_INET;
+        ha.sin_port = htons(18767);
+        ha.sin_addr.s_addr = inet_addr("127.0.0.1");
+        expect(fd >= 0 && connect(fd, (struct sockaddr *)&ha, sizeof(ha)) == 0, "api tcp connect");
+        if (fd >= 0) {
+            struct timeval tv;
+            tv.tv_sec = 0;
+            tv.tv_usec = 200000;
+            setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+            for (spins = 0; spins < 20; spins++) {
+                if (http_get("127.0.0.1", 18765, "/health", body, sizeof(body)) > 0 &&
+                    strstr(body, "\"tcp\":1,")) {
+                    break;
+                }
+                usleep(20000);
+            }
+            for (k = 0; k < 32; k++) {
+                a.uv[0] = (float)k;
+                np_api_push(&a);
+            }
+            while (got < (int)sizeof(raw)) {
+                int r = (int)recv(fd, raw + got, sizeof(raw) - (size_t)got, 0);
+                if (r <= 0) {
+                    break;
+                }
+                got += r;
+            }
+            close(fd);
+        }
+        expect(got == (int)sizeof(raw), "api tcp reads 32 aligned frames");
+        for (k = 0; k < 32 && aligned; k++) {
+            struct np_api_sample s;
+            if (np_api_unpack(raw + k * NP_API_FRAME, NP_API_FRAME, &s) != NP_API_FRAME) {
+                aligned = 0;
+                break;
+            }
+            if (k && s.seq != prev + 1u) {
+                aligned = 0;
+            }
+            if (fabsf(s.uv[0] - (float)k) > 0.01f) {
+                aligned = 0;
+            }
+            prev = s.seq;
+        }
+        expect(aligned, "api tcp EXG1 stays on the frame boundary");
+    }
+
     np_api_stop();
     expect(np_api_on() == 0, "api stop");
     (void)errno;
@@ -1781,6 +1865,7 @@ int main(void)
     test_id_event();
     test_process();
     test_atom();
+    test_stamp();
     test_api();
     if (fails) {
         fprintf(stderr, "%d FAIL\n", fails);

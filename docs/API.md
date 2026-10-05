@@ -1,4 +1,4 @@
-# API (2.87)
+# API (2.91)
 
 C only (`include/np_api.h`, `src/np_api.c`). No Python in this tree.
 
@@ -16,7 +16,7 @@ Default: **off**. Settings → **API on**. Then:
 
 Cook runs on the **USB reader** thread. The API thread wakes on a pipe and sends. Sockets do not block the cook. There is no fake sample delay.
 
-`/` and `/health` advertise `"v":"2.87"`. GET `/status` is the same version. GET/POST `/kit` is map+settings text (no bind secrets). Live stream is **EXG1** binary. There is no `/stream.json`. GET/POST `/pair` is open (no token): first LAN connect. POST starts Allow/No on the share; GET polls `state` (`1` wait, `2` grant, `3` no).
+`/` and `/health` advertise `"v":"2.91"`. GET `/status` is the same version. GET/POST `/kit` is map+settings text (no bind secrets). Live stream is **EXG1** binary. There is no `/stream.json`. GET/POST `/pair` is open (no token): first LAN connect. POST starts Allow/No on the share; GET polls `state` (`1` wait, `2` grant, `3` no).
 
 `GET /cfg` is the settings mirror: API bind plus EXG filters, 8 colors, 8 10-10 names, active mask, and the ID line. Token value is never returned (only `true`/`false`). Dest and token are typed on the client. Loopback GET is open. LAN `/status` `/sample` `/cfg` need the lock word **or** a pair grant — `token:false` does not mean the LAN is open once a grant table exists.
 
@@ -26,7 +26,7 @@ Cook runs on the **USB reader** thread. The API thread wakes on a pipe and sends
 |--------|------|--------|
 | 0 | `E X G 1` | magic |
 | 4 | u32 | `seq` |
-| 8 | u64 | `t_us` (`CLOCK_REALTIME`) |
+| 8 | u64 | `t_us` (sample time, µs, host wall clock) |
 | 16 | u32 | host frame count |
 | 20 | u8 | `nch` |
 | 21 | u8 | channel mask |
@@ -40,7 +40,7 @@ Cook runs on the **USB reader** thread. The API thread wakes on a pipe and sends
 
 Cooked = the **display** cook (notch / hp / lp / CAR / envelope as set). Event ID cooks EXG separately and is not this frame.
 
-`t_us` is wall-clock. Two machines’ clocks are not a latency number. UDP **PING/PONG** is the honest RTT.
+`t_us` sits on a 1/sps grid in the host's wall clock. A USB read that carries several frames does not give them one shared timestamp: the newest frame of a fresh burst is "now", and older frames in that burst step back by 1/sps (8000 µs at 125 Hz). Later reads continue that grid. A hole in the frame count, or a stall longer than 150 ms, starts a new grid. Two machines' clocks are not a latency number. UDP **PING/PONG** is the honest RTT.
 
 ## HTTP (control)
 
@@ -85,7 +85,7 @@ make recv
 
 ## TCP
 
-Connect to `:8767` and read 68-byte EXG1 frames. Same cook as UDP.
+Connect to `:8767` and read 68-byte EXG1 frames. Same cook as UDP. A short write is finished before the next frame, so the stream stays on that boundary.
 
 ## C
 
