@@ -1,6 +1,8 @@
 #define _GNU_SOURCE
 #include "np_dsp.h"
 #include "np_knight.h"
+#include "np_rate.h"
+#include "np_stk500.h"
 #include "np_ring.h"
 #include "np_algo.h"
 #include "np_sot.h"
@@ -205,6 +207,297 @@ static void test_parser(void)
     }
     expect(nout == 1 && nlock && p.frame_len == 57, "IMU 0xC0 in payload stays 57");
     expect(s.seq == 7, "IMU payload 0xC0 keeps seq");
+}
+
+static void test_parser_auto(void)
+{
+    struct np_parser p;
+    struct np_sample s, first;
+    unsigned char eeg[42];
+    unsigned char fr[57];
+    int raw[NP_NCHAN] = {0};
+    int i, nout, r;
+
+    memset(eeg, 0, sizeof(eeg));
+    eeg[0] = NP_START;
+    eeg[1] = 4;
+    eeg[20] = NP_END;
+    eeg[21] = NP_START;
+    eeg[22] = 5;
+    eeg[41] = NP_END;
+    np_parser_init(&p, NP_BOARD_AUTO);
+    nout = 0;
+    memset(&first, 0, sizeof(first));
+    for (i = 0; i < 21; i++) {
+        if (np_parser_feed(&p, eeg[i], &s) > 0) {
+            nout++;
+        }
+    }
+    expect(nout == 0 && !p.locked, "auto does not lock a single EEG frame");
+    for (; i < 42; i++) {
+        if (np_parser_feed(&p, eeg[i], &s) > 0) {
+            nout++;
+            first = s;
+        }
+    }
+    expect(nout == 1 && first.seq == 4 && first.imu == 0 && p.frame_len == 21 && p.locked,
+           "auto locks 21 after two EEG frames");
+    r = np_parser_feed(&p, 0x00, &s);
+    expect(r > 0 && s.seq == 5 && s.imu == 0, "auto emits the second EEG frame");
+
+    make_imu_frame(fr, 7, raw, 0.5f);
+    fr[20] = NP_END;
+    fr[21] = NP_START;
+    fr[41] = NP_END;
+    /* fr[22] stays 0, not seq+1, so the early 0xC0 is not two EEG frames. */
+    np_parser_init(&p, NP_BOARD_AUTO);
+    nout = 0;
+    memset(&s, 0, sizeof(s));
+    for (i = 0; i < 57; i++) {
+        if (np_parser_feed(&p, fr[i], &s) > 0) {
+            nout++;
+        }
+    }
+    expect(nout == 1 && p.frame_len == 57 && s.imu == 1 && s.seq == 7,
+           "auto IMU keeps 57 when 0xC0 is early");
+}
+
+struct stk_mock {
+    unsigned char q[512];
+    int qn;
+    unsigned char out[512];
+    int out_n, out_i;
+    unsigned char flash[512];
+    unsigned char eeprom[16];
+    int addr;
+    int bad;
+    int resets;
+};
+
+static void stk_reply(struct stk_mock *m, const unsigned char *b, int n)
+{
+    if (m->out_i > 0) {
+        memmove(m->out, m->out + m->out_i, (size_t)(m->out_n - m->out_i));
+        m->out_n -= m->out_i;
+        m->out_i = 0;
+    }
+    if (m->out_n + n > (int)sizeof(m->out)) {
+        m->bad++;
+        return;
+    }
+    memcpy(m->out + m->out_n, b, (size_t)n);
+    m->out_n += n;
+}
+
+static void stk_ok(struct stk_mock *m)
+{
+    unsigned char r[2] = {0x14, 0x10};
+    stk_reply(m, r, 2);
+}
+
+static void stk_drop(struct stk_mock *m, int n)
+{
+    memmove(m->q, m->q + n, (size_t)(m->qn - n));
+    m->qn -= n;
+}
+
+static void stk_consume(struct stk_mock *m)
+{
+    while (m->qn >= 2) {
+        if (m->q[0] == 0x30 && m->q[1] == 0x20) {
+            stk_ok(m);
+            stk_drop(m, 2);
+            continue;
+        }
+        if (m->q[0] == 0x50 && m->q[1] == 0x20) {
+            stk_ok(m);
+            stk_drop(m, 2);
+            continue;
+        }
+        if (m->q[0] == 0x51 && m->q[1] == 0x20) {
+            stk_ok(m);
+            stk_drop(m, 2);
+            continue;
+        }
+        if (m->q[0] == 0x75 && m->q[1] == 0x20) {
+            unsigned char r[5] = {0x14, 0x1E, 0x95, 0x0F, 0x10};
+            stk_reply(m, r, 5);
+            stk_drop(m, 2);
+            continue;
+        }
+        if (m->q[0] == 0x55) {
+            if (m->qn < 4) {
+                return;
+            }
+            if (m->q[3] != 0x20) {
+                m->bad++;
+                stk_drop(m, 1);
+                continue;
+            }
+            m->addr = ((m->q[1] | (m->q[2] << 8)) * 2);
+            stk_ok(m);
+            stk_drop(m, 4);
+            continue;
+        }
+        if (m->q[0] == 0x64) {
+            int len, total;
+            if (m->qn < 4) {
+                return;
+            }
+            len = (m->q[1] << 8) | m->q[2];
+            total = 4 + len + 1;
+            if (m->qn < total) {
+                return;
+            }
+            if (m->q[total - 1] != 0x20 || m->addr < 0) {
+                m->bad++;
+                stk_drop(m, 1);
+                continue;
+            }
+            if (m->q[3] == 'E') {
+                if (len < 1 || m->addr + len > (int)sizeof(m->eeprom)) {
+                    m->bad++;
+                    stk_drop(m, 1);
+                    continue;
+                }
+                memcpy(m->eeprom + m->addr, m->q + 4, (size_t)len);
+                stk_ok(m);
+                stk_drop(m, total);
+                continue;
+            }
+            if (m->q[3] != 'F' || m->addr + len > (int)sizeof(m->flash)) {
+                m->bad++;
+                stk_drop(m, 1);
+                continue;
+            }
+            memcpy(m->flash + m->addr, m->q + 4, (size_t)len);
+            stk_ok(m);
+            stk_drop(m, total);
+            continue;
+        }
+        if (m->q[0] == 0x74) {
+            unsigned char r[1 + 128 + 1];
+            int len, total;
+            if (m->qn < 5) {
+                return;
+            }
+            len = (m->q[1] << 8) | m->q[2];
+            total = 5;
+            if (m->q[3] != 'F' || m->q[4] != 0x20 || len != 128 || m->addr < 0 ||
+                m->addr + len > (int)sizeof(m->flash)) {
+                m->bad++;
+                stk_drop(m, 1);
+                continue;
+            }
+            r[0] = 0x14;
+            memcpy(r + 1, m->flash + m->addr, 128);
+            r[129] = 0x10;
+            stk_reply(m, r, 130);
+            stk_drop(m, total);
+            continue;
+        }
+        m->bad++;
+        stk_drop(m, 1);
+    }
+}
+
+static int stk_write(void *ctx, const unsigned char *buf, int n)
+{
+    struct stk_mock *m = ctx;
+    if (m->qn + n > (int)sizeof(m->q)) {
+        return -1;
+    }
+    memcpy(m->q + m->qn, buf, (size_t)n);
+    m->qn += n;
+    stk_consume(m);
+    return n;
+}
+
+static int stk_read(void *ctx, unsigned char *buf, int n, int timeout_ms)
+{
+    struct stk_mock *m = ctx;
+    int have;
+    (void)timeout_ms;
+    have = m->out_n - m->out_i;
+    if (have <= 0) {
+        return 0;
+    }
+    if (have > n) {
+        have = n;
+    }
+    memcpy(buf, m->out + m->out_i, (size_t)have);
+    m->out_i += have;
+    return have;
+}
+
+static void stk_pulse(void *ctx)
+{
+    struct stk_mock *m = ctx;
+    m->resets++;
+    m->qn = 0;
+}
+
+static void test_rate_and_flash(void)
+{
+    struct stk_mock mock;
+    struct np_stk_io io;
+    unsigned char image[200];
+    unsigned char decoded[NP_STK_APP_MAX];
+    char err[80];
+    char hex[80];
+    int i, n = 0;
+    int rc;
+
+    expect(np_rate_snap(125.f) == 125, "snap 125");
+    expect(np_rate_snap(140.f) == 125, "snap 140 to 125");
+    expect(np_rate_snap(198.f) == 200, "snap link ceiling");
+    expect(np_rate_snap(250.f) == 250, "snap 250");
+    expect(np_rate_snap(490.f) == 500, "snap 500");
+    expect(np_rate_snap(40.f) == 0, "snap ignores warmup");
+    expect(np_banner_sps("IMU OK") == 0, "banner ignores IMU OK");
+    expect(np_banner_sps("EEG 500 SPS") == 500, "banner 500");
+    expect(np_banner_sps("EEG 250 SPS") == 250, "banner 250");
+    expect(np_banner_sps("EEG rate unset") == -1, "banner unset");
+    expect(np_fw_version_line("EXG-FW 1") == 1, "boot line EXG-FW 1");
+    expect(np_fw_version_line("IMU OK") == 0, "boot line ignores IMU OK");
+    expect(np_fw_version_line("EXG-FW 0") == 0, "boot line rejects 0");
+
+    snprintf(hex, sizeof(hex), ":100000000102030405060708090A0B0C0D0E0F1068\n:00000001FF\n");
+    rc = np_ihex_decode(hex, decoded, NP_STK_APP_MAX, &n, err, (int)sizeof(err));
+    expect(rc == 0 && n == 16 && decoded[0] == 1 && decoded[15] == 0x10, "ihex data record");
+    rc = np_ihex_decode(":017E0000FF82\n:00000001FF\n", decoded, NP_STK_APP_MAX, &n, err,
+                        (int)sizeof(err));
+    expect(rc != 0, "ihex rejects the bootloader");
+
+    memset(&mock, 0, sizeof(mock));
+    for (i = 0; i < 200; i++) {
+        image[i] = (unsigned char)(i * 3 + 1);
+    }
+    memset(&io, 0, sizeof(io));
+    io.ctx = &mock;
+    io.write = stk_write;
+    io.read = stk_read;
+    io.pulse_dtr = stk_pulse;
+    rc = np_stk_program(&io, image, 200, err, (int)sizeof(err));
+    if (rc != 0) {
+        fprintf(stderr, "stk: %s\n", err);
+    }
+    expect(rc == 0 && mock.resets == 1 && mock.bad == 0, "stk programs and reads back");
+    expect(memcmp(mock.flash, image, 200) == 0, "stk image matches");
+    expect(mock.flash[200] == 0xFF && mock.flash[255] == 0xFF, "stk pads the page with FF");
+
+    memset(&mock, 0, sizeof(mock));
+    memset(&io, 0, sizeof(io));
+    io.ctx = &mock;
+    io.write = stk_write;
+    io.read = stk_read;
+    io.pulse_dtr = stk_pulse;
+    rc = np_stk_program_ex(&io, NULL, 0, 2, err, (int)sizeof(err));
+    if (rc != 0) {
+        fprintf(stderr, "stk eeprom: %s\n", err);
+    }
+    expect(rc == 0 && mock.resets == 1 && mock.bad == 0, "stk writes the mode byte");
+    expect(mock.eeprom[0] == 2 && mock.eeprom[1] == 0xFF, "mode byte 2, pad FF");
 }
 
 static void test_ring(void)
@@ -1704,7 +1997,7 @@ static void test_api(void)
          strstr(body, "/stream") && strstr(body, "EXG1");
     expect(ok, "api GET / index lists stream");
     expect(strstr(body, "stream.json") == NULL, "api index has no NDJSON live path");
-    expect(strstr(body, "\"v\":\"2.91\"") != NULL, "api index version 2.91");
+    expect(strstr(body, "\"v\":\"2.92\"") != NULL, "api index version 2.92");
     expect(strstr(body, "/pair") != NULL, "api index lists /pair");
     expect(strstr(body, "\"ip\":\"127.0.0.1\"") != NULL, "api local ip is loopback");
     {
@@ -1850,6 +2143,8 @@ int main(void)
 {
     test_cmds();
     test_parser();
+    test_parser_auto();
+    test_rate_and_flash();
     test_ring();
     test_auto_from_cal();
     test_ml_harness();

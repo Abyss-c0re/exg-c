@@ -2374,4 +2374,148 @@ Java_com_abysscore_exgc_ExgNative_kitImport(JNIEnv *env, jclass cls, jstring s)
     jstr_to(env, s, buf, sizeof(buf));
     return np_host_kit_import(buf, (int)strlen(buf));
 }
+
+JNIEXPORT jint JNICALL
+Java_com_abysscore_exgc_ExgNative_boardMode(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    return np_host_board_mode();
+}
+
+JNIEXPORT void JNICALL
+Java_com_abysscore_exgc_ExgNative_setBoardMode(JNIEnv *env, jclass cls, jint mode)
+{
+    (void)env;
+    (void)cls;
+    np_host_set_board_mode(mode);
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_abysscore_exgc_ExgNative_modeLabel(JNIEnv *env, jclass cls)
+{
+    char buf[64];
+    (void)cls;
+    buf[0] = 0;
+    np_host_mode_label(buf, (int)sizeof(buf));
+    return jstr_from(env, buf);
+}
+
+JNIEXPORT jint JNICALL
+Java_com_abysscore_exgc_ExgNative_designSps(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    return np_host_design_sps();
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_abysscore_exgc_ExgNative_streamCold(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    return np_host_stream_cold() ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jint JNICALL
+Java_com_abysscore_exgc_ExgNative_fwNeed(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    return np_host_fw_need();
+}
+
+JNIEXPORT jint JNICALL
+Java_com_abysscore_exgc_ExgNative_fwHave(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    return np_host_fw_have();
+}
+
+JNIEXPORT jint JNICALL
+Java_com_abysscore_exgc_ExgNative_fwSeen(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    return np_host_fw_seen();
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_abysscore_exgc_ExgNative_fwBehind(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    return np_host_fw_behind() ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jint JNICALL
+Java_com_abysscore_exgc_ExgNative_fwMode(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    return np_host_fw_mode();
+}
+
+JNIEXPORT void JNICALL
+Java_com_abysscore_exgc_ExgNative_setFwMode(JNIEnv *env, jclass cls, jint mode)
+{
+    (void)env;
+    (void)cls;
+    np_host_set_fw_mode(mode);
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_abysscore_exgc_ExgNative_fwLabel(JNIEnv *env, jclass cls, jint mode)
+{
+    char buf[96];
+    (void)cls;
+    buf[0] = 0;
+    np_host_fw_label(mode, buf, (int)sizeof(buf));
+    return jstr_from(env, buf);
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_abysscore_exgc_ExgNative_flashLog(JNIEnv *env, jclass cls)
+{
+    char buf[4800];
+    (void)cls;
+    buf[0] = 0;
+    np_host_log_copy(0, buf, (int)sizeof(buf));
+    return jstr_from(env, buf);
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_abysscore_exgc_ExgNative_debugLog(JNIEnv *env, jclass cls)
+{
+    char buf[4800];
+    (void)cls;
+    buf[0] = 0;
+    np_host_log_copy(1, buf, (int)sizeof(buf));
+    return jstr_from(env, buf);
+}
+
+JNIEXPORT void JNICALL
+Java_com_abysscore_exgc_ExgNative_flashUpload(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    np_host_flash_upload();
+}
+
+JNIEXPORT void JNICALL
+Java_com_abysscore_exgc_ExgNative_flashPreset(JNIEnv *env, jclass cls, jint mode, jboolean confirmed)
+{
+    (void)env;
+    (void)cls;
+    np_host_flash_preset(mode, confirmed ? 1 : 0);
+}
+
+JNIEXPORT void JNICALL
+Java_com_abysscore_exgc_ExgNative_flashModeOnly(JNIEnv *env, jclass cls, jint mode, jboolean confirmed)
+{
+    (void)env;
+    (void)cls;
+    np_host_flash_mode_only(mode, confirmed ? 1 : 0);
+}
 #endif

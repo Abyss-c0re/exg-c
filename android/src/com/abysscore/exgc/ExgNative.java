@@ -275,4 +275,22 @@ public final class ExgNative {
     public static native void linkWire(boolean on);
     public static native String kitExport();
     public static native int kitImport(String s);
+
+    public static native int boardMode();
+    public static native void setBoardMode(int mode);
+    public static native String modeLabel();
+    public static native int designSps();
+    public static native boolean streamCold();
+    public static native int fwNeed();
+    public static native int fwHave();
+    public static native int fwSeen();
+    public static native boolean fwBehind();
+    public static native int fwMode();
+    public static native void setFwMode(int mode);
+    public static native String fwLabel(int mode);
+    public static native String flashLog();
+    public static native String debugLog();
+    public static native void flashUpload();
+    public static native void flashPreset(int mode, boolean confirmed);
+    public static native void flashModeOnly(int mode, boolean confirmed);
 }

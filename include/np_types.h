@@ -19,7 +19,8 @@
 
 enum np_board {
     NP_BOARD_KNIGHT = 0,
-    NP_BOARD_KNIGHT_IMU = 1
+    NP_BOARD_KNIGHT_IMU = 1,
+    NP_BOARD_AUTO = 2
 };
 
 static const int NP_GAINS[] = {1, 2, 3, 4, 6, 8, 12};

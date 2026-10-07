@@ -5,6 +5,10 @@
 #include "np_cube.h"
 #include "np_font.h"
 #include "np_host.h"
+#include "np_fw.h"
+#include "np_rate.h"
+#include "np_version.h"
+#include "np_stk500.h"
 #include "np_link.h"
 #include "np_peer.h"
 #ifdef NP_ANDROID_UI
@@ -83,6 +87,9 @@ static void band_apply(int band);
 void ch_stats(const float *buf, uint32_t n, float *dc, float *rms, float *pk);
 void cmd_push(int op, int ch, int gain);
 void cfg_save(void);
+static void debug_log_add(const char *s);
+static int fw_save_pending;
+static int fw_stock_boot;
 
 static int rld_want(int ch)
 {
@@ -104,17 +111,31 @@ static int neg_site_ok(int s)
 }
 
 /* Do not cook filter poles from a lagged measured rate (46 SPS makes
- * a 50 Hz notch sit past Nyquist and a 60 Hz notch is already there). */
+ * a 50 Hz notch sit past Nyquist and a 60 Hz notch is already there).
+ * rate_snap is a held 125 / 200 / 250 / 500. 200 is the USB ceiling. */
 uint32_t view_copy(int ch, float *dst, uint32_t n);
 static float cook_scale_ch(int c);
 static void cook_now(float uv[8], float base[8]);
 static void atom_identify(void);
 float design_sps(void)
 {
+    if (g.rate_snap == 125 || g.rate_snap == 200 || g.rate_snap == 250 || g.rate_snap == 500) {
+        return (float)g.rate_snap;
+    }
     if (g.sps >= 100.f && g.sps <= 160.f) {
         return g.sps;
     }
     return (float)NP_DEFAULT_SPS;
+}
+
+/* Below ~64% of the design rate. At 125 SPS that is still 80. */
+static int stream_cold(void)
+{
+    float floor = 0.64f * design_sps();
+    if (floor < 80.f) {
+        floor = 80.f;
+    }
+    return g.sps > 0.f && g.sps < floor;
 }
 
 uint32_t plate_want(void)
@@ -585,7 +606,7 @@ void atom_tick(void)
     int c, got = 0, env;
     uint32_t want;
 
-    if (!g.connected || (g.sps > 0.f && g.sps < 80.f)) {
+    if (!g.connected || (stream_cold())) {
         return;
     }
     clock_gettime(CLOCK_MONOTONIC, &ts);
@@ -864,7 +885,7 @@ static int stream_id(float *ratio)
     if (ratio) {
         *ratio = 0.f;
     }
-    if (g.connected && g.sps > 0.f && g.sps < 80.f) {
+    if (g.connected && stream_cold()) {
         return NP_ID_NONE;
     }
     if (want < 32) {
@@ -977,7 +998,7 @@ void id_label(char *out, int n)
         return;
     }
     id = stream_id(&r);
-    if (g.connected && g.sps > 0.f && g.sps < 80.f) {
+    if (g.connected && stream_cold()) {
         snprintf(out, (size_t)n, "ID warming %.0f sps", (double)g.sps);
         return;
     }
@@ -1067,7 +1088,7 @@ void learn_tick(void)
     uint8_t mask;
     uint32_t now = SDL_GetTicks();
     learn_hold_tick();
-    if (g.connected && g.sps > 0.f && g.sps < 80.f) {
+    if (g.connected && stream_cold()) {
         g.learn.best = -1;
         return;
     }
@@ -1219,10 +1240,10 @@ static void learn_hold_tick(void)
     now = SDL_GetTicks();
     dt = (int)(now - g.rec_t0);
     id = stream_id(&ratio);
-    if (g.connected && g.sps > 0.f && g.sps < 80.f) {
+    if (g.connected && stream_cold()) {
         if (dt >= (int)REC_MS) {
             g.rec_t0 = 0;
-            set_status(0, "still enabling — wait for 125 sps, then Record");
+            set_status(0, "still enabling — wait for the stream, then Record");
         }
         return;
     }
@@ -1343,7 +1364,9 @@ static int cfg_write_ex(const char *path, int with_map)
     fprintf(f, "detrend=%d\n", g.detrend);
     fprintf(f, "cal_cut=%d\n", g.cal_cut);
     fprintf(f, "set_gen=%d\n", g.set_gen);
-    fprintf(f, "board=%d\n", (int)g.board);
+    fprintf(f, "board=%d\n", (int)g.board_pref);
+    fprintf(f, "fw_have=%d\n", g.fw_have);
+    fprintf(f, "fw_mode=%d\n", g.fw_mode);
     fprintf(f, "algo=%d\n", g.algo);
     {
         const char *s = g.algo_src[0] ? g.algo_src : NP_ALGO_SRC_DEFAULT;
@@ -1472,7 +1495,9 @@ static int cfg_write_kit(const char *path)
     fprintf(f, "band=%d\n", g.band);
     fprintf(f, "detrend=%d\n", g.detrend);
     fprintf(f, "cal_cut=%d\n", g.cal_cut);
-    fprintf(f, "board=%d\n", (int)g.board);
+    fprintf(f, "board=%d\n", (int)g.board_pref);
+    fprintf(f, "fw_have=%d\n", g.fw_have);
+    fprintf(f, "fw_mode=%d\n", g.fw_mode);
     fprintf(f, "algo=%d\n", g.algo);
     {
         const char *s = g.algo_src[0] ? g.algo_src : NP_ALGO_SRC_DEFAULT;
@@ -1642,8 +1667,18 @@ static int cfg_read(const char *path)
             g.cal_cut = v;
         } else if (sscanf(line, "set_gen=%d", &v) == 1) {
             g.set_gen = v;
+        } else if (sscanf(line, "fw_have=%d", &v) == 1 && v >= 0 && v < 10000) {
+            g.fw_have = v;
+        } else if (sscanf(line, "fw_mode=%d", &v) == 1 && v >= 0 && v <= 2) {
+            g.fw_mode = v;
         } else if (sscanf(line, "board=%d", &v) == 1) {
-            g.board = v ? NP_BOARD_KNIGHT_IMU : NP_BOARD_KNIGHT;
+            if (v == (int)NP_BOARD_KNIGHT) {
+                g.board = g.board_pref = NP_BOARD_KNIGHT;
+            } else if (v == (int)NP_BOARD_AUTO) {
+                g.board = g.board_pref = NP_BOARD_AUTO;
+            } else {
+                g.board = g.board_pref = NP_BOARD_KNIGHT_IMU;
+            }
         } else if (sscanf(line, "algo=%d", &v) == 1 && v >= 0 && v < NP_ALGO_N) {
             g.algo = v;
         } else if (sscanf(line, "scale=%d", &v) == 1 && v >= 1) {
@@ -1787,7 +1822,7 @@ static int cfg_read(const char *path)
     if (g.lp_hz != 0 && g.lp_hz != 20 && g.lp_hz != 40) {
         g.lp_hz = 0;
     }
-    if (g.api_hz < 1 || g.api_hz > 125) {
+    if (g.api_hz < 1 || g.api_hz > 500) {
         g.api_hz = 125;
     }
     if (g.api_http < 0 || g.api_http > 65535) {
@@ -2360,12 +2395,16 @@ static void api_status_json(char *out, int n)
         }
     }
     snprintf(out, (size_t)n,
-             "{\"ok\":true,\"v\":\"2.91\",\"connected\":%s,\"paused\":%s,\"sps\":%.1f,"
+             "{\"ok\":true,\"v\":\"" NP_APP_VER "\",\"connected\":%s,\"paused\":%s,\"sps\":%.1f,"
+             "\"rate\":%d,\"chip\":%d,\"link_limited\":%s,"
+             "\"fw\":%d,\"fw_need\":%d,\"fw_mode\":%d,"
              "\"frames\":%u,\"status\":\"%s\",\"id\":\"%s\",\"id_best\":%d,"
              "\"notch\":%d,\"hp\":%d,\"lp\":%d,\"car\":%d,\"band\":%d,\"mask\":%u,"
              "\"api\":\"%s\"}",
              g.connected ? "true" : "false", g.paused ? "true" : "false",
-             g.sps > 1.f ? (double)g.sps : 0.0, np_host_frames(), ste, ide, g.atom_id_best,
+             g.sps > 1.f ? (double)g.sps : 0.0, (int)design_sps(), g.chip_sps,
+             g.link_limited ? "true" : "false", g.fw_seen > 0 ? g.fw_seen : g.fw_have,
+             EXG_FW_NEED, g.fw_mode, np_host_frames(), ste, ide, g.atom_id_best,
              g.notch_hz, g.hp_hz, g.lp_hz, g.car ? 1 : 0, g.band, mask, line);
 }
 
@@ -2601,6 +2640,14 @@ static void link_on_sample(const struct np_api_sample *s)
     pthread_mutex_unlock(&live_mu);
     g.connected = 1;
     g.sps = s->sps;
+    {
+        int snap = np_rate_snap(s->sps);
+        if (snap) {
+            g.rate_snap = snap;
+            g.chip_sps = snap == 200 ? g.chip_sps : snap;
+            g.link_limited = snap == 200;
+        }
+    }
     g.paused = (s->flags & 2) ? 1 : 0;
     if (!g.status_ok) {
         set_status(1, "following EXG");
@@ -2666,7 +2713,7 @@ static void api_emit(const float *v, uint32_t frames, uint64_t t_us)
     }
     s.flags = (uint8_t)((g.connected ? 1 : 0) | (g.paused ? 2 : 0) |
                         (g.learn.match ? 4 : 0));
-    s.sps = g.sps;
+    s.sps = g.rate_snap > 0 ? design_sps() : g.sps;
     s.id_best = (int8_t)g.atom_id_best;
     s.id_score = (g.atom_id_best >= 0 && g.atom_id_best < 32) ? g.atom_id[g.atom_id_best] : 0.f;
     np_api_push(&s);
@@ -2705,7 +2752,7 @@ static void api_drain(void)
             np_host_set_band(arg);
             break;
         case NP_API_OP_HZ:
-            g.api_hz = arg < 1 ? 1 : (arg > 125 ? 125 : arg);
+            g.api_hz = arg < 1 ? 1 : (arg > 500 ? 500 : arg);
             need = 1;
             break;
         case NP_API_OP_LAN:
@@ -2772,7 +2819,7 @@ static void live_sync_u(void)
         int sps_i = (int)(design_sps() + 0.5f);
         struct timespec ts;
         uint64_t now;
-        if (sps_i < 50 || sps_i > 250) {
+        if (sps_i != 125 && sps_i != 200 && sps_i != 250 && sps_i != 500) {
             sps_i = NP_DEFAULT_SPS;
         }
         clock_gettime(CLOCK_REALTIME, &ts);
@@ -3377,17 +3424,29 @@ static void *cmd_thread(void *arg)
             continue;
         }
         if (op == CMD_CHON) {
+            char msg[48];
             set_status(1, "enable ch%d", ch);
             pthread_mutex_lock(&g.parse_mu);
             np_parser_set_gain(&g.parser, ch, gain);
             pthread_mutex_unlock(&g.parse_mu);
             np_cmd_chon(g.fd, ch, gain);
+            snprintf(msg, sizeof(msg), "chon_%d_%d", ch, gain);
+            debug_log_add(msg);
         } else if (op == CMD_CHOFF) {
+            char msg[32];
             np_cmd_choff(g.fd, ch);
+            snprintf(msg, sizeof(msg), "choff_%d", ch);
+            debug_log_add(msg);
         } else if (op == CMD_RLDADD) {
+            char msg[32];
             np_cmd_rldadd(g.fd, ch);
+            snprintf(msg, sizeof(msg), "rldadd_%d", ch);
+            debug_log_add(msg);
         } else if (op == CMD_RLDRM) {
+            char msg[32];
             np_cmd_rldremove(g.fd, ch);
+            snprintf(msg, sizeof(msg), "rldremove_%d", ch);
+            debug_log_add(msg);
         }
     }
     return NULL;
@@ -3397,9 +3456,27 @@ static char boot_note[96];
 
 static void note_boot(const char *s)
 {
+    int banner = np_banner_sps(s);
+    int fwv = np_fw_version_line(s);
     pthread_mutex_lock(&g.mu);
     snprintf(boot_note, sizeof(boot_note), "%s", s);
+    if (banner > 0) {
+        g.banner_sps = banner;
+    } else if (banner < 0) {
+        g.banner_sps = -1;
+    }
+    if (fwv > 0) {
+        g.fw_seen = fwv;
+        fw_stock_boot = 0;
+        if (g.fw_have != fwv) {
+            g.fw_have = fwv;
+            fw_save_pending = 1;
+        }
+    } else if (g.fw_seen <= 0) {
+        fw_stock_boot = 1;
+    }
     pthread_mutex_unlock(&g.mu);
+    debug_log_add(s);
     set_status(1, "%s", s);
 }
 
@@ -3451,12 +3528,126 @@ static void boot_byte(unsigned char b, int locked, char *line, int *ln)
     *ln = 0;
 }
 
+static int rate_pending;
+static int rate_hits;
+
+/* Hold a snap across one odd window. The first lock is immediate. */
+static int rate_consider(float delivered, float chip)
+{
+    int dsnap = np_rate_snap(delivered);
+    int csnap = np_rate_snap(chip);
+    int banner = g.banner_sps;
+    int next = 0;
+    int limited = 0;
+    int changed;
+
+    if (banner == 125 || banner == 250 || banner == 500) {
+        csnap = banner;
+    }
+    if (csnap == 125 || csnap == 250 || csnap == 500) {
+        g.chip_sps = csnap;
+        if (dsnap == csnap ||
+            (delivered >= 0.85f * (float)csnap && delivered <= 1.15f * (float)csnap)) {
+            next = csnap;
+        } else if (dsnap == 200 && csnap >= 250) {
+            next = 200;
+            limited = 1;
+        } else if (dsnap) {
+            next = dsnap;
+        }
+    } else if (dsnap) {
+        next = dsnap;
+        if (dsnap != 200) {
+            g.chip_sps = dsnap;
+        }
+    }
+    if (!next) {
+        return 0;
+    }
+    if (next == g.rate_snap && limited == g.link_limited) {
+        return 0;
+    }
+    if (g.rate_snap != 0) {
+        if (next == rate_pending) {
+            rate_hits++;
+        } else {
+            rate_pending = next;
+            rate_hits = 1;
+        }
+        if (rate_hits < 2) {
+            return 0;
+        }
+    }
+    changed = (next != g.rate_snap) || (limited != g.link_limited);
+    g.rate_snap = next;
+    g.link_limited = limited;
+    rate_pending = 0;
+    rate_hits = 0;
+    if (!changed) {
+        return 0;
+    }
+    if (limited && g.chip_sps > 0) {
+        set_status(0, "USB full — chip %d SPS, about %d frames arrive", g.chip_sps, next);
+    } else {
+        set_status(1, "stream %d SPS", next);
+    }
+    return 1;
+}
+
+static void rate_reset(void)
+{
+    g.sps = 0.f;
+    g.sps_n = 0;
+    g.chip_n = 0;
+    g.sps_t.tv_sec = 0;
+    g.sps_t.tv_nsec = 0;
+    g.rate_snap = 0;
+    g.chip_sps = 0;
+    g.link_limited = 0;
+    g.banner_sps = 0;
+    g.fw_seen = 0;
+    fw_stock_boot = 0;
+    rate_pending = 0;
+    rate_hits = 0;
+}
+
 /* Push one USB read, then cook it once so EXG1 timestamps share that burst. */
 static void commit_frames(const struct np_sample *fr, int n)
 {
     int i;
+    int retune = 0;
     if (n <= 0 || !fr) {
         return;
+    }
+    for (i = 0; i < n; i++) {
+        struct timespec now;
+        unsigned add = 1u + (unsigned)fr[i].drops;
+        if (add > 8u) {
+            add = 8u;
+        }
+        g.sps_n++;
+        g.chip_n += add;
+        clock_gettime(CLOCK_MONOTONIC, &now);
+        if (g.sps_t.tv_sec == 0) {
+            g.sps_t = now;
+        } else {
+            double dt = (double)(now.tv_sec - g.sps_t.tv_sec) +
+                (now.tv_nsec - g.sps_t.tv_nsec) / 1e9;
+            if (dt >= 1.0) {
+                float del = (float)g.sps_n / (float)dt;
+                float chip = (float)g.chip_n / (float)dt;
+                g.sps = del;
+                g.sps_n = 0;
+                g.chip_n = 0;
+                g.sps_t = now;
+                if (rate_consider(del, chip)) {
+                    retune = 1;
+                }
+            }
+        }
+    }
+    if (retune) {
+        filt_reset();
     }
     pthread_mutex_lock(&live_mu);
     for (i = 0; i < n; i++) {
@@ -3465,21 +3656,7 @@ static void commit_frames(const struct np_sample *fr, int n)
     live_sync_u();
     pthread_mutex_unlock(&live_mu);
     for (i = 0; i < n; i++) {
-        struct timespec now;
         const struct np_sample *s = &fr[i];
-        g.sps_n++;
-        clock_gettime(CLOCK_MONOTONIC, &now);
-        if (g.sps_t.tv_sec == 0) {
-            g.sps_t = now;
-        } else {
-            double dt = (double)(now.tv_sec - g.sps_t.tv_sec) +
-                (now.tv_nsec - g.sps_t.tv_nsec) / 1e9;
-            if (dt >= 1.0) {
-                g.sps = (float)g.sps_n / (float)dt;
-                g.sps_n = 0;
-                g.sps_t = now;
-            }
-        }
         if (g.recording) {
             pthread_mutex_lock(&g.csv_mu);
             if (g.csv) {
@@ -3550,6 +3727,9 @@ static void *reader_thread(void *arg)
                         pthread_mutex_unlock(&g.ring.mu);
                     }
                 } else if (r > 0) {
+                    if (g.board_pref == NP_BOARD_AUTO) {
+                        g.board = s.imu ? NP_BOARD_KNIGHT_IMU : NP_BOARD_KNIGHT;
+                    }
                     if (nb == 16) {
                         commit_frames(batch, nb);
                         nb = 0;
@@ -3592,7 +3772,7 @@ static int wait_live(int frames, int tries, int gap_us)
 static void parser_rearm(void)
 {
     pthread_mutex_lock(&g.parse_mu);
-    np_parser_init(&g.parser, g.board);
+    np_parser_init(&g.parser, g.board_pref);
     np_parser_set_gains(&g.parser, g.gain);
     pthread_mutex_unlock(&g.parse_mu);
 }
@@ -3691,9 +3871,15 @@ void stream_recover(void)
     }
 }
 
+static int flash_owner;
+
 void do_connect(void)
 {
     const char *path;
+    if (g.flashing && !flash_owner) {
+        set_status(0, "flash in progress");
+        return;
+    }
     if (g.connected) {
         return;
     }
@@ -3745,7 +3931,9 @@ void do_connect(void)
         set_status(0, "open %s: %s", path, strerror(errno));
         return;
     }
-    np_parser_init(&g.parser, g.board);
+    g.board = g.board_pref;
+    rate_reset();
+    np_parser_init(&g.parser, g.board_pref);
     np_parser_set_gains(&g.parser, g.gain);
     filt_reset();
     boot_note_clear();
@@ -3786,6 +3974,10 @@ void do_connect(void)
 
 void do_disconnect(void)
 {
+    if (g.flashing && !flash_owner) {
+        set_status(0, "flash in progress");
+        return;
+    }
     if (!g.connected) {
         return;
     }
@@ -3808,6 +4000,8 @@ void do_disconnect(void)
         g.csv = NULL;
     }
     pthread_mutex_unlock(&g.csv_mu);
+    g.board = g.board_pref;
+    rate_reset();
     set_status(1, "disconnected");
 }
 
@@ -4428,6 +4622,14 @@ void np_host_montage_default(void)
                        : "defaults restored — bias RLD stays");
 }
 
+static void firmware_dir(char *out, int n)
+{
+    char root[NP_MAX_PATH];
+    np_cfg_root(root, sizeof(root));
+    snprintf(out, (size_t)n, "%s/exg-c/firmware", root);
+    np_mkdir_p(out);
+}
+
 int np_host_start(const char *files_dir)
 {
     int i;
@@ -4438,7 +4640,8 @@ int np_host_start(const char *files_dir)
     memset(&g, 0, sizeof(g));
     g.fd = -1;
     g.running = 1;
-    g.board = NP_BOARD_KNIGHT_IMU;
+    g.board = NP_BOARD_AUTO;
+    g.board_pref = NP_BOARD_AUTO;
     g.window_s = 2;
     g.autoscale = 0;
     g.og = 0;
@@ -4519,6 +4722,17 @@ int np_host_start(const char *files_dir)
         np_host_montage_default();
         g.set_gen = 6;
         cfg_save();
+    }
+    if (g.set_gen < 7) {
+        /* Old ini stored the IMU default as a choice. Detect from the wire. */
+        g.board_pref = NP_BOARD_AUTO;
+        g.board = NP_BOARD_AUTO;
+        g.set_gen = 7;
+        cfg_save();
+    }
+    {
+        char fw[NP_MAX_PATH];
+        firmware_dir(fw, (int)sizeof(fw));
     }
     if (g.api_http == 8788) {
         g.api_http = 8765;
@@ -4677,12 +4891,29 @@ static void live_snap(void)
     }
 }
 
+static int share_rate_is_design(int hz)
+{
+    return hz == 125 || hz == 200 || hz == 250 || hz == 500;
+}
+
 void np_host_tick(void)
 {
+    int sps;
     if (!host_ready) {
         return;
     }
     api_drain();
+    if (fw_save_pending) {
+        fw_save_pending = 0;
+        cfg_save();
+    }
+    sps = (int)design_sps();
+    if (g.connected && g.rate_snap > 0 && share_rate_is_design(g.api_hz) && g.api_hz != sps &&
+        share_rate_is_design(sps)) {
+        g.api_hz = sps;
+        cfg_save();
+        api_apply();
+    }
     if (g.link) {
         np_link_poll();
     } else {
@@ -5062,7 +5293,7 @@ static void cal_tick(void)
     if (g.cal_phase != 1 && g.cal_phase != 3 && g.cal_phase != 5) {
         return;
     }
-    if (!g.connected || (g.sps > 0.f && g.sps < 80.f)) {
+    if (!g.connected || (stream_cold())) {
         return;
     }
     now = SDL_GetTicks();
@@ -5098,8 +5329,8 @@ void np_host_cal_start(void)
         set_status(0, "connect first");
         return;
     }
-    if (g.sps > 0.f && g.sps < 80.f) {
-        set_status(0, "wait for 125 sps");
+    if (stream_cold()) {
+        set_status(0, "wait for the stream");
         return;
     }
     if (g.cal_phase == 1 || g.cal_phase == 3 || g.cal_phase == 5) {
@@ -7339,26 +7570,448 @@ int np_host_board_imu(void)
 {
     return g.board == NP_BOARD_KNIGHT_IMU;
 }
-void np_host_cycle_board(void)
+int np_host_board_mode(void)
 {
-    if (g.connected) {
-        set_status(0, "disconnect before switching IMU / EXG");
+    return (int)g.board_pref;
+}
+void np_host_mode_label(char *out, int n)
+{
+    const char *kind;
+    if (!out || n < 1) {
         return;
     }
-    g.board = g.board == NP_BOARD_KNIGHT ? NP_BOARD_KNIGHT_IMU : NP_BOARD_KNIGHT;
+    if (!g.connected) {
+        if (g.board_pref == NP_BOARD_AUTO) {
+            snprintf(out, (size_t)n, "Auto");
+        } else if (g.board_pref == NP_BOARD_KNIGHT_IMU) {
+            snprintf(out, (size_t)n, "8-ch + IMU");
+        } else {
+            snprintf(out, (size_t)n, "8-ch EXG");
+        }
+        return;
+    }
+    if (g.board == NP_BOARD_KNIGHT_IMU) {
+        kind = "IMU";
+    } else if (g.board == NP_BOARD_KNIGHT) {
+        kind = "EXG";
+    } else {
+        kind = "Auto";
+    }
+    if (g.rate_snap > 0 && g.link_limited) {
+        snprintf(out, (size_t)n, "%s %d link", kind, g.rate_snap);
+    } else if (g.rate_snap > 0) {
+        snprintf(out, (size_t)n, "%s %d", kind, g.rate_snap);
+    } else if (g.sps > 1.f) {
+        snprintf(out, (size_t)n, "%s %.0f", kind, (double)g.sps);
+    } else {
+        snprintf(out, (size_t)n, "%s", kind);
+    }
+}
+void np_host_set_board_mode(int mode)
+{
+    char label[48];
+    if (g.connected) {
+        set_status(0, "disconnect before switching the frame");
+        return;
+    }
+    if (mode != (int)NP_BOARD_KNIGHT && mode != (int)NP_BOARD_KNIGHT_IMU &&
+        mode != (int)NP_BOARD_AUTO) {
+        return;
+    }
+    g.board_pref = (enum np_board)mode;
+    g.board = g.board_pref;
     cfg_save();
-    set_status(1, g.board == NP_BOARD_KNIGHT_IMU ? "8-ch + IMU" : "8-ch EXG");
+    np_host_mode_label(label, (int)sizeof(label));
+    set_status(1, "%s", label);
+}
+void np_host_cycle_board(void)
+{
+    int next;
+    if (g.board_pref == NP_BOARD_AUTO) {
+        next = (int)NP_BOARD_KNIGHT_IMU;
+    } else if (g.board_pref == NP_BOARD_KNIGHT_IMU) {
+        next = (int)NP_BOARD_KNIGHT;
+    } else {
+        next = (int)NP_BOARD_AUTO;
+    }
+    np_host_set_board_mode(next);
 }
 void np_host_set_board_imu(int imu)
 {
-    if (g.connected) {
-        set_status(0, "disconnect before switching IMU / EXG");
+    np_host_set_board_mode(imu ? (int)NP_BOARD_KNIGHT_IMU : (int)NP_BOARD_KNIGHT);
+}
+
+#define NP_LOG_N 40
+#define NP_LOG_L 120
+
+struct np_log_ring {
+    char line[NP_LOG_N][NP_LOG_L];
+    int n;
+};
+
+static struct np_log_ring flash_log_ring;
+static struct np_log_ring debug_log_ring;
+static pthread_mutex_t log_mu = PTHREAD_MUTEX_INITIALIZER;
+
+static void log_add(struct np_log_ring *r, const char *s)
+{
+    int i;
+    if (!r || !s || !s[0]) {
         return;
     }
-    g.board = imu ? NP_BOARD_KNIGHT_IMU : NP_BOARD_KNIGHT;
-    cfg_save();
-    set_status(1, g.board == NP_BOARD_KNIGHT_IMU ? "8-ch + IMU" : "8-ch EXG");
+    pthread_mutex_lock(&log_mu);
+    i = r->n % NP_LOG_N;
+    snprintf(r->line[i], NP_LOG_L, "%s", s);
+    r->n++;
+    pthread_mutex_unlock(&log_mu);
 }
+
+static void debug_log_add(const char *s)
+{
+    log_add(&debug_log_ring, s);
+}
+
+static void flash_log_add(const char *s)
+{
+    log_add(&flash_log_ring, s);
+}
+
+static void flash_say(int ok, const char *fmt, ...)
+{
+    char b[160];
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(b, sizeof(b), fmt, ap);
+    va_end(ap);
+    flash_log_add(b);
+    set_status(ok, "%s", b);
+}
+
+void np_host_log_copy(int which, char *out, int n)
+{
+    struct np_log_ring *r = which ? &debug_log_ring : &flash_log_ring;
+    int count, start, i, o = 0;
+    if (!out || n < 2) {
+        return;
+    }
+    out[0] = 0;
+    pthread_mutex_lock(&log_mu);
+    count = r->n < NP_LOG_N ? r->n : NP_LOG_N;
+    start = r->n - count;
+    for (i = 0; i < count; i++) {
+        const char *s = r->line[(start + i) % NP_LOG_N];
+        int k = (int)strlen(s);
+        if (o + k + 2 >= n) {
+            break;
+        }
+        memcpy(out + o, s, (size_t)k);
+        o += k;
+        out[o++] = '\n';
+    }
+    out[o] = 0;
+    pthread_mutex_unlock(&log_mu);
+}
+
+static int fw_sel;
+static int flash_arm = -1;
+static uint32_t flash_arm_ms;
+static int flash_eeprom_only;
+
+struct flash_port {
+    int fd;
+};
+
+static int flash_write(void *ctx, const unsigned char *buf, int n)
+{
+    struct flash_port *p = (struct flash_port *)ctx;
+    return np_serial_write(p->fd, buf, n);
+}
+
+static int flash_read(void *ctx, unsigned char *buf, int n, int timeout_ms)
+{
+    struct flash_port *p = (struct flash_port *)ctx;
+    int got = 0;
+    int spent = 0;
+
+    if (timeout_ms < 1) {
+        timeout_ms = 1;
+    }
+    while (got < n && spent < timeout_ms) {
+        int r = np_serial_read(p->fd, buf + got, n - got);
+        if (r < 0) {
+            return -1;
+        }
+        if (r > 0) {
+            got += r;
+            continue;
+        }
+#ifdef __ANDROID__
+        spent += 80;
+#else
+        usleep(2000);
+        spent += 2;
+#endif
+    }
+    return got;
+}
+
+static void flash_dtr(void *ctx)
+{
+    struct flash_port *p = (struct flash_port *)ctx;
+    np_serial_pulse_dtr(p->fd);
+}
+
+static void flash_note(void *ctx, const char *line)
+{
+    (void)ctx;
+    flash_log_add(line);
+}
+
+static void *flash_thread(void *arg)
+{
+    int mode = (int)(intptr_t)arg;
+    int eeprom_only = flash_eeprom_only;
+    char err[200];
+    char root[NP_MAX_PATH];
+    char dir[NP_MAX_PATH];
+    char path[NP_MAX_PATH];
+    char label[80];
+    unsigned char *image = NULL;
+    int len = 0;
+    int fd = -1;
+    struct flash_port port;
+    struct np_stk_io io;
+
+    if (mode < 0 || mode > 2) {
+        mode = 0;
+    }
+    np_host_fw_label(mode, label, (int)sizeof(label));
+    flash_owner = 1;
+    if (g.connected) {
+        do_disconnect();
+    }
+    flash_owner = 0;
+    flash_say(1, eeprom_only ? "writing mode %s" : "flashing %s", label);
+    if (g.link == 1) {
+        flash_say(0, "flash needs the USB cable");
+        goto done;
+    }
+    g.nports = np_list_ports(g.ports, NP_MAX_PORTS);
+    if (g.nports <= 0) {
+        flash_say(0, "no Knight port");
+        goto done;
+    }
+    if (g.port_i < 0 || g.port_i >= g.nports) {
+        g.port_i = 0;
+    }
+    snprintf(path, sizeof(path), "%s", g.ports[g.port_i]);
+    flash_log_add(path);
+    np_cfg_root(root, sizeof(root));
+    firmware_dir(dir, (int)sizeof(dir));
+    (void)dir;
+    if (!eeprom_only) {
+        image = (unsigned char *)malloc((size_t)NP_STK_APP_MAX);
+        if (!image) {
+            flash_say(0, "out of memory");
+            goto done;
+        }
+        if (np_fw_load(mode, root, image, NP_STK_APP_MAX, &len, err, (int)sizeof(err)) != 0) {
+            flash_say(0, "%s", err[0] ? err : "no firmware image");
+            goto done;
+        }
+        flash_say(1, "image %d bytes", len);
+    }
+    fd = np_serial_open(path);
+    if (fd < 0) {
+        flash_say(0, "open %s failed", path);
+        goto done;
+    }
+    np_serial_flush(fd);
+    memset(&io, 0, sizeof(io));
+    port.fd = fd;
+    io.ctx = &port;
+    io.write = flash_write;
+    io.read = flash_read;
+    io.pulse_dtr = flash_dtr;
+    io.note = flash_note;
+    if (np_stk_program_ex(&io, image, len, mode, err, (int)sizeof(err)) != 0) {
+        flash_say(0, "flash failed: %s", err[0] ? err : "bootloader");
+        np_serial_close(fd);
+        fd = -1;
+        goto done;
+    }
+    np_serial_close(fd);
+    fd = -1;
+    g.fw_mode = mode;
+    if (!eeprom_only) {
+        g.fw_have = EXG_FW_NEED;
+    }
+    cfg_save();
+    flash_say(1, "flashed %s — connecting", label);
+    flash_owner = 1;
+    do_connect();
+    flash_owner = 0;
+done:
+    if (fd >= 0) {
+        np_serial_close(fd);
+    }
+    free(image);
+    flash_owner = 0;
+    g.flashing = 0;
+    return NULL;
+}
+
+int np_host_fw_count(void)
+{
+    return np_fw_count();
+}
+
+void np_host_fw_label(int preset, char *out, int n)
+{
+    np_fw_label(preset, out, n);
+}
+
+void np_host_cycle_fw(void)
+{
+    np_host_set_fw_mode((g.fw_mode + 1) % np_fw_count());
+}
+
+int np_host_fw_need(void)
+{
+    return EXG_FW_NEED;
+}
+
+int np_host_fw_have(void)
+{
+    return g.fw_have;
+}
+
+int np_host_fw_seen(void)
+{
+    return g.fw_seen;
+}
+
+int np_host_fw_behind(void)
+{
+    if (g.fw_seen > 0) {
+        return g.fw_seen < EXG_FW_NEED;
+    }
+    if (fw_stock_boot) {
+        return 1;
+    }
+    return g.fw_have < EXG_FW_NEED;
+}
+
+int np_host_fw_mode(void)
+{
+    if (g.fw_mode < 0 || g.fw_mode > 2) {
+        return 0;
+    }
+    return g.fw_mode;
+}
+
+void np_host_set_fw_mode(int mode)
+{
+    char label[80];
+    if (mode < 0 || mode >= np_fw_count()) {
+        return;
+    }
+    g.fw_mode = mode;
+    fw_sel = mode;
+    cfg_save();
+    np_host_fw_label(mode, label, (int)sizeof(label));
+    set_status(1, "%s", label);
+}
+
+int np_host_fw_prompt(void)
+{
+    static int done;
+    if (done || !np_host_fw_behind()) {
+        return 0;
+    }
+    done = 1;
+    set_status(0, "Knight firmware %d required. Electrodes off, then Upload.", EXG_FW_NEED);
+    return 1;
+}
+
+int np_host_design_sps(void)
+{
+    return (int)design_sps();
+}
+
+int np_host_stream_cold(void)
+{
+    return stream_cold();
+}
+
+void np_host_fw_button(char *out, int n)
+{
+    np_fw_short(np_host_fw_mode(), out, n);
+}
+
+static int flash_arm_start(int mode, int confirmed, int eeprom_only, const char *again)
+{
+    pthread_t thr;
+    char label[80];
+    uint32_t now;
+    int arm_key;
+
+    if (mode < 0 || mode >= np_fw_count()) {
+        return 0;
+    }
+    if (g.flashing) {
+        flash_say(0, "flash already running");
+        return 0;
+    }
+    np_host_fw_label(mode, label, (int)sizeof(label));
+    now = SDL_GetTicks();
+    arm_key = mode + (eeprom_only ? 16 : 0);
+    if (!confirmed) {
+        if (flash_arm == arm_key && now - flash_arm_ms < 8000u) {
+            confirmed = 1;
+            flash_arm = -1;
+        } else {
+            flash_arm = arm_key;
+            flash_arm_ms = now ? now : 1;
+            fw_sel = mode;
+            g.fw_mode = mode;
+            flash_say(0, "%s %s", again, label);
+            return 0;
+        }
+    }
+    fw_sel = mode;
+    g.fw_mode = mode;
+    flash_arm = -1;
+    flash_eeprom_only = eeprom_only;
+    g.flashing = 1;
+    if (pthread_create(&thr, NULL, flash_thread, (void *)(intptr_t)mode) != 0) {
+        g.flashing = 0;
+        flash_say(0, "could not start flash");
+        return 0;
+    }
+    pthread_detach(thr);
+    return 1;
+}
+
+void np_host_flash_upload(void)
+{
+    np_host_flash_preset(np_host_fw_mode(), 0);
+}
+
+void np_host_flash_preset(int mode, int confirmed)
+{
+    flash_arm_start(mode, confirmed, 0, "Electrodes off. Tap Upload again to flash");
+}
+
+void np_host_flash_mode_only(int mode, int confirmed)
+{
+    if (np_host_fw_behind()) {
+        flash_say(0, "upload firmware %d first", EXG_FW_NEED);
+        return;
+    }
+    flash_arm_start(mode, confirmed, 1, "Electrodes off. Tap Write mode again for");
+}
+
 int np_host_ui_scale(void)
 {
     if (g.ui_scale < 8 || g.ui_scale > 22) {
@@ -7422,8 +8075,8 @@ void np_host_api_set_hz(int hz)
     if (hz < 1) {
         hz = 1;
     }
-    if (hz > 125) {
-        hz = 125;
+    if (hz > 500) {
+        hz = 500;
     }
     g.api_hz = hz;
     cfg_save();

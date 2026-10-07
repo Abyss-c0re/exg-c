@@ -4,7 +4,7 @@ A C host for a **[Knight](https://www.neuropawn.tech/)** ADS1299 board — or an
 
 Not a medical device. Not affiliated with NeuroPawn.
 
-Shipped app: **2.91** (`com.abysscore.exgc`, versionCode 99). One framework, two skins:
+Shipped app: **2.92** (`com.abysscore.exgc`, versionCode 100). One framework, two skins:
 
 | Piece | Role |
 |-------|------|
@@ -21,7 +21,8 @@ Quest / phone notes: [android/README.md](android/README.md).
 
 ## What it does
 
-- 8 channels at **125 SPS**. USB serial **115200 8N1**. Frames `0xA0`…`0xC0` (21-byte EEG, 57-byte IMU). Scale `4/(2^15-1)/79.57/gain` µV. Commands `chon_` / `choff_` / `rldadd_` / `rldremove_`. See [Knight firmware](https://docs.neuropawn.tech/knight-board/firmware/).
+- 8 channels. USB serial **115200 8N1**. Frames `0xA0`…`0xC0` (21-byte EEG, 57-byte IMU). The host locks the length and snaps the delivered rate to **125, 200, 250, or 500** SPS. 200 means the USB link is full. Scale `4/(2^15-1)/79.57/gain` µV. Commands `chon_` / `choff_` / `rldadd_` / `rldremove_`. See [Knight firmware](https://docs.neuropawn.tech/knight-board/firmware/).
+- Knight image source is the [`firmware/`](firmware/) submodule ([exg-c-firmware](https://github.com/Abyss-c0re/exg-c-firmware)). **Flash** writes that hex and one EEPROM mode byte. **Debug** shows boot text. Electrodes off before Upload. The hex is built locally and is not stored in git.
 - Default view is **raw** (same as the official Knight plot): no notch, no hp, no CAR, no detrend. Off-head rails. **line-kill** is a band if you want cooked EXG.
 - **Calibrate** — 5 s to put the headset down, 8 s desk plate, tap when worn, 8 s still plate.
 - **DC on / DC off** — subtracts the still-plate mean. That is not Wiener CLEAN.
@@ -33,7 +34,7 @@ Quest / phone notes: [android/README.md](android/README.md).
 - **NEG RAIL** turns bias off on every channel. The bias button becomes that channel's − electrode site.
 - **Cube viz** — one 2×2×2 cube is 8 bits. One **algo** for the whole cube. Tap a bit for its channel. **Algos** tab is CubalC (defaults + yours). **use on cube** assigns it. **float on/off**, drag to spin, +/− or pinch to zoom. Sites live in Settings.
 - **USB / LAN** — two ways the board reaches the app. USB is the Knight on this device. LAN is a typed dest (`host` or `host:8765`). First connect asks **Allow / No** in the app and in a notification. Share EXG is how this device offers the board out.
-- **API server** off by default. When on: HTTP 8765, UDP 8766, TCP 8767, bind lan, 125 Hz. Live path is **EXG1** binary, not JSON. `/cfg` carries colors, map, and filters so a client matches.
+- **API server** off by default. When on: HTTP 8765, UDP 8766, TCP 8767, bind lan. Share rate follows 125, 200, 250, or 500, or a typed cap from 1 to 500. Live path is **EXG1** binary, not JSON. `/cfg` carries colors, map, and filters so a client matches. `/status` also reports `rate`, `chip`, `link_limited`, `fw`, `fw_need`, and `fw_mode`.
 
 Default montage: **FCz–CPz**, **CP4–FC3**, **FC4–CP3**, **C3–C4**. Eight EXG sites; four bipolar EXG traces. Map can still assign any 10-10 name.
 
@@ -69,7 +70,7 @@ On a phone the Knight is USB-host on the phone. On Quest 3 the Knight is USB-hos
 
 ## First session
 
-1. **Connect**. Wait until ~125 sps (below 80 is warming).
+1. **Connect**. Warming is under 64% of the locked rate (80 sps at 125). ID and Record wait.
 2. **Calibrate**. Put the kit down for 5 s, leave it for the desk plate, wear it, sit still.
 3. Default cut is **DC on** (still-plate offset). Teal means the cut is on.
 4. **ID** should read `still Nx`. Hard blink → `blink`. Jaw clench → `clench`. That is EXG vs a quiet baseline, not a learned take.

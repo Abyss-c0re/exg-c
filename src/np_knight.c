@@ -41,7 +41,13 @@ void np_parser_init(struct np_parser *p, enum np_board board)
     int i;
     memset(p, 0, sizeof(*p));
     p->board = board;
-    p->frame_len = board == NP_BOARD_KNIGHT_IMU ? NP_FRAME_IMU : NP_FRAME_EEG;
+    if (board == NP_BOARD_KNIGHT_IMU) {
+        p->frame_len = NP_FRAME_IMU;
+    } else if (board == NP_BOARD_AUTO) {
+        p->frame_len = 0;
+    } else {
+        p->frame_len = NP_FRAME_EEG;
+    }
     for (i = 0; i < NP_NCHAN; i++) {
         p->gain[i] = 12;
     }
@@ -105,6 +111,101 @@ static int decode_frame(struct np_parser *p, int n, struct np_sample *out)
 int np_parser_feed(struct np_parser *p, unsigned char b, struct np_sample *out)
 {
     int want, i, from;
+
+    /* A confirmed frame was held so this call can return it, then keep b. */
+    if (p->ready) {
+        int n = p->frame_len > 0 ? p->frame_len : NP_FRAME_EEG;
+        if (p->have < n || !decode_frame(p, n, out)) {
+            p->ready = 0;
+            p->have = 0;
+            p->locked = 0;
+            return -1;
+        }
+        p->have = 0;
+        p->ready = 0;
+        p->locked = 1;
+        p->stash = b;
+        p->stashed = 1;
+        return 1;
+    }
+    if (p->stashed) {
+        unsigned char sb = p->stash;
+        int r;
+        p->stashed = 0;
+        r = np_parser_feed(p, sb, out);
+        if (r != 0) {
+            p->stash = b;
+            p->stashed = 1;
+            return r;
+        }
+    }
+
+    /* AUTO waits for two back-to-back 21-byte frames before it believes
+     * EEG. A lone 0xC0 inside an IMU float is not enough, and a 57-byte
+     * frame with 0xC0 at the end is IMU. Forced EXG / IMU stays one length. */
+    if (!p->locked && p->board == NP_BOARD_AUTO) {
+        if (p->have == 0) {
+            if (b != NP_START) {
+                return 0;
+            }
+            p->buf[0] = b;
+            p->have = 1;
+            return 0;
+        }
+        if (p->have >= NP_FRAME_IMU) {
+            p->have = 0;
+            p->locked = 0;
+            p->resyncs++;
+            if (b == NP_START) {
+                p->buf[0] = b;
+                p->have = 1;
+            }
+            return -1;
+        }
+        p->buf[p->have++] = b;
+        if (p->have == 42 && p->buf[20] == NP_END && p->buf[21] == NP_START &&
+            p->buf[41] == NP_END && (uint8_t)(p->buf[1] + 1) == p->buf[22]) {
+            unsigned char second[NP_FRAME_EEG];
+            memcpy(second, p->buf + NP_FRAME_EEG, NP_FRAME_EEG);
+            p->frame_len = NP_FRAME_EEG;
+            if (!decode_frame(p, NP_FRAME_EEG, out)) {
+                p->have = 0;
+                p->locked = 0;
+                return -1;
+            }
+            memcpy(p->buf, second, NP_FRAME_EEG);
+            p->have = NP_FRAME_EEG;
+            p->frame_len = NP_FRAME_EEG;
+            p->locked = 1;
+            p->ready = 1;
+            return 1;
+        }
+        if (p->have < NP_FRAME_IMU) {
+            return 0;
+        }
+        if (p->buf[NP_FRAME_IMU - 1] == NP_END && decode_frame(p, NP_FRAME_IMU, out)) {
+            p->frame_len = NP_FRAME_IMU;
+            p->locked = 1;
+            p->have = 0;
+            return 1;
+        }
+        p->locked = 0;
+        p->resyncs++;
+        from = 0;
+        for (i = 1; i < p->have; i++) {
+            if (p->buf[i] == NP_START) {
+                from = i;
+                break;
+            }
+        }
+        if (from > 0) {
+            memmove(p->buf, p->buf + from, (size_t)(p->have - from));
+            p->have -= from;
+        } else {
+            p->have = 0;
+        }
+        return -1;
+    }
 
     /* The board mode is the frame length. A 0xC0 inside the IMU floats
      * must not lock a 21-byte frame, and there is no 22-byte format. */

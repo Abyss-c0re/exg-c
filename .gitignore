@@ -3,6 +3,8 @@
 /android/build/
 /android/third_party/
 /android/*.apk
+/android/assets/*.hex
+/state/
 *.o
 *.csv
 !tests/fixtures/live-table.csv
@@ -11,3 +13,4 @@ exg-c.conf
 exg-c.ini
 *.learn
 exg-c.cal
+/.knowldge/

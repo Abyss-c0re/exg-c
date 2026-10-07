@@ -31,7 +31,7 @@ struct np_api_cfg {
     int http; /* 0 off */
     int udp;
     int tcp;
-    int hz; /* 1..125 */
+    int hz; /* 1..500 */
     char token[NP_API_TOKEN];
     char push[NP_API_PUSH]; /* optional host:port UDP dest */
 };

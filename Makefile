@@ -8,7 +8,8 @@ SDL = /usr/lib/x86_64-linux-gnu/libSDL2-2.0.so.0
 endif
 AR = ar
 
-HOST = src/np_core.c src/np_ui.c src/np_serial.c src/np_knight.c src/np_ring.c src/np_dsp.c src/np_font.c \
+HOST = src/np_core.c src/np_ui.c src/np_serial.c src/np_knight.c src/np_rate.c src/np_stk500.c src/np_fw.c \
+	src/np_ring.c src/np_dsp.c src/np_font.c \
 	src/np_smx.c src/np_algo.c src/np_sot.c src/np_atom.c src/np_api.c src/np_link.c src/np_peer.c
 NPL = nplearn/src/nplearn.c nplearn/src/nplearn_filt.c nplearn/src/nplearn_posix.c
 LIB = libnplearn.a
@@ -17,7 +18,7 @@ BIN = np-exg
 TEST_CORE = tests/test_core
 LIVE = tests/live_collect
 RECV = tools/exg-recv
-TEST_SRC = src/np_serial.c src/np_knight.c src/np_ring.c src/np_dsp.c src/np_smx.c src/np_algo.c \
+TEST_SRC = src/np_serial.c src/np_knight.c src/np_rate.c src/np_stk500.c src/np_ring.c src/np_dsp.c src/np_smx.c src/np_algo.c \
 	src/np_sot.c src/np_atom.c src/np_api.c src/np_link.c src/np_peer.c
 TEST_NPL = nplearn/src/nplearn.c nplearn/src/nplearn_filt.c nplearn/src/nplearn_posix.c
 

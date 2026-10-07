@@ -53,8 +53,19 @@ echo "== java =="
 BUILD="$ROOT/build/apk"
 rm -rf "$BUILD"
 mkdir -p "$BUILD"/{gen,obj}
+HEX_SRC="$REPO/firmware/.pio/build/knight/firmware.hex"
+mkdir -p "$ROOT/assets"
+AAPT_A=()
+if [ -f "$HEX_SRC" ]; then
+  cp -f "$HEX_SRC" "$ROOT/assets/knight.hex"
+  AAPT_A=(-A "$ROOT/assets")
+  echo "== bundled knight.hex =="
+else
+  rm -f "$ROOT/assets/knight.hex"
+  echo "== no knight.hex; the flasher reports the missing file =="
+fi
 "$BT/aapt" package -f -m -J "$BUILD/gen" -M "$ROOT/AndroidManifest.xml" -S "$ROOT/res" \
-  -I "$PLATFORM/android.jar" -F "$BUILD/resources.ap_"
+  "${AAPT_A[@]}" -I "$PLATFORM/android.jar" -F "$BUILD/resources.ap_"
 "$JAVAC" --release 17 -encoding UTF-8 \
   -cp "$PLATFORM/android.jar" \
   -d "$BUILD/obj" \

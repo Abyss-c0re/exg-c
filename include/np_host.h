@@ -214,8 +214,33 @@ int np_host_fft(float *dst, int max, int *peak_hz);
 
 int np_host_imu(float acc[3], float gyr[3], float mag[3]);
 int np_host_board_imu(void);
+int np_host_board_mode(void);
 void np_host_cycle_board(void);
 void np_host_set_board_imu(int imu);
+void np_host_set_board_mode(int mode);
+void np_host_mode_label(char *out, int n);
+int np_host_fw_count(void);
+void np_host_fw_label(int mode, char *out, int n);
+void np_host_cycle_fw(void);
+void np_host_fw_button(char *out, int n);
+int np_host_fw_need(void);
+int np_host_fw_have(void);
+int np_host_fw_seen(void);
+int np_host_fw_behind(void);
+int np_host_fw_mode(void);
+void np_host_set_fw_mode(int mode);
+/* 1 once per launch when the saved or seen version is behind the app. */
+int np_host_fw_prompt(void);
+/* which 0 = flasher, 1 = serial debug. */
+void np_host_log_copy(int which, char *out, int n);
+int np_host_design_sps(void);
+int np_host_stream_cold(void);
+/* Two taps on the selected mode. The second tap within 8 s uploads knight.hex
+ * and writes the mode byte. confirmed 1 starts immediately. */
+void np_host_flash_upload(void);
+void np_host_flash_preset(int mode, int confirmed);
+/* EEPROM byte only. Refuses while the image version is behind. */
+void np_host_flash_mode_only(int mode, int confirmed);
 int np_host_ui_scale(void);
 void np_host_cycle_ui_scale(void);
 void np_host_set_ui_scale(int tenths);

@@ -675,7 +675,26 @@
                     android:id="@+id/board"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="8-ch + IMU" />
+                    android:text="Auto" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content">
+
+                    <Button
+                        android:id="@+id/flashOpen"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="Flash" />
+
+                    <Button
+                        android:id="@+id/debugOpen"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="Debug" />
+                </LinearLayout>
 
                 <TextView
                     android:layout_width="wrap_content"

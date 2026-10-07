@@ -30,6 +30,10 @@ struct np_parser {
     uint8_t last_seq;
     uint32_t resyncs;
     uint32_t drops;
+    /* AUTO: a finished frame sits in buf until the next byte arrives. */
+    int ready;
+    int stashed;
+    unsigned char stash;
 };
 
 void np_parser_init(struct np_parser *p, enum np_board board);

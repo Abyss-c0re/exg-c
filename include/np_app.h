@@ -57,7 +57,8 @@ struct np_app {
     int running;
     int connected;
     int want_connect;
-    enum np_board board;
+    enum np_board board;      /* live frame: EXG, IMU, or still Auto */
+    enum np_board board_pref; /* Auto, or a forced length. Saved. */
     int port_i;
     int nports;
     char ports[NP_MAX_PORTS][NP_MAX_PATH];
@@ -99,7 +100,16 @@ struct np_app {
     int detrend;
     float sps;
     uint32_t sps_n;
+    uint32_t chip_n; /* seq advance over the same window as sps_n */
     struct timespec sps_t;
+    int rate_snap;    /* 125, 200, 250, 500, or 0 while unknown */
+    int chip_sps;     /* banner or seq snap: 125, 250, 500 */
+    int link_limited; /* USB is dropping frames below chip_sps */
+    int banner_sps;   /* 0 none, -1 unset, else 125/250/500 */
+    int flashing;
+    int fw_seen; /* EXG-FW line, 0 if this connect has not printed one */
+    int fw_have; /* last version flashed or read. Saved. */
+    int fw_mode; /* EEPROM byte: 0 = 125+IMU, 1 = 250, 2 = 500. Saved. */
     struct np_hp hp[NP_NCHAN];
     struct np_notch notch[NP_NCHAN];
     struct np_lp lp[NP_NCHAN];

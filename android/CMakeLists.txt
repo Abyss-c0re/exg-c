@@ -9,6 +9,9 @@ add_library(exg SHARED
     ${EXG_ROOT}/src/np_android_jni.c
     ${EXG_ROOT}/src/sdl_stub.c
     ${EXG_ROOT}/src/np_knight.c
+    ${EXG_ROOT}/src/np_rate.c
+    ${EXG_ROOT}/src/np_stk500.c
+    ${EXG_ROOT}/src/np_fw.c
     ${EXG_ROOT}/src/np_ring.c
     ${EXG_ROOT}/src/np_dsp.c
     ${EXG_ROOT}/src/np_font.c

@@ -97,6 +97,9 @@ public class ExgActivity extends Activity {
     private TextView cubeZoomLab;
     private SeekBar cubeZoomBar;
     private Button board;
+    private Button flashOpen;
+    private Button debugOpen;
+    private static boolean fwAsked;
     private TextView apiLine;
     private Button apiOn, apiBind, apiHz, apiHttp, apiUdp, apiTcp, apiToken, apiPush;
     private final float[] imu = new float[9];
@@ -147,6 +150,7 @@ public class ExgActivity extends Activity {
             new File(dir, "exg-c/raw/atoms").mkdirs();
             new File(dir, "exg-c/raw/learn").mkdirs();
         }
+        installKnightHex(dir);
         ExgNative.start(dir != null ? dir.getAbsolutePath() : getApplicationInfo().dataDir);
         ExgNative.setSelf(Build.MODEL);
         setContentView(R.layout.activity_exg);
@@ -279,6 +283,8 @@ public class ExgActivity extends Activity {
         cubeZoomLab = findViewById(R.id.cubeZoomLab);
         cubeZoomBar = findViewById(R.id.cubeZoomBar);
         board = findViewById(R.id.board);
+        flashOpen = findViewById(R.id.flashOpen);
+        debugOpen = findViewById(R.id.debugOpen);
         apiLine = findViewById(R.id.apiLine);
         apiOn = findViewById(R.id.apiOn);
         apiBind = findViewById(R.id.apiBind);
@@ -689,11 +695,13 @@ public class ExgActivity extends Activity {
             }
         });
         board.setOnClickListener(v -> pick("Board",
-                new String[] {"8-ch + IMU", "8-ch EXG"},
-                ExgNative.boardImu() ? 0 : 1, i -> {
-                    ExgNative.setBoardImu(i == 0);
+                new String[] {"Auto", "8-ch + IMU", "8-ch EXG"},
+                boardPickIndex(), i -> {
+                    ExgNative.setBoardMode(i == 0 ? 2 : (i == 1 ? 1 : 0));
                     refreshChrome();
                 }));
+        flashOpen.setOnClickListener(v -> startActivity(new Intent(this, FlashActivity.class)));
+        debugOpen.setOnClickListener(v -> startActivity(new Intent(this, DebugActivity.class)));
 
         apiOn.setOnClickListener(v -> {
             boolean on = !ExgNative.apiOn();
@@ -708,8 +716,8 @@ public class ExgActivity extends Activity {
             ExgNative.setApiLan(!ExgNative.apiLan());
             refreshChrome();
         });
-        apiHz.setOnClickListener(v -> askPort("Share rate (API emit Hz, not board SPS). 1–125", ExgNative.apiHz(), p -> {
-            ExgNative.setApiHz(p < 1 ? 1 : p);
+        apiHz.setOnClickListener(v -> askPort("Share rate 1–500. 125, 200, 250, and 500 follow the board.", ExgNative.apiHz(), p -> {
+            ExgNative.setApiHz(p < 1 ? 1 : (p > 500 ? 500 : p));
             refreshChrome();
         }));
         apiHttp.setOnClickListener(v -> askPort("Settings port (shared after Allow). 0 = off", ExgNative.apiHttp(), p -> {
@@ -750,6 +758,7 @@ public class ExgActivity extends Activity {
         refreshLearnChips();
         applyUiScale();
         refreshChrome();
+        maybeFirmwarePrompt();
         h.post(tick);
         takeFollowIntent(getIntent());
         h.postDelayed(() -> {
@@ -869,12 +878,14 @@ public class ExgActivity extends Activity {
         hint(hp, "High-pass. Removes what is slower than this frequency.");
         hint(lp, "Low-pass. Removes what is faster than this frequency.");
         hint(algo, "Opens the Algos tab. CubalC decides which cube cells light.");
-        hint(board, "8-ch + IMU expects the 57-byte Knight frame. 8-ch EXG expects EEG only.");
+        hint(board, "Auto locks a 21-byte EEG frame or a 57-byte IMU frame. The other two force one length.");
+        hint(flashOpen, "Write knight.hex and the boot mode. Electrodes off. Two taps.");
+        hint(debugOpen, "Boot text and host commands. Sample bytes stay off this page.");
         hint(negRail, "NEG RAIL turns bias off on every channel. Each sample is the + electrode minus the − electrode. bias RLD restores per-channel bias and reads each channel as one site.");
         hint(restorePairs, "Put back FC3-CP3, FC1-CP1, FCz-CPz, FC2-CP2, FC4-CP4, PO3-O1, POz-Oz, PO4-O2. NEG RAIL stays as it is.");
         hint(apiOn, "Share EXG on the network so another device can follow.");
         hint(apiBind, "wifi listens on the LAN address. this device listens only here.");
-        hint(apiHz, "How often shared frames go out. The board rate stays 125 samples per second.");
+        hint(apiHz, "How often shared frames go out. 125, 200, 250, and 500 follow the locked board rate. Any other value from 1 to 500 stays as a cap.");
         hint(apiHttp, "Port for settings and control, after Allow.");
         hint(apiUdp, "Port for the live traces.");
         hint(apiTcp, "Spare port. Following does not need it.");
@@ -983,7 +994,9 @@ public class ExgActivity extends Activity {
                 + helpSec("Share")
                 + helpRow("share EXG", "Publish on the network so another device can follow.")
                 + helpRow("wifi / this device", "Who can connect.")
-                + helpRow("rate", "Shared frames per second. The board stays at 125.")
+                + helpRow("rate", "Shared frames per second, 1 to 500. 125, 200, 250, and 500 follow the locked board rate.")
+                + helpRow("Flash", "Writes knight.hex and the mode byte. Electrodes off. The second tap within 8 seconds starts it.")
+                + helpRow("Debug", "Boot lines and host commands. The sample stream is not printed.")
                 + helpRow("settings / EXG / spare", "Ports. 0 is off.")
                 + helpRow("lock", "A word required after Allow. Empty leaves the share open after Allow.")
                 + helpRow("extra send", "Also push live EXG to name:port.")
@@ -1340,7 +1353,7 @@ public class ExgActivity extends Activity {
             idLine.setText(id + extra);
             boolean named = now.startsWith("now ") && !now.startsWith("now —");
             idLine.setTextColor(named ? 0xFF3CB46E : 0xFF8B93A0);
-            if (on && sps > 0f && sps < 80f) {
+            if (on && ExgNative.streamCold()) {
                 record.setText("wait " + (int) sps + " sps");
             } else {
                 record.setText("Record");
@@ -1392,7 +1405,7 @@ public class ExgActivity extends Activity {
         env.setText(ExgNative.envelope() ? "envelope" : "wave");
         lp.setText(ExgNative.lp() == 0 ? "lp off" : "lp " + ExgNative.lp() + "Hz");
         algo.setText("Algos tab");
-        board.setText(ExgNative.boardImu() ? "8-ch + IMU" : "8-ch EXG");
+        board.setText(ExgNative.modeLabel());
         boolean apion = ExgNative.apiOn();
         apiOn.setText(apion ? "share EXG" : "share off");
         apiOn.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
@@ -2278,6 +2291,77 @@ public class ExgActivity extends Activity {
             }
             cubeZoomBar.setProgress(p);
         }
+    }
+
+    private static int boardPickIndex() {
+        int mode = ExgNative.boardMode();
+        if (mode == 2) {
+            return 0;
+        }
+        if (mode == 1) {
+            return 1;
+        }
+        return 2;
+    }
+
+    private void installKnightHex(File files) {
+        if (files == null) {
+            return;
+        }
+        InputStream in;
+        try {
+            in = getAssets().open("knight.hex");
+        } catch (java.io.IOException e) {
+            return;
+        }
+        File dir = new File(files, "exg-c/firmware");
+        if (!dir.isDirectory() && !dir.mkdirs()) {
+            try {
+                in.close();
+            } catch (java.io.IOException ignored) {
+            }
+            return;
+        }
+        File out = new File(dir, "knight.hex");
+        File tmp = new File(dir, "knight.hex.tmp");
+        try {
+            OutputStream o = new FileOutputStream(tmp);
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = in.read(buf)) > 0) {
+                o.write(buf, 0, n);
+            }
+            o.close();
+            in.close();
+            if (out.exists() && !out.delete()) {
+                tmp.delete();
+                return;
+            }
+            if (!tmp.renameTo(out)) {
+                tmp.delete();
+            }
+        } catch (java.io.IOException e) {
+            try {
+                in.close();
+            } catch (java.io.IOException ignored) {
+            }
+            tmp.delete();
+        }
+    }
+
+    private void maybeFirmwarePrompt() {
+        if (fwAsked || !ExgNative.fwBehind()) {
+            return;
+        }
+        fwAsked = true;
+        new AlertDialog.Builder(this)
+                .setTitle("Knight firmware")
+                .setMessage("Firmware " + ExgNative.fwNeed()
+                        + " is required. Take the electrodes off, then Upload.")
+                .setPositiveButton("Open flasher", (d, w) ->
+                        startActivity(new Intent(this, FlashActivity.class)))
+                .setNegativeButton("Later", null)
+                .show();
     }
 
     private void askPort(String title, int current, java.util.function.IntConsumer on) {

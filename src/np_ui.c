@@ -144,6 +144,8 @@ static int side_pin_h;
 static int hit_in_body;
 static void btn(int x, int y, int w, int h, const char *label, int on, int kind, int ch,
                 int r, int gcol, int b);
+static int draw_flash_side(int x, int y);
+static int draw_debug_side(int x, int y);
 
 static int side_view(void)
 {
@@ -1500,6 +1502,20 @@ static const char *k_help[] = {
     "The button reads CAR off (rail).",
     "EEG and EMG turn CAR on only while",
     "NEG RAIL is off.",
+    "# Sample rate",
+    "Auto reads a 21-byte EEG frame",
+    "or a 57-byte IMU frame.",
+    "Rate locks at 125, 200, 250,",
+    "or 500. 200 means USB is full.",
+    "Share follows that rate unless",
+    "you set another cap, 1 to 500.",
+    "# Flash",
+    "Flash writes knight.hex and the",
+    "mode byte. Electrodes off.",
+    "Two taps. Write mode is EEPROM",
+    "only, after this firmware is on.",
+    "Debug shows boot text, not",
+    "the sample stream.",
     "# NEG RAIL",
     "Bias off. Each sample is + to -.",
     "The bias button picks the - site.",
@@ -1577,7 +1593,8 @@ static void draw_side(int x)
     char live[48];
     const char *port = g.link == 1 ? (g.link_dest[0] ? "EXG on LAN" : "type dest…")
                                    : port_short();
-    const char *bname = g.board == NP_BOARD_KNIGHT_IMU ? "8-ch + IMU" : "8-ch EXG";
+    char bname[48];
+    np_host_mode_label(bname, (int)sizeof(bname));
 
     side_clamp();
     hit_in_body = 0;
@@ -1612,6 +1629,11 @@ static void draw_side(int x)
         g.tab == 1 ? 50 : 32, 44);
     btn(x + 232, y, 60, bh, "Help", g.tab == 3, 75, 0, g.tab == 3 ? 70 : 40, g.tab == 3 ? 58 : 42,
         g.tab == 3 ? 28 : 36);
+    y += rh;
+    btn(x + 8, y, 140, bh, "Flash", g.tab == 4, 82, 0, g.tab == 4 ? 90 : 40, g.tab == 4 ? 48 : 36,
+        g.tab == 4 ? 28 : 44);
+    btn(x + 152, y, 140, bh, "Debug", g.tab == 5, 83, 0, g.tab == 5 ? 48 : 28,
+        g.tab == 5 ? 70 : 36, g.tab == 5 ? 90 : 44);
     y += rh;
     btn(x + 12, y, 80, bh, g.link == 1 ? "LAN" : "USB", 1, 70, 0,
         g.link ? 30 : 32, g.link ? 80 : 36, g.link ? 100 : 44);
@@ -1753,6 +1775,16 @@ static void draw_side(int x)
         side_end(x, y);
         return;
     }
+    if (g.tab == 4) {
+        y = draw_flash_side(x, y);
+        side_end(x, y);
+        return;
+    }
+    if (g.tab == 5) {
+        y = draw_debug_side(x, y);
+        side_end(x, y);
+        return;
+    }
     if (g.tab == 1) {
         char b[48];
         text(x + 12, y, "Profile  (name, then Save)", 140, 148, 160, 1);
@@ -1790,6 +1822,8 @@ static void draw_side(int x)
             btn(x + 152, y, 136, bh, b, 1, 33, 0, 36, 40, 48);
         }
         y += rh + 2;
+        text(x + 12, y, "Flash tab writes the Knight image.", 100, 108, 116, 1);
+        y += 16;
         text(x + 12, y, "Channel colors (click)", 140, 148, 160, 1);
         y += 14;
         for (c = 0; c < NP_NCHAN; c++) {
@@ -2089,9 +2123,7 @@ static void click(int x, int y)
             }
             break;
         case 5:
-            if (!g.connected) {
-                g.board = g.board == NP_BOARD_KNIGHT ? NP_BOARD_KNIGHT_IMU : NP_BOARD_KNIGHT;
-            }
+            np_host_cycle_board();
             break;
         case 6:
             g.active[hits[i].ch] = !g.active[hits[i].ch];
@@ -2305,6 +2337,23 @@ static void click(int x, int y)
             g.tab = 3;
             g.side_scroll = 0;
             break;
+        case 82:
+            g.tab = 4;
+            g.side_scroll = 0;
+            break;
+        case 83:
+            g.tab = 5;
+            g.side_scroll = 0;
+            break;
+        case 84:
+            np_host_set_fw_mode(hits[i].ch);
+            break;
+        case 85:
+            np_host_flash_upload();
+            break;
+        case 86:
+            np_host_flash_mode_only(np_host_fw_mode(), 0);
+            break;
         case 45:
             g.side_scroll -= 48;
             side_clamp();
@@ -2398,12 +2447,113 @@ static void click(int x, int y)
             chcol_cycle(hits[i].ch);
             cfg_save();
             break;
+        case 80:
+            np_host_cycle_fw();
+            break;
+        case 81:
+            np_host_flash_upload();
+            break;
         default:
             break;
         }
         return;
     }
     typing_set(0);
+}
+
+static void draw_log(int x, int y, int w, int h, int which)
+{
+    char buf[5000];
+    char *line[64];
+    char *p;
+    int n = 0, rows, i;
+    SDL_Rect clip;
+
+    if (w < 20 || h < 16) {
+        return;
+    }
+    np_host_log_copy(which, buf, (int)sizeof(buf));
+    p = buf;
+    while (*p && n < 64) {
+        line[n++] = p;
+        while (*p && *p != '\n') {
+            p++;
+        }
+        if (*p == '\n') {
+            *p++ = 0;
+        }
+    }
+    rows = (h - 8) / 10;
+    if (rows < 1) {
+        rows = 1;
+    }
+    if (rows > 60) {
+        rows = 60;
+    }
+    i = n > rows ? n - rows : 0;
+    fill(x, y, w, h, 12, 14, 18);
+    clip.x = x;
+    clip.y = y;
+    clip.w = w;
+    clip.h = h;
+    SDL_RenderSetClipRect(R, &clip);
+    y += 6;
+    if (n == 0) {
+        text(x + 8, y, which ? "no serial text yet" : "no flash log yet", 120, 128, 140, 1);
+    }
+    for (; i < n; i++) {
+        text(x + 8, y, line[i][0] ? line[i] : " ", 186, 196, 176, 1);
+        y += 10;
+    }
+    SDL_RenderSetClipRect(R, NULL);
+}
+
+static int draw_flash_side(int x, int y)
+{
+    char b[96];
+    int bh = btnh(), rh = rowh();
+    int mode = np_host_fw_mode();
+    int behind = np_host_fw_behind();
+
+    snprintf(b, sizeof(b), "fw %d / %d   seen %d", np_host_fw_have(), np_host_fw_need(),
+             np_host_fw_seen());
+    text(x + 12, y, b, behind ? 220 : 160, behind ? 160 : 200, behind ? 80 : 140, 1);
+    y += 16;
+    text(x + 12, y, "Electrodes off. Two taps.", 140, 148, 160, 1);
+    y += 16;
+    btn(x + 12, y, 136, bh, "125 + IMU", mode == 0, 84, 0, mode == 0 ? 36 : 28, mode == 0 ? 70 : 40,
+        48);
+    btn(x + 152, y, 136, bh, "250 EEG", mode == 1, 84, 1, mode == 1 ? 36 : 28, mode == 1 ? 70 : 40,
+        48);
+    y += rh;
+    btn(x + 12, y, 136, bh, "500 EEG", mode == 2, 84, 2, mode == 2 ? 36 : 28, mode == 2 ? 70 : 40,
+        48);
+    y += rh;
+    btn(x + 12, y, 136, bh, "Upload", 0, 85, 0, 90, 50, 40);
+    btn(x + 152, y, 136, bh, "Write mode", 0, 86, 0, 70, 50, 36);
+    y += rh + 4;
+    text(x + 12, y, "Upload writes knight.hex", 100, 108, 116, 1);
+    y += 14;
+    text(x + 12, y, "and the mode byte.", 100, 108, 116, 1);
+    y += 14;
+    text(x + 12, y, "Write mode is EEPROM only.", 100, 108, 116, 1);
+    y += 16;
+    return y;
+}
+
+static int draw_debug_side(int x, int y)
+{
+    char b[80];
+
+    text(x + 12, y, "Boot text and commands.", 140, 148, 160, 1);
+    y += 14;
+    text(x + 12, y, "Sample bytes stay off.", 140, 148, 160, 1);
+    y += 16;
+    snprintf(b, sizeof(b), "design %d sps%s", np_host_design_sps(),
+             np_host_stream_cold() ? "  warming" : "");
+    text(x + 12, y, b, 180, 200, 140, 1);
+    y += 16;
+    return y;
 }
 
 static void frame(void)
@@ -2413,6 +2563,10 @@ static void frame(void)
     if (wave_h < NP_NCHAN * 28) {
         wave_h = NP_NCHAN * 28;
     }
+    if (np_host_fw_prompt()) {
+        g.tab = 4;
+        g.side_scroll = 0;
+    }
     nhits = 0;
     smx_tick();
     atom_tick();
@@ -2420,7 +2574,9 @@ static void frame(void)
     SDL_RenderClear(R);
     fill(0, 0, win_w, win_h, 22, 24, 30);
     fill(win_w - sidew(), 0, sidew(), win_h, 26, 28, 34);
-    if (g.tab == 2) {
+    if (g.tab == 4 || g.tab == 5) {
+        draw_log(12, WAVE_TOP, plot_w, win_h - WAVE_TOP - statush() - 8, g.tab == 5);
+    } else if (g.tab == 2) {
         present_cube(12, WAVE_TOP, plot_w, win_h - WAVE_TOP - statush() - 8);
     } else {
         draw_waves(12, WAVE_TOP, plot_w, wave_h);
@@ -2692,6 +2848,9 @@ static int run_gui(void)
                     g.side_scroll = 0;
                 } else if (k == SDLK_h) {
                     g.tab = 3;
+                    g.side_scroll = 0;
+                } else if (k == SDLK_f) {
+                    g.tab = 4;
                     g.side_scroll = 0;
                 } else if (g.tab == 2 && k == SDLK_v) {
                     g.cube_view = g.cube_view ? 0 : 1;

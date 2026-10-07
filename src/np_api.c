@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "np_api.h"
+#include "np_version.h"
 
 #include <arpa/inet.h>
 #include <errno.h>
@@ -888,7 +889,7 @@ static void handle_req(struct http_cli *c)
 
     if (!strcmp(path, "/") || !strcmp(path, "/index")) {
         snprintf(js, sizeof(js),
-                 "{\"ok\":true,\"v\":\"2.91\",\"api\":\"exg\","
+                 "{\"ok\":true,\"v\":\"" NP_APP_VER "\",\"api\":\"exg\","
                  "\"bind\":\"%s\",\"ip\":\"%s\",\"http\":%d,\"udp\":%d,\"tcp\":%d,"
                  "\"hz\":%d,\"token\":%s,\"push\":\"%s\","
                  "\"get\":[\"/health\",\"/status\",\"/sample\",\"/stream\",\"/cfg\",\"/kit\",\"/pair\"],"
@@ -901,7 +902,7 @@ static void handle_req(struct http_cli *c)
     }
     if (!strcmp(path, "/health")) {
         snprintf(js, sizeof(js),
-                 "{\"ok\":true,\"v\":\"2.91\",\"on\":true,\"bind\":\"%s\","
+                 "{\"ok\":true,\"v\":\"" NP_APP_VER "\",\"on\":true,\"bind\":\"%s\","
                  "\"ip\":\"%s\",\"http\":%d,\"udp\":%d,\"tcp\":%d,\"hz\":%d,"
                  "\"clients\":{\"http\":%d,\"tcp\":%d,\"udp\":%d}}",
                  cfg.lan ? "lan" : "local", self_ip, cfg.http, cfg.udp, cfg.tcp, cfg.hz,
@@ -1361,8 +1362,8 @@ static void np_api_cfg_clamp(struct np_api_cfg *c)
     if (c->hz < 1) {
         c->hz = 1;
     }
-    if (c->hz > 125) {
-        c->hz = 125;
+    if (c->hz > 500) {
+        c->hz = 500;
     }
     c->token[NP_API_TOKEN - 1] = 0;
     c->push[NP_API_PUSH - 1] = 0;

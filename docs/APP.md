@@ -1,11 +1,11 @@
-# App (2.91)
+# App (2.92)
 
 What the host does. The LAN wire is [API.md](API.md).
 
 ## Stack
 
 ```
-Knight USB (FTDI 0403:6001, 8ch, 125 SPS)
+Knight USB (FTDI 0403:6001, 8ch, 115200 8N1)
         │
         ▼
 src/np_core.c     cook on the USB reader thread
@@ -31,7 +31,7 @@ Android does **not** compile `np_ui.c`. Java talks to `include/np_host.h` via `s
 | detrend | off | |
 | DC cut (`cal_cut`) | off | |
 | scale | ±1000 µV | worn is hundreds of µV; off-head rails the plot |
-| window | 2 s | 250 samples |
+| window | 2 s | samples follow the design rate |
 | API | **off** | turn on in Settings if you want LAN |
 
 After `set_gen=5`, saved ini wins. `set_gen=5` forces raw once so an old line-kill ini cannot hide the board. Line-kill / EEG / EMG stay as bands.
@@ -52,7 +52,7 @@ Follows the published [firmware](https://docs.neuropawn.tech/knight-board/firmwa
 | EEG-only | **21** bytes (`NP_DEFAULT`). `[20]=0xC0`. No IMU placeholder. |
 | IMU | **57** bytes. `[20–31]` acc m/s², `[32–43]` gyr rad/s, `[44–55]` mag µT, all LE float32. `[56]=0xC0`. Missing sensor → nine zeros, still 57. |
 | Scale | `4/(2^15-1)/79.57/gain*1e6` µV (~0.128 µV/count at gain 12). Gains `1 2 3 4 6 8 12`. |
-| Mode | No runtime negotiation. Board picker sets 21 vs 57; hunt still accepts the other length (and leftover 22). |
+| Mode | Auto locks two 21-byte EEG frames, or one 57-byte IMU frame. The picker can still force one length. Delivered rate snaps to 125, 200, 250, or 500. 200 means the USB link is full. |
 | Commands | `chon_{ch}_{gain}`, `choff_{ch}`, `rldadd_{ch}`, `rldremove_{ch}` |
 | Connect | Wait for the binary stream, **2 s** settle, then per active channel `chon_` then `rldadd_`/`rldremove_` with ≥1 s between commands. Channels start off on the board. |
 
@@ -86,7 +86,7 @@ Last ~0.5 s EXG vs a rolling quiet baseline (`id_base` EMA while still).
 
 | Label | Rule |
 |-------|------|
-| `ID warming` | connected but &lt; 80 sps |
+| `ID warming` | connected but under 64% of the design rate (80 sps at 125) |
 | `ID need CALM` | no baseline yet |
 | `ID still Nx` | quiet vs baseline |
 | `ID blink Nx` | Fp pair hot, rest quiet |
