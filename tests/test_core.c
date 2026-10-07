@@ -306,6 +306,7 @@ static void stk_consume(struct stk_mock *m)
     while (m->qn >= 2) {
         if (m->q[0] == 0x30 && m->q[1] == 0x20) {
             stk_ok(m);
+            stk_ok(m); /* a late second reply must not shift the signature */
             stk_drop(m, 2);
             continue;
         }
@@ -2002,7 +2003,7 @@ static void test_api(void)
          strstr(body, "/stream") && strstr(body, "EXG1");
     expect(ok, "api GET / index lists stream");
     expect(strstr(body, "stream.json") == NULL, "api index has no NDJSON live path");
-    expect(strstr(body, "\"v\":\"2.95\"") != NULL, "api index version 2.95");
+    expect(strstr(body, "\"v\":\"2.96\"") != NULL, "api index version 2.96");
     expect(strstr(body, "/pair") != NULL, "api index lists /pair");
     expect(strstr(body, "\"ip\":\"127.0.0.1\"") != NULL, "api local ip is loopback");
     {

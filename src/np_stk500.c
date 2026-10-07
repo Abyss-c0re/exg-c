@@ -204,6 +204,7 @@ static int stk_cmd(const struct np_stk_io *io, const unsigned char *cmd, int n, 
 }
 
 static void stk_note(const struct np_stk_io *io, const char *msg);
+static int stk_drain(const struct np_stk_io *io);
 
 static int stk_sync(const struct np_stk_io *io, char *err, int err_n)
 {
@@ -224,6 +225,12 @@ static int stk_sync(const struct np_stk_io *io, char *err, int err_n)
         }
         n = read_full(io, b, 2, 40);
         if (n == 2 && b[0] == STK_INSYNC && b[1] == STK_OK) {
+            int extra = stk_drain(io);
+            if (extra > 0) {
+                char msg[48];
+                snprintf(msg, sizeof(msg), "dropped %d extra boot bytes", extra);
+                stk_note(io, msg);
+            }
             return 0;
         }
     }
@@ -231,27 +238,103 @@ static int stk_sync(const struct np_stk_io *io, char *err, int err_n)
     return -1;
 }
 
+/* Earlier GET_SYNC replies can still be in the UART. Eat them before
+ * the next command, or the signature frame is read two bytes late. */
+static int stk_drain(const struct np_stk_io *io)
+{
+    unsigned char b[64];
+    int extra = 0;
+    int i;
+
+    if (!io || !io->read) {
+        return 0;
+    }
+    for (i = 0; i < 4; i++) {
+        int n = io->read(io->ctx, b, (int)sizeof(b), 10);
+        if (n <= 0) {
+            break;
+        }
+        extra += n;
+    }
+    return extra;
+}
+
+static int stk_sig_at(const unsigned char *b, int n, int i)
+{
+    return i >= 0 && i + 5 <= n && b[i] == STK_INSYNC && b[i + 4] == STK_OK;
+}
+
+static void stk_hex(const unsigned char *b, int n, char *out, int out_n)
+{
+    int i, o = 0;
+
+    if (!out || out_n < 2) {
+        return;
+    }
+    if (n <= 0) {
+        snprintf(out, (size_t)out_n, "none");
+        return;
+    }
+    if (n > 8) {
+        n = 8;
+    }
+    out[0] = 0;
+    for (i = 0; i < n; i++) {
+        int w = snprintf(out + o, (size_t)(out_n - o), "%s%02X", i ? " " : "", b[i]);
+        if (w < 0 || o + w >= out_n) {
+            break;
+        }
+        o += w;
+    }
+}
+
 static int stk_signature(const struct np_stk_io *io, char *err, int err_n)
 {
     unsigned char cmd[2] = {STK_READ_SIGN, STK_CRC_EOP};
-    unsigned char b[5];
-    int n;
+    unsigned char b[32];
+    char hex[40];
+    char msg[80];
+    int n = 0;
+    int spins = 0;
+    int i;
 
     if (!io->write || io->write(io->ctx, cmd, 2) != 2) {
         err_set(err, err_n, "serial write failed");
         return -1;
     }
-    n = read_full(io, b, 5, 500);
-    if (n != 5 || b[0] != STK_INSYNC || b[4] != STK_OK) {
-        err_set(err, err_n, "no chip signature");
-        return -1;
+    while (n < (int)sizeof(b) && spins < 6) {
+        int r = io->read(io->ctx, b + n, (int)sizeof(b) - n, n == 0 ? 80 : 40);
+        spins++;
+        if (r < 0) {
+            err_set(err, err_n, "serial read failed");
+            return -1;
+        }
+        if (r > 0) {
+            n += r;
+        } else if (n > 0) {
+            break;
+        }
+        for (i = 0; i + 5 <= n; i++) {
+            if (!stk_sig_at(b, n, i)) {
+                continue;
+            }
+            /* ATmega328P. Refuse anything else so a wrong board is not erased. */
+            if (b[i + 1] == 0x1E && b[i + 2] == 0x95 && b[i + 3] == 0x0F) {
+                return 0;
+            }
+            stk_hex(b + i + 1, 3, hex, (int)sizeof(hex));
+            snprintf(msg, sizeof(msg), "not an ATmega328P %s", hex);
+            err_set(err, err_n, msg);
+            return -1;
+        }
+        if (r <= 0) {
+            break;
+        }
     }
-    /* ATmega328P. Refuse anything else so a wrong board is not erased. */
-    if (b[1] != 0x1E || b[2] != 0x95 || b[3] != 0x0F) {
-        err_set(err, err_n, "not an ATmega328P");
-        return -1;
-    }
-    return 0;
+    stk_hex(b, n, hex, (int)sizeof(hex));
+    snprintf(msg, sizeof(msg), "no chip signature %s", hex);
+    err_set(err, err_n, msg);
+    return -1;
 }
 
 static void stk_note(const struct np_stk_io *io, const char *msg)

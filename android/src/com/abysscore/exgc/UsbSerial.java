@@ -52,6 +52,10 @@ public final class UsbSerial {
     private static int sTick, sPay;
     private static final int RD_MAX = 1024;
     private static final byte[] rdTmp = new byte[RD_MAX];
+    /* Bytes past the caller's request stay here. Dropping them ate the
+     * tail of a bootloader reply that shared a packet with a short read. */
+    private static final byte[] hold = new byte[256];
+    private static int holdN;
 
     private UsbSerial() {}
 
@@ -159,7 +163,39 @@ public final class UsbSerial {
             kind = 0;
             sTick = 0;
             sPay = 0;
+            holdN = 0;
         }
+    }
+
+    private static void holdAdd(byte[] src, int off, int len) {
+        if (src == null || len <= 0 || off < 0) {
+            return;
+        }
+        if (len > hold.length) {
+            off += len - hold.length;
+            len = hold.length;
+            holdN = 0;
+        }
+        if (holdN + len > hold.length) {
+            int drop = holdN + len - hold.length;
+            System.arraycopy(hold, drop, hold, 0, holdN - drop);
+            holdN -= drop;
+        }
+        System.arraycopy(src, off, hold, holdN, len);
+        holdN += len;
+    }
+
+    private static int holdTake(byte[] buf, int n) {
+        int k = holdN < n ? holdN : n;
+        if (k <= 0) {
+            return 0;
+        }
+        System.arraycopy(hold, 0, buf, 0, k);
+        holdN -= k;
+        if (holdN > 0) {
+            System.arraycopy(hold, k, hold, 0, holdN);
+        }
+        return k;
     }
 
     public static int read(byte[] buf, int n) {
@@ -182,7 +218,10 @@ public final class UsbSerial {
             if (maxp < 8 || maxp > RD_MAX) {
                 maxp = 64;
             }
-            int out = 0;
+            int out = holdTake(buf, n);
+            if (out >= n) {
+                return out;
+            }
             int idle = 0;
             for (int li = 0; li < 4 && out < n; li++) {
                 int cap = kind == 1 ? maxp : Math.min(n - out, RD_MAX);
@@ -199,7 +238,7 @@ public final class UsbSerial {
                 if (kind == 1) {
                     int src = 0;
                     int produced = 0;
-                    while (src < got && out < n) {
+                    while (src < got) {
                         int len = Math.min(maxp, got - src);
                         if (len <= 2) {
                             if (sTick++ == 0) {
@@ -207,28 +246,38 @@ public final class UsbSerial {
                             }
                         } else {
                             int pay = len - 2;
-                            if (pay > n - out) {
-                                pay = n - out;
+                            int space = n - out;
+                            int take = pay < space ? pay : space;
+                            if (take > 0) {
+                                System.arraycopy(rdTmp, src + 2, buf, out, take);
+                                out += take;
+                                produced += take;
                             }
-                            System.arraycopy(rdTmp, src + 2, buf, out, pay);
-                            out += pay;
-                            produced += pay;
+                            if (pay > take) {
+                                holdAdd(rdTmp, src + 2 + take, pay - take);
+                            }
                         }
                         if (len < maxp) {
                             break;
                         }
                         src += maxp;
                     }
-                    if (produced == 0) {
+                    if (produced == 0 && holdN == 0) {
                         if (++idle >= 2) {
                             break;
                         }
                         continue;
                     }
                 } else {
-                    int take = got > n - out ? n - out : got;
-                    System.arraycopy(rdTmp, 0, buf, out, take);
-                    out += take;
+                    int space = n - out;
+                    int take = got < space ? got : space;
+                    if (take > 0) {
+                        System.arraycopy(rdTmp, 0, buf, out, take);
+                        out += take;
+                    }
+                    if (got > take) {
+                        holdAdd(rdTmp, take, got - take);
+                    }
                 }
             }
             if (out > 0 && sPay == 0) {
@@ -292,6 +341,7 @@ public final class UsbSerial {
 
     public static void flush() {
         synchronized (lock) {
+            holdN = 0;
             if (conn == null || epIn == null) {
                 return;
             }
