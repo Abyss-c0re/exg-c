@@ -235,10 +235,14 @@ void np_host_set_fw_mode(int mode);
 int np_host_fw_prompt(void);
 /* which 0 = flasher, 1 = serial debug. */
 void np_host_log_copy(int which, char *out, int n);
+/* "idle|arm|run|ok|err\\nmessage". ok and err stay until the next attempt. */
+void np_host_flash_state(char *out, int n);
+/* App cache directory. Flash lines are appended to flash.log there and to logcat. */
+void np_host_set_temp_dir(const char *dir);
 int np_host_design_sps(void);
 int np_host_stream_cold(void);
-/* Two taps on the selected mode. The second tap within 8 s uploads knight.hex
- * and writes the mode byte. confirmed 1 starts immediately. */
+/* Two taps. The second tap within 8 s uploads the one knight.hex.
+ * It does not write the mode byte. confirmed 1 starts immediately. */
 void np_host_flash_upload(void);
 void np_host_flash_preset(int mode, int confirmed);
 /* EEPROM byte only. Refuses while the image version is behind. */

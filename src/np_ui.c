@@ -1510,10 +1510,10 @@ static const char *k_help[] = {
     "Share follows that rate unless",
     "you set another cap, 1 to 500.",
     "# Flash",
-    "Flash writes knight.hex and the",
-    "mode byte. Electrodes off.",
-    "Two taps. Write mode is EEPROM",
-    "only, after this firmware is on.",
+    "Flash writes the one knight.hex.",
+    "Electrodes off. Two taps.",
+    "The screen stays on FLASHED",
+    "or FAILED. Mode is in Settings.",
     "Debug shows boot text, not",
     "the sample stream.",
     "Settings sends exgmode over USB.",
@@ -2525,33 +2525,38 @@ static void draw_log(int x, int y, int w, int h, int which)
 
 static int draw_flash_side(int x, int y)
 {
-    char b[96];
-    int bh = btnh(), rh = rowh();
-    int mode = np_host_fw_mode();
+    char b[180];
+    char state[180];
+    int bh = btnh();
     int behind = np_host_fw_behind();
+    int r = 160, gc = 200, bl = 140;
 
+    np_host_flash_state(state, (int)sizeof(state));
+    if (!strncmp(state, "ok\n", 3)) {
+        r = 80;
+        gc = 200;
+        bl = 110;
+    } else if (!strncmp(state, "err\n", 4)) {
+        r = 220;
+        gc = 90;
+        bl = 70;
+    } else if (!strncmp(state, "run\n", 4) || !strncmp(state, "arm\n", 4)) {
+        r = 220;
+        gc = 170;
+        bl = 60;
+    }
     snprintf(b, sizeof(b), "fw %d / %d   seen %d", np_host_fw_have(), np_host_fw_need(),
              np_host_fw_seen());
     text(x + 12, y, b, behind ? 220 : 160, behind ? 160 : 200, behind ? 80 : 140, 1);
     y += 16;
-    text(x + 12, y, "Electrodes off. Two taps.", 140, 148, 160, 1);
+    text(x + 12, y, state[0] ? strchr(state, '\n') ? strchr(state, '\n') + 1 : state : "idle", r,
+         gc, bl, 1);
+    y += 18;
+    text(x + 12, y, "One image. Electrodes off.", 140, 148, 160, 1);
     y += 16;
-    btn(x + 12, y, 136, bh, "125 + IMU", mode == 0, 84, 0, mode == 0 ? 36 : 28, mode == 0 ? 70 : 40,
-        48);
-    btn(x + 152, y, 136, bh, "250 EEG", mode == 1, 84, 1, mode == 1 ? 36 : 28, mode == 1 ? 70 : 40,
-        48);
-    y += rh;
-    btn(x + 12, y, 136, bh, "500 EEG", mode == 2, 84, 2, mode == 2 ? 36 : 28, mode == 2 ? 70 : 40,
-        48);
-    y += rh;
-    btn(x + 12, y, 136, bh, "Upload", 0, 85, 0, 90, 50, 40);
-    btn(x + 152, y, 136, bh, "Write mode", 0, 86, 0, 70, 50, 36);
-    y += rh + 4;
-    text(x + 12, y, "Upload writes knight.hex", 100, 108, 116, 1);
-    y += 14;
-    text(x + 12, y, "and the mode byte.", 100, 108, 116, 1);
-    y += 14;
-    text(x + 12, y, "Write mode is EEPROM only.", 100, 108, 116, 1);
+    btn(x + 12, y, sidew() - 24, bh, "Upload", 0, 85, 0, 90, 50, 40);
+    y += bh + 8;
+    text(x + 12, y, "Mode is in Settings.", 100, 108, 116, 1);
     y += 16;
     return y;
 }

@@ -203,6 +203,8 @@ static int stk_cmd(const struct np_stk_io *io, const unsigned char *cmd, int n, 
     return stk_ok(io, err, err_n);
 }
 
+static void stk_note(const struct np_stk_io *io, const char *msg);
+
 static int stk_sync(const struct np_stk_io *io, char *err, int err_n)
 {
     int i;
@@ -210,7 +212,9 @@ static int stk_sync(const struct np_stk_io *io, char *err, int err_n)
     if (io->pulse_dtr) {
         io->pulse_dtr(io->ctx);
     }
-    for (i = 0; i < 40; i++) {
+    stk_note(io, "reset into bootloader");
+    /* Each miss waits the 40 ms read. 25 tries stay inside optiboot's second. */
+    for (i = 0; i < 25; i++) {
         unsigned char cmd[2] = {STK_GET_SYNC, STK_CRC_EOP};
         unsigned char b[2];
         int n;

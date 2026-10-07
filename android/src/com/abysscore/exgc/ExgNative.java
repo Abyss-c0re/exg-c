@@ -8,6 +8,8 @@ public final class ExgNative {
     private ExgNative() {}
 
     public static native int start(String filesDir);
+    /** Cache directory. Flash lines are appended to flash.log here. */
+    public static native void setTempDir(String path);
     public static native void shutdown();
     public static native void tick();
     public static native int connect();
@@ -290,6 +292,8 @@ public final class ExgNative {
     public static native void setFwMode(int mode);
     public static native String fwLabel(int mode);
     public static native String flashLog();
+    /** idle, arm, run, ok, or err, then a newline and the banner line. */
+    public static native String flashState();
     public static native String debugLog();
     public static native void flashUpload();
     public static native void flashPreset(int mode, boolean confirmed);

@@ -45,6 +45,15 @@ Java_com_abysscore_exgc_ExgNative_start(JNIEnv *env, jclass cls, jstring dir)
 }
 
 JNIEXPORT void JNICALL
+Java_com_abysscore_exgc_ExgNative_setTempDir(JNIEnv *env, jclass cls, jstring dir)
+{
+    char path[256];
+    (void)cls;
+    jstr_to(env, dir, path, sizeof(path));
+    np_host_set_temp_dir(path);
+}
+
+JNIEXPORT void JNICALL
 Java_com_abysscore_exgc_ExgNative_shutdown(JNIEnv *env, jclass cls)
 {
     (void)env;
@@ -2490,6 +2499,16 @@ Java_com_abysscore_exgc_ExgNative_flashLog(JNIEnv *env, jclass cls)
     (void)cls;
     buf[0] = 0;
     np_host_log_copy(0, buf, (int)sizeof(buf));
+    return jstr_from(env, buf);
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_abysscore_exgc_ExgNative_flashState(JNIEnv *env, jclass cls)
+{
+    char buf[200];
+    (void)cls;
+    buf[0] = 0;
+    np_host_flash_state(buf, (int)sizeof(buf));
     return jstr_from(env, buf);
 }
 

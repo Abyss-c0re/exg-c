@@ -10,10 +10,11 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
-/** Knight flasher. Upload is two taps in the host. Electrodes stay off. */
+/** One Knight image. Upload is two taps. The banner stays on FLASHED or FAILED. */
 public final class FlashActivity extends Activity {
     private final Handler h = new Handler(Looper.getMainLooper());
     private TextView head;
+    private TextView banner;
     private TextView log;
     private boolean alive;
     private final Runnable poll = new Runnable() {
@@ -24,7 +25,8 @@ public final class FlashActivity extends Activity {
             }
             ExgNative.tick();
             head.setText(headline());
-            log.setText(ExgNative.status() + "\n" + ExgNative.flashLog());
+            applyBanner(ExgNative.flashState());
+            log.setText(ExgNative.flashLog());
             h.postDelayed(this, 250);
         }
     };
@@ -40,25 +42,20 @@ public final class FlashActivity extends Activity {
         head = label(0xFFE8EAF0, 16);
         root.addView(head);
 
-        LinearLayout modes = row();
-        modes.addView(modeButton(0, "125 + IMU"));
-        modes.addView(modeButton(1, "250 EEG"));
-        modes.addView(modeButton(2, "500 EEG"));
-        root.addView(modes);
+        banner = label(0xFFE8EAF0, 28);
+        banner.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        banner.setText("READY");
+        root.addView(banner);
 
-        LinearLayout acts = row();
         Button upload = button("Upload");
+        upload.setLayoutParams(new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         upload.setOnClickListener(v -> ExgNative.flashUpload());
-        Button write = button("Write mode");
-        write.setOnClickListener(v -> ExgNative.flashModeOnly(ExgNative.fwMode(), false));
-        acts.addView(upload);
-        acts.addView(write);
-        root.addView(acts);
+        root.addView(upload);
 
         TextView note = label(0xFF8B93A0, 13);
-        note.setText("Electrodes off. Tap Upload again to write knight.hex and the mode byte. "
-                + "Write mode changes only the EEPROM byte, after firmware "
-                + ExgNative.fwNeed() + " is already on the board.");
+        note.setText("One image. Electrodes off. Tap Upload again to write knight.hex. "
+                + "The banner stays on FLASHED or FAILED. Mode is in Settings.");
         root.addView(note);
 
         log = label(0xFFBAC3A8, 13);
@@ -87,17 +84,30 @@ public final class FlashActivity extends Activity {
 
     private String headline() {
         return "fw " + ExgNative.fwHave() + " / " + ExgNative.fwNeed()
-                + "   seen " + ExgNative.fwSeen()
-                + "   " + ExgNative.fwLabel(ExgNative.fwMode());
+                + "   seen " + ExgNative.fwSeen();
     }
 
-    private Button modeButton(int mode, String name) {
-        Button b = button(name);
-        b.setOnClickListener(v -> {
-            ExgNative.setFwMode(mode);
-            head.setText(headline());
-        });
-        return b;
+    private void applyBanner(String state) {
+        String text = state == null ? "" : state;
+        int nl = text.indexOf('\n');
+        String tag = nl >= 0 ? text.substring(0, nl) : text;
+        String line = nl >= 0 ? text.substring(nl + 1) : "";
+        if ("ok".equals(tag)) {
+            banner.setText(line.length() == 0 ? "FLASHED" : line);
+            banner.setTextColor(0xFF7DFFB0);
+        } else if ("err".equals(tag)) {
+            banner.setText(line.length() == 0 ? "FAILED" : line);
+            banner.setTextColor(0xFFFF6B6B);
+        } else if ("run".equals(tag)) {
+            banner.setText(line.length() == 0 ? "FLASHING" : line);
+            banner.setTextColor(0xFFFFD36B);
+        } else if ("arm".equals(tag)) {
+            banner.setText(line.length() == 0 ? "TAP AGAIN" : line);
+            banner.setTextColor(0xFFFFD36B);
+        } else {
+            banner.setText("READY");
+            banner.setTextColor(0xFFE8EAF0);
+        }
     }
 
     private LinearLayout row() {

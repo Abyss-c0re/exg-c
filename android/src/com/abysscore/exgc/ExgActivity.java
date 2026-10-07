@@ -157,6 +157,10 @@ public class ExgActivity extends Activity {
         }
         installKnightHex(dir);
         ExgNative.start(dir != null ? dir.getAbsolutePath() : getApplicationInfo().dataDir);
+        File cache = getCacheDir();
+        if (cache != null) {
+            ExgNative.setTempDir(cache.getAbsolutePath());
+        }
         ExgNative.setSelf(Build.MODEL);
         setContentView(R.layout.activity_exg);
         applyPhoneBars();
@@ -898,8 +902,8 @@ public class ExgActivity extends Activity {
         hint(algo, "Opens the Algos tab. CubalC decides which cube cells light.");
         hint(board, "Auto locks a 21-byte EEG frame or a 57-byte IMU frame. The other two force one length.");
         hint(streamMode, "Sends exgmode over USB. The Knight restarts into that rate. Connect first. Firmware 2 is required once.");
-        hint(flashOpen, "Write knight.hex and the boot mode. Electrodes off. Two taps.");
-        hint(debugOpen, "Boot text and host commands. Sample bytes stay off this page.");
+        hint(flashOpen, "One knight.hex. Electrodes off. Two taps. The banner stays on FLASHED or FAILED.");
+        hint(debugOpen, "Serial lines: EXG-FW, EXG-MODE, EXG-SWITCH, and host commands. Sample bytes stay off this page.");
         hint(negRail, "NEG RAIL turns bias off on every channel. Each sample is the + electrode minus the − electrode. bias RLD restores per-channel bias and reads each channel as one site.");
         hint(restorePairs, "Put back FC3-CP3, FC1-CP1, FCz-CPz, FC2-CP2, FC4-CP4, PO3-O1, POz-Oz, PO4-O2. NEG RAIL stays as it is.");
         hint(apiOn, "Share EXG on the network so another device can follow.");
@@ -1014,8 +1018,8 @@ public class ExgActivity extends Activity {
                 + helpRow("share EXG", "Publish on the network so another device can follow.")
                 + helpRow("wifi / this device", "Who can connect.")
                 + helpRow("rate", "Shared frames per second, 1 to 500. 125, 200, 250, and 500 follow the locked board rate.")
-                + helpRow("Flash", "Writes knight.hex and the mode byte. Electrodes off. The second tap within 8 seconds starts it.")
-                + helpRow("Debug", "Boot lines and host commands. The sample stream is not printed.")
+                + helpRow("Flash", "One knight.hex. Electrodes off. The second tap within 8 seconds starts it. The banner stays on FLASHED or FAILED. Mode is in Settings.")
+                + helpRow("Debug", "EXG-FW, EXG-MODE, EXG-SWITCH, and host commands. The sample stream is not printed.")
                 + helpRow("settings / EXG / spare", "Ports. 0 is off.")
                 + helpRow("lock", "A word required after Allow. Empty leaves the share open after Allow.")
                 + helpRow("extra send", "Also push live EXG to name:port.")

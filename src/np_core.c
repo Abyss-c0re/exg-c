@@ -88,6 +88,7 @@ void ch_stats(const float *buf, uint32_t n, float *dc, float *rms, float *pk);
 void cmd_push(int op, int ch, int gain);
 void cfg_save(void);
 static void debug_log_add(const char *s);
+static void flash_file_add(const char *s);
 static int fw_save_pending;
 static int fw_stock_boot;
 static int mode_pending;
@@ -3732,12 +3733,14 @@ static void *reader_thread(void *arg)
             int nb = 0;
             for (i = 0; i < n; i++) {
                 struct np_sample s;
-                int r, locked;
+                int r, locked, idle_text;
                 pthread_mutex_lock(&g.parse_mu);
+                idle_text = g.parser.have == 0 && buf[i] != NP_START;
                 r = np_parser_feed(&g.parser, buf[i], &s);
                 locked = g.parser.locked;
                 pthread_mutex_unlock(&g.parse_mu);
-                boot_byte(buf[i], locked, line, &ln);
+                /* Printable lines between frames are serial text, not samples. */
+                boot_byte(buf[i], idle_text ? 0 : locked, line, &ln);
                 if (r < 0) {
                     if (locked) {
                         pthread_mutex_lock(&g.ring.mu);
@@ -7728,11 +7731,101 @@ static void log_add(struct np_log_ring *r, const char *s)
 static void debug_log_add(const char *s)
 {
     log_add(&debug_log_ring, s);
+    if (s && s[0]) {
+        NP_ALOG("serial: %s", s);
+    }
+}
+
+/* Share grants and lock words stay out of the flash log and logcat. */
+static int flash_line_public(const char *s)
+{
+    if (!s || !s[0]) {
+        return 0;
+    }
+    if (strstr(s, "grant") || strstr(s, "token") || strstr(s, "pairing")) {
+        return 0;
+    }
+    return 1;
 }
 
 static void flash_log_add(const char *s)
 {
+    if (!flash_line_public(s)) {
+        return;
+    }
     log_add(&flash_log_ring, s);
+    flash_file_add(s);
+    NP_ALOG("flash: %s", s);
+}
+
+/* 0 idle, 1 armed, 2 flashing, 3 flashed, 4 failed. Stays until the next attempt. */
+static int flash_phase;
+static char flash_phase_line[160];
+static char flash_temp_dir[NP_MAX_PATH];
+static pthread_mutex_t phase_mu = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t flash_file_mu = PTHREAD_MUTEX_INITIALIZER;
+
+void np_host_set_temp_dir(const char *dir)
+{
+    pthread_mutex_lock(&flash_file_mu);
+    if (!dir || !dir[0]) {
+        flash_temp_dir[0] = 0;
+    } else {
+        snprintf(flash_temp_dir, sizeof(flash_temp_dir), "%s", dir);
+    }
+    pthread_mutex_unlock(&flash_file_mu);
+}
+
+static void flash_file_write(const char *path, const char *s)
+{
+    FILE *f;
+    time_t now;
+    struct tm tm;
+
+    f = fopen(path, "a");
+    if (!f) {
+        return;
+    }
+    now = time(NULL);
+    if (localtime_r(&now, &tm)) {
+        fprintf(f, "%02d:%02d:%02d %s\n", tm.tm_hour, tm.tm_min, tm.tm_sec, s);
+    } else {
+        fprintf(f, "%s\n", s);
+    }
+    fclose(f);
+}
+
+static void flash_file_add(const char *s)
+{
+    char root[NP_MAX_PATH];
+    char path[NP_MAX_PATH];
+    char temp[NP_MAX_PATH];
+
+    if (!flash_line_public(s)) {
+        return;
+    }
+    pthread_mutex_lock(&flash_file_mu);
+    np_cfg_root(root, sizeof(root));
+    snprintf(path, sizeof(path), "%s/exg-c/flash.log", root);
+    flash_file_write(path, s);
+    if (flash_temp_dir[0]) {
+        snprintf(temp, sizeof(temp), "%s/flash.log", flash_temp_dir);
+        flash_file_write(temp, s);
+    }
+    pthread_mutex_unlock(&flash_file_mu);
+}
+
+static void flash_phase_set(int phase, const char *line)
+{
+    char copy[160];
+
+    snprintf(copy, sizeof(copy), "%s", line ? line : "");
+    pthread_mutex_lock(&phase_mu);
+    flash_phase = phase;
+    snprintf(flash_phase_line, sizeof(flash_phase_line), "%s", copy);
+    pthread_mutex_unlock(&phase_mu);
+    flash_log_add(copy);
+    set_status(phase == 4 ? 0 : 1, "%s", copy);
 }
 
 static void flash_say(int ok, const char *fmt, ...)
@@ -7744,6 +7837,31 @@ static void flash_say(int ok, const char *fmt, ...)
     va_end(ap);
     flash_log_add(b);
     set_status(ok, "%s", b);
+}
+
+void np_host_flash_state(char *out, int n)
+{
+    char line[160];
+    const char *tag = "idle";
+    int phase;
+
+    if (!out || n < 8) {
+        return;
+    }
+    pthread_mutex_lock(&phase_mu);
+    phase = flash_phase;
+    snprintf(line, sizeof(line), "%s", flash_phase_line);
+    pthread_mutex_unlock(&phase_mu);
+    if (phase == 1) {
+        tag = "arm";
+    } else if (phase == 2) {
+        tag = "run";
+    } else if (phase == 3) {
+        tag = "ok";
+    } else if (phase == 4) {
+        tag = "err";
+    }
+    snprintf(out, (size_t)n, "%s\n%s", tag, line);
 }
 
 void np_host_log_copy(int which, char *out, int n)
@@ -7796,7 +7914,18 @@ static int flash_read(void *ctx, unsigned char *buf, int n, int timeout_ms)
         timeout_ms = 1;
     }
     while (got < n && spent < timeout_ms) {
-        int r = np_serial_read(p->fd, buf + got, n - got);
+        int slice = timeout_ms - spent;
+        int r;
+        uint32_t t0;
+        uint32_t dt;
+        if (slice > 20) {
+            slice = 20;
+        }
+        if (slice < 1) {
+            slice = 1;
+        }
+        t0 = SDL_GetTicks();
+        r = np_serial_read_wait(p->fd, buf + got, n - got, slice);
         if (r < 0) {
             return -1;
         }
@@ -7804,12 +7933,25 @@ static int flash_read(void *ctx, unsigned char *buf, int n, int timeout_ms)
             got += r;
             continue;
         }
+        /* FTDI answers an idle UART with a 2-byte status packet, so the
+         * read can return before the slice is over. Count real time, or
+         * the bootloader's one-second window is a handful of empty polls. */
+        dt = SDL_GetTicks() - t0;
 #ifdef __ANDROID__
-        spent += 80;
+        if (dt < (uint32_t)slice) {
+            usleep(((uint32_t)slice - dt) * 1000u);
+            dt = (uint32_t)slice;
+        }
 #else
-        usleep(2000);
-        spent += 2;
+        if (dt < 2) {
+            usleep(2000);
+            dt = 2;
+        }
 #endif
+        if (dt < 1) {
+            dt = 1;
+        }
+        spent += (int)dt;
     }
     return got;
 }
@@ -7834,7 +7976,6 @@ static void *flash_thread(void *arg)
     char root[NP_MAX_PATH];
     char dir[NP_MAX_PATH];
     char path[NP_MAX_PATH];
-    char label[80];
     unsigned char *image = NULL;
     int len = 0;
     int fd = -1;
@@ -7844,20 +7985,19 @@ static void *flash_thread(void *arg)
     if (mode < 0 || mode > 2) {
         mode = 0;
     }
-    np_host_fw_label(mode, label, (int)sizeof(label));
     flash_owner = 1;
     if (g.connected) {
         do_disconnect();
     }
     flash_owner = 0;
-    flash_say(1, eeprom_only ? "writing mode %s" : "flashing %s", label);
+    flash_phase_set(2, eeprom_only ? "FLASHING mode byte" : "FLASHING knight.hex");
     if (g.link == 1) {
-        flash_say(0, "flash needs the USB cable");
+        flash_phase_set(4, "FAILED — flash needs the USB cable");
         goto done;
     }
     g.nports = np_list_ports(g.ports, NP_MAX_PORTS);
     if (g.nports <= 0) {
-        flash_say(0, "no Knight port");
+        flash_phase_set(4, "FAILED — no Knight port");
         goto done;
     }
     if (g.port_i < 0 || g.port_i >= g.nports) {
@@ -7871,18 +8011,18 @@ static void *flash_thread(void *arg)
     if (!eeprom_only) {
         image = (unsigned char *)malloc((size_t)NP_STK_APP_MAX);
         if (!image) {
-            flash_say(0, "out of memory");
+            flash_phase_set(4, "FAILED — out of memory");
             goto done;
         }
         if (np_fw_load(mode, root, image, NP_STK_APP_MAX, &len, err, (int)sizeof(err)) != 0) {
-            flash_say(0, "%s", err[0] ? err : "no firmware image");
+            flash_phase_set(4, err[0] ? err : "FAILED — no firmware image");
             goto done;
         }
         flash_say(1, "image %d bytes", len);
     }
     fd = np_serial_open(path);
     if (fd < 0) {
-        flash_say(0, "open %s failed", path);
+        flash_phase_set(4, "FAILED — could not open the Knight");
         goto done;
     }
     np_serial_flush(fd);
@@ -7893,23 +8033,29 @@ static void *flash_thread(void *arg)
     io.read = flash_read;
     io.pulse_dtr = flash_dtr;
     io.note = flash_note;
-    if (np_stk_program_ex(&io, image, len, mode, err, (int)sizeof(err)) != 0) {
-        flash_say(0, "flash failed: %s", err[0] ? err : "bootloader");
+    if (np_stk_program_ex(&io, image, len, eeprom_only ? mode : -1, err, (int)sizeof(err)) != 0) {
+        char fail[160];
+        snprintf(fail, sizeof(fail), "FAILED — %s", err[0] ? err : "bootloader");
+        flash_phase_set(4, fail);
         np_serial_close(fd);
         fd = -1;
         goto done;
     }
     np_serial_close(fd);
     fd = -1;
-    g.fw_mode = mode;
+    if (eeprom_only) {
+        g.fw_mode = mode;
+    }
     if (!eeprom_only) {
         g.fw_have = EXG_FW_NEED;
     }
     cfg_save();
-    flash_say(1, "flashed %s — connecting", label);
+    flash_phase_set(3, "FLASHED");
     flash_owner = 1;
     do_connect();
     flash_owner = 0;
+    /* Reconnect status must not replace the FLASHED banner. */
+    flash_log_add(g.connected ? "FLASHED — USB open again" : "FLASHED — USB did not reopen");
 done:
     if (fd >= 0) {
         np_serial_close(fd);
@@ -8025,7 +8171,7 @@ static int flash_arm_start(int mode, int confirmed, int eeprom_only, const char 
         return 0;
     }
     if (g.flashing) {
-        flash_say(0, "flash already running");
+        flash_phase_set(4, "FAILED — flash already running");
         return 0;
     }
     np_host_fw_label(mode, label, (int)sizeof(label));
@@ -8038,20 +8184,25 @@ static int flash_arm_start(int mode, int confirmed, int eeprom_only, const char 
         } else {
             flash_arm = arm_key;
             flash_arm_ms = now ? now : 1;
-            fw_sel = mode;
-            g.fw_mode = mode;
-            flash_say(0, "%s %s", again, label);
+            /* Upload does not change the Settings mode. Write-mode does. */
+            if (eeprom_only) {
+                fw_sel = mode;
+                g.fw_mode = mode;
+            }
+            flash_phase_set(1, again);
             return 0;
         }
     }
-    fw_sel = mode;
-    g.fw_mode = mode;
+    if (eeprom_only) {
+        fw_sel = mode;
+        g.fw_mode = mode;
+    }
     flash_arm = -1;
     flash_eeprom_only = eeprom_only;
     g.flashing = 1;
     if (pthread_create(&thr, NULL, flash_thread, (void *)(intptr_t)mode) != 0) {
         g.flashing = 0;
-        flash_say(0, "could not start flash");
+        flash_phase_set(4, "FAILED — could not start flash");
         return 0;
     }
     pthread_detach(thr);
@@ -8071,7 +8222,7 @@ void np_host_flash_preset(int mode, int confirmed)
 void np_host_flash_mode_only(int mode, int confirmed)
 {
     if (np_host_fw_behind()) {
-        flash_say(0, "upload firmware %d first", EXG_FW_NEED);
+        flash_phase_set(4, "FAILED — upload the image first");
         return;
     }
     flash_arm_start(mode, confirmed, 1, "Electrodes off. Tap Write mode again for");

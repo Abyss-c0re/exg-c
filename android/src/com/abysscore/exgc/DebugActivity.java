@@ -46,7 +46,7 @@ public final class DebugActivity extends Activity {
         TextView note = new TextView(this);
         note.setTextColor(0xFF8B93A0);
         note.setTextSize(13);
-        note.setText("Boot lines (EXG-FW, IMU OK, EEG SPS) and host commands. Sample bytes are not printed.");
+        note.setText("Serial lines from the Knight (EXG-FW, EXG-MODE, EXG-SWITCH, commands). Sample bytes are not printed.");
         root.addView(note);
 
         log = new TextView(this);

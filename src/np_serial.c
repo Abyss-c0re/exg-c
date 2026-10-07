@@ -96,6 +96,12 @@ int np_serial_read(int fd, void *buf, int n)
     return (int)r;
 }
 
+int np_serial_read_wait(int fd, void *buf, int n, int timeout_ms)
+{
+    (void)timeout_ms;
+    return np_serial_read(fd, buf, n);
+}
+
 int np_serial_read_byte(int fd, unsigned char *b)
 {
     return np_serial_read(fd, b, 1);

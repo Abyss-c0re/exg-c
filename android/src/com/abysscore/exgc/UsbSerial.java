@@ -12,6 +12,7 @@ import android.hardware.usb.UsbEndpoint;
 import android.hardware.usb.UsbInterface;
 import android.hardware.usb.UsbManager;
 import android.os.Build;
+import android.os.SystemClock;
 import android.util.Log;
 
 import java.util.ArrayList;
@@ -162,19 +163,30 @@ public final class UsbSerial {
     }
 
     public static int read(byte[] buf, int n) {
+        return readFor(buf, n, 80);
+    }
+
+    /** Bootloader sync needs a short wait. FTDI status-only packets are not payload. */
+    public static int readFor(byte[] buf, int n, int timeoutMs) {
         synchronized (lock) {
             if (conn == null || epIn == null || buf == null || n <= 0) {
                 return 0;
+            }
+            if (timeoutMs < 5) {
+                timeoutMs = 5;
+            }
+            if (timeoutMs > 80) {
+                timeoutMs = 80;
             }
             int maxp = epIn.getMaxPacketSize();
             if (maxp < 8 || maxp > RD_MAX) {
                 maxp = 64;
             }
             int out = 0;
-            int loops = 8;
-            for (int li = 0; li < loops && out < n; li++) {
+            int idle = 0;
+            for (int li = 0; li < 4 && out < n; li++) {
                 int cap = kind == 1 ? maxp : Math.min(n - out, RD_MAX);
-                int got = conn.bulkTransfer(epIn, rdTmp, cap, li == 0 ? 80 : 2);
+                int got = conn.bulkTransfer(epIn, rdTmp, cap, li == 0 ? timeoutMs : 2);
                 if (got < 0) {
                     if (out == 0 && sTick++ % 40 == 0) {
                         Log.w(TAG, "bulk IN " + got + " (timeout — no serial packet)");
@@ -185,9 +197,6 @@ public final class UsbSerial {
                     break;
                 }
                 if (kind == 1) {
-                    /* Status word is the first two bytes of every packet.
-                     * Stripping only the first pair corrupts the Knight stream
-                     * once a transfer contains more than one packet. */
                     int src = 0;
                     int produced = 0;
                     while (src < got && out < n) {
@@ -211,6 +220,9 @@ public final class UsbSerial {
                         src += maxp;
                     }
                     if (produced == 0) {
+                        if (++idle >= 2) {
+                            break;
+                        }
                         continue;
                     }
                 } else {
@@ -284,8 +296,19 @@ public final class UsbSerial {
                 return;
             }
             byte[] dump = new byte[64];
-            while (conn.bulkTransfer(epIn, dump, dump.length, 5) > 0) {
-                /* drain */
+            int spins = 0;
+            long t0 = SystemClock.uptimeMillis();
+            /* FTDI sends a 2-byte status packet whenever the UART is idle.
+             * An unbounded drain never returns and freezes the app. */
+            while (spins < 6 && SystemClock.uptimeMillis() - t0 < 30) {
+                int got = conn.bulkTransfer(epIn, dump, dump.length, 2);
+                if (got <= 0) {
+                    break;
+                }
+                spins++;
+                if (kind == 1 && got <= 2) {
+                    break;
+                }
             }
         }
     }

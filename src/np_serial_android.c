@@ -19,7 +19,7 @@
 static pthread_mutex_t usb_mu = PTHREAD_MUTEX_INITIALIZER;
 static JavaVM *jvm;
 static jclass cls;
-static jmethodID m_list, m_open, m_close, m_read, m_write, m_dtr, m_flush;
+static jmethodID m_list, m_open, m_close, m_read, m_read_for, m_write, m_dtr, m_flush;
 static int bound;
 static int open_ok;
 
@@ -74,10 +74,12 @@ static int bind_locked(JNIEnv *env)
     m_open = (*env)->GetStaticMethodID(env, cls, "open", "(Ljava/lang/String;)I");
     m_close = (*env)->GetStaticMethodID(env, cls, "close", "()V");
     m_read = (*env)->GetStaticMethodID(env, cls, "read", "([BI)I");
+    m_read_for = (*env)->GetStaticMethodID(env, cls, "readFor", "([BII)I");
     m_write = (*env)->GetStaticMethodID(env, cls, "write", "([BI)I");
     m_dtr = (*env)->GetStaticMethodID(env, cls, "pulseDtr", "()V");
     m_flush = (*env)->GetStaticMethodID(env, cls, "flush", "()V");
-    if (!m_list || !m_open || !m_close || !m_read || !m_write || !m_dtr || !m_flush) {
+    if (!m_list || !m_open || !m_close || !m_read || !m_read_for || !m_write || !m_dtr ||
+        !m_flush) {
         AERR("UsbSerial method missing");
         if ((*env)->ExceptionCheck(env)) {
             (*env)->ExceptionClear(env);
@@ -224,6 +226,54 @@ int np_serial_read(int fd, void *buf, int n)
             ALOG("usb first read %d bytes", (int)rc);
             logged = 1;
         }
+    }
+    (*env)->DeleteLocalRef(env, arr);
+    pthread_mutex_unlock(&usb_mu);
+    if (rc < 0) {
+        return -1;
+    }
+    return (int)rc;
+}
+
+int np_serial_read_wait(int fd, void *buf, int n, int timeout_ms)
+{
+    JNIEnv *env;
+    jbyteArray arr;
+    jint rc;
+
+    (void)fd;
+    if (n <= 0) {
+        return 0;
+    }
+    if (timeout_ms < 5) {
+        timeout_ms = 5;
+    }
+    if (timeout_ms > 80) {
+        timeout_ms = 80;
+    }
+    env = env_now();
+    if (!env) {
+        return -1;
+    }
+    pthread_mutex_lock(&usb_mu);
+    if (bind_locked(env) != 0) {
+        pthread_mutex_unlock(&usb_mu);
+        return -1;
+    }
+    arr = (*env)->NewByteArray(env, n);
+    if (!arr) {
+        pthread_mutex_unlock(&usb_mu);
+        return -1;
+    }
+    rc = (*env)->CallStaticIntMethod(env, cls, m_read_for, arr, n, timeout_ms);
+    if ((*env)->ExceptionCheck(env)) {
+        (*env)->ExceptionClear(env);
+        rc = -1;
+    } else if (rc > 0) {
+        if (rc > n) {
+            rc = n;
+        }
+        (*env)->GetByteArrayRegion(env, arr, 0, rc, (jbyte *)buf);
     }
     (*env)->DeleteLocalRef(env, arr);
     pthread_mutex_unlock(&usb_mu);
