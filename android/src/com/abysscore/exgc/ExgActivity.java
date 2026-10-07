@@ -120,6 +120,7 @@ public class ExgActivity extends Activity {
     private String holdLine;
     private long holdLineUntil;
     private volatile boolean connecting;
+    private boolean resumed;
 
     private final Runnable tick = new Runnable() {
         @Override
@@ -129,6 +130,9 @@ public class ExgActivity extends Activity {
             }
             ExgNative.tick();
             refreshChrome();
+            if (resumed && ExgNative.connected() && ExgNative.linkPath() == 0) {
+                maybeFirmwarePrompt();
+            }
             if (tab == 0) {
                 traces.pull();
                 fft.pull();
@@ -758,7 +762,6 @@ public class ExgActivity extends Activity {
         refreshLearnChips();
         applyUiScale();
         refreshChrome();
-        maybeFirmwarePrompt();
         h.post(tick);
         takeFollowIntent(getIntent());
         h.postDelayed(() -> {
@@ -775,6 +778,7 @@ public class ExgActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        resumed = true;
         try {
             StreamService.ensure(this, ExgNative.apiOn() || ExgNative.connected());
         } catch (RuntimeException ignored) {
@@ -837,6 +841,12 @@ public class ExgActivity extends Activity {
             ExgNative.setLinkPath(1);
             connectLan();
         });
+    }
+
+    @Override
+    protected void onPause() {
+        resumed = false;
+        super.onPause();
     }
 
     @Override
@@ -2356,8 +2366,8 @@ public class ExgActivity extends Activity {
         fwAsked = true;
         new AlertDialog.Builder(this)
                 .setTitle("Knight firmware")
-                .setMessage("Firmware " + ExgNative.fwNeed()
-                        + " is required. Take the electrodes off, then Upload.")
+                .setMessage("This connected Knight is not on firmware " + ExgNative.fwNeed()
+                        + ". Electrodes off, then Upload.")
                 .setPositiveButton("Open flasher", (d, w) ->
                         startActivity(new Intent(this, FlashActivity.class)))
                 .setNegativeButton("Later", null)

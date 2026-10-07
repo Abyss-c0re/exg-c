@@ -229,7 +229,7 @@ int np_host_fw_seen(void);
 int np_host_fw_behind(void);
 int np_host_fw_mode(void);
 void np_host_set_fw_mode(int mode);
-/* 1 once per launch when the saved or seen version is behind the app. */
+/* 1 once per launch after the connected board is behind. Never with no cable. */
 int np_host_fw_prompt(void);
 /* which 0 = flasher, 1 = serial debug. */
 void np_host_log_copy(int which, char *out, int n);

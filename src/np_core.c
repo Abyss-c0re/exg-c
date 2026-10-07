@@ -7893,13 +7893,18 @@ int np_host_fw_seen(void)
 
 int np_host_fw_behind(void)
 {
+    /* No cable, no verdict. fw_have 0 means "never seen", not firmware 0. */
+    if (!g.connected || g.link == 1) {
+        return 0;
+    }
     if (g.fw_seen > 0) {
         return g.fw_seen < EXG_FW_NEED;
     }
-    if (fw_stock_boot) {
+    /* A line before EXG-FW is not a verdict. Frames mean boot text is done. */
+    if (fw_stock_boot && g.parser.locked) {
         return 1;
     }
-    return g.fw_have < EXG_FW_NEED;
+    return 0;
 }
 
 int np_host_fw_mode(void)
@@ -7930,7 +7935,8 @@ int np_host_fw_prompt(void)
         return 0;
     }
     done = 1;
-    set_status(0, "Knight firmware %d required. Electrodes off, then Upload.", EXG_FW_NEED);
+    set_status(0, "Connected Knight is not firmware %d. Electrodes off, then Upload.",
+               EXG_FW_NEED);
     return 1;
 }
 
