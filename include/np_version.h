@@ -1,9 +1,9 @@
 #ifndef NP_VERSION_H
 #define NP_VERSION_H
 
-#define NP_APP_VER "2.93"
+#define NP_APP_VER "2.94"
 
-/* Matches firmware/VERSION and the EXG-FW boot line. */
-#define EXG_FW_NEED 1
+/* Firmware that accepts exgmode_N over USB. Older images need one upload. */
+#define EXG_FW_NEED 2
 
 #endif

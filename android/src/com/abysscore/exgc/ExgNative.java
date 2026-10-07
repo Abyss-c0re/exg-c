@@ -278,6 +278,7 @@ public final class ExgNative {
 
     public static native int boardMode();
     public static native void setBoardMode(int mode);
+    public static native void streamMode(int mode);
     public static native String modeLabel();
     public static native int designSps();
     public static native boolean streamCold();

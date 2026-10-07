@@ -1516,6 +1516,8 @@ static const char *k_help[] = {
     "only, after this firmware is on.",
     "Debug shows boot text, not",
     "the sample stream.",
+    "Settings sends exgmode over USB.",
+    "The Knight restarts into it.",
     "# NEG RAIL",
     "Bias off. Each sample is + to -.",
     "The bias button picks the - site.",
@@ -1822,7 +1824,17 @@ static void draw_side(int x)
             btn(x + 152, y, 136, bh, b, 1, 33, 0, 36, 40, 48);
         }
         y += rh + 2;
-        text(x + 12, y, "Flash tab writes the Knight image.", 100, 108, 116, 1);
+        text(x + 12, y, "Knight mode over USB", 140, 148, 160, 1);
+        y += 14;
+        btn(x + 12, y, 136, bh, "125 + IMU", g.fw_mode == 0, 87, 0, g.fw_mode == 0 ? 36 : 28,
+            g.fw_mode == 0 ? 70 : 40, 48);
+        btn(x + 152, y, 136, bh, "250 EEG", g.fw_mode == 1, 87, 1, g.fw_mode == 1 ? 36 : 28,
+            g.fw_mode == 1 ? 70 : 40, 48);
+        y += rh;
+        btn(x + 12, y, 136, bh, "500 EEG", g.fw_mode == 2, 87, 2, g.fw_mode == 2 ? 36 : 28,
+            g.fw_mode == 2 ? 70 : 40, 48);
+        y += rh;
+        text(x + 12, y, "One Upload of firmware 2, then this.", 100, 108, 116, 1);
         y += 16;
         text(x + 12, y, "Channel colors (click)", 140, 148, 160, 1);
         y += 14;
@@ -2353,6 +2365,9 @@ static void click(int x, int y)
             break;
         case 86:
             np_host_flash_mode_only(np_host_fw_mode(), 0);
+            break;
+        case 87:
+            np_host_stream_mode(hits[i].ch);
             break;
         case 45:
             g.side_scroll -= 48;

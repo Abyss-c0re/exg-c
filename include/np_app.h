@@ -41,6 +41,7 @@
 #define CMD_CHOFF 2
 #define CMD_RLDADD 3
 #define CMD_RLDRM 4
+#define CMD_MODE 5
 #define Q_OFF 0
 #define Q_ZERO 1
 #define Q_LEADOFF 2

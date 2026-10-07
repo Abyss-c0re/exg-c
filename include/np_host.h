@@ -218,6 +218,8 @@ int np_host_board_mode(void);
 void np_host_cycle_board(void);
 void np_host_set_board_imu(int imu);
 void np_host_set_board_mode(int mode);
+/* USB exgmode_N. The connected Knight restarts into that rate. No bootloader. */
+void np_host_stream_mode(int mode);
 void np_host_mode_label(char *out, int n);
 int np_host_fw_count(void);
 void np_host_fw_label(int mode, char *out, int n);

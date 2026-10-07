@@ -459,6 +459,11 @@ static void test_rate_and_flash(void)
     expect(np_banner_sps("EEG 250 SPS") == 250, "banner 250");
     expect(np_banner_sps("EEG rate unset") == -1, "banner unset");
     expect(np_fw_version_line("EXG-FW 1") == 1, "boot line EXG-FW 1");
+    {
+        char mode[16];
+        np_fmt_mode(mode, sizeof(mode), 1);
+        expect(strcmp(mode, "exgmode_1\n") == 0, "usb mode line");
+    }
     expect(np_fw_version_line("IMU OK") == 0, "boot line ignores IMU OK");
     expect(np_fw_version_line("EXG-FW 0") == 0, "boot line rejects 0");
 
@@ -1997,7 +2002,7 @@ static void test_api(void)
          strstr(body, "/stream") && strstr(body, "EXG1");
     expect(ok, "api GET / index lists stream");
     expect(strstr(body, "stream.json") == NULL, "api index has no NDJSON live path");
-    expect(strstr(body, "\"v\":\"2.93\"") != NULL, "api index version 2.93");
+    expect(strstr(body, "\"v\":\"2.94\"") != NULL, "api index version 2.94");
     expect(strstr(body, "/pair") != NULL, "api index lists /pair");
     expect(strstr(body, "\"ip\":\"127.0.0.1\"") != NULL, "api local ip is loopback");
     {

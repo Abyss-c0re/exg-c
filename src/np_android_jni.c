@@ -2391,6 +2391,14 @@ Java_com_abysscore_exgc_ExgNative_setBoardMode(JNIEnv *env, jclass cls, jint mod
     np_host_set_board_mode(mode);
 }
 
+JNIEXPORT void JNICALL
+Java_com_abysscore_exgc_ExgNative_streamMode(JNIEnv *env, jclass cls, jint mode)
+{
+    (void)env;
+    (void)cls;
+    np_host_stream_mode(mode);
+}
+
 JNIEXPORT jstring JNICALL
 Java_com_abysscore_exgc_ExgNative_modeLabel(JNIEnv *env, jclass cls)
 {

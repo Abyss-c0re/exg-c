@@ -90,6 +90,9 @@ void cfg_save(void);
 static void debug_log_add(const char *s);
 static int fw_save_pending;
 static int fw_stock_boot;
+static int mode_pending;
+static int mode_enable;
+static uint32_t mode_quiet_until;
 
 static int rld_want(int ch)
 {
@@ -3447,6 +3450,17 @@ static void *cmd_thread(void *arg)
             np_cmd_rldremove(g.fd, ch);
             snprintf(msg, sizeof(msg), "rldremove_%d", ch);
             debug_log_add(msg);
+        } else if (op == CMD_MODE) {
+            char msg[16];
+            np_cmd_mode(g.fd, ch);
+            np_fmt_mode(msg, (int)sizeof(msg), ch);
+            if (msg[0]) {
+                char *nl = strchr(msg, '\n');
+                if (nl) {
+                    *nl = 0;
+                }
+            }
+            debug_log_add(msg);
         }
     }
     return NULL;
@@ -3471,6 +3485,10 @@ static void note_boot(const char *s)
         if (g.fw_have != fwv) {
             g.fw_have = fwv;
             fw_save_pending = 1;
+        }
+        if (mode_pending) {
+            mode_pending = 0;
+            mode_enable = 1;
         }
     } else if (g.fw_seen <= 0) {
         fw_stock_boot = 1;
@@ -4935,9 +4953,19 @@ void np_host_tick(void)
             if (g.recover_n && tot > 50) {
                 g.recover_n = 0;
             }
-        } else if (g.stall_t && now - g.stall_t > 4000) {
+        } else if (g.stall_t && now - g.stall_t > 4000 &&
+                   !(mode_quiet_until && now < mode_quiet_until)) {
             stream_recover();
             g.stall_t = now;
+        }
+        if (mode_enable && !g.en_running) {
+            mode_enable = 0;
+            g.en_running = 1;
+            if (pthread_create(&g.en_thr, NULL, enable_thread, NULL) == 0) {
+                pthread_detach(g.en_thr);
+            } else {
+                g.en_running = 0;
+            }
         }
     }
 }
@@ -7639,6 +7667,37 @@ void np_host_cycle_board(void)
 void np_host_set_board_imu(int imu)
 {
     np_host_set_board_mode(imu ? (int)NP_BOARD_KNIGHT_IMU : (int)NP_BOARD_KNIGHT);
+}
+
+void np_host_stream_mode(int mode)
+{
+    char label[80];
+    int live;
+
+    if (mode < 0 || mode > 2) {
+        return;
+    }
+    np_host_fw_label(mode, label, (int)sizeof(label));
+    if (!g.connected || g.link == 1) {
+        set_status(0, "Connect the Knight on USB, then pick %s", label);
+        return;
+    }
+    live = g.fw_seen > 0 ? g.fw_seen : g.fw_have;
+    if (live < 2) {
+        set_status(0, "Upload firmware 2 once. Then Settings sends exgmode_%d", mode);
+        return;
+    }
+    g.fw_mode = mode;
+    g.board_pref = NP_BOARD_AUTO;
+    g.board = NP_BOARD_AUTO;
+    parser_rearm();
+    rate_reset();
+    mode_pending = 1;
+    mode_quiet_until = SDL_GetTicks() + 8000u;
+    g.stall_t = SDL_GetTicks();
+    cfg_save();
+    cmd_push(CMD_MODE, mode, 0);
+    set_status(1, "USB %s — board restarts", label);
 }
 
 #define NP_LOG_N 40

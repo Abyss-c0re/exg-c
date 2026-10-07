@@ -324,3 +324,18 @@ int np_cmd_rldremove(int fd, int ch)
     np_fmt_rldremove(s, sizeof(s), ch);
     return send_cmd(fd, s);
 }
+
+int np_fmt_mode(char *s, size_t n, int mode)
+{
+    if (mode < 0 || mode > 2) {
+        mode = 0;
+    }
+    return snprintf(s, n, "exgmode_%d\n", mode);
+}
+
+int np_cmd_mode(int fd, int mode)
+{
+    char s[16];
+    np_fmt_mode(s, sizeof(s), mode);
+    return send_cmd(fd, s);
+}

@@ -49,5 +49,7 @@ int np_cmd_chon(int fd, int ch, int gain);
 int np_cmd_choff(int fd, int ch);
 int np_cmd_rldadd(int fd, int ch);
 int np_cmd_rldremove(int fd, int ch);
+int np_fmt_mode(char *s, size_t n, int mode);
+int np_cmd_mode(int fd, int mode);
 
 #endif
