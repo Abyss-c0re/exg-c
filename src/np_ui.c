@@ -1834,7 +1834,7 @@ static void draw_side(int x)
         btn(x + 12, y, 136, bh, "500 EEG", g.fw_mode == 2, 87, 2, g.fw_mode == 2 ? 36 : 28,
             g.fw_mode == 2 ? 70 : 40, 48);
         y += rh;
-        text(x + 12, y, "One Upload of firmware 2, then this.", 100, 108, 116, 1);
+        text(x + 12, y, "One Upload of this image, then this.", 100, 108, 116, 1);
         y += 16;
         text(x + 12, y, "Channel colors (click)", 140, 148, 160, 1);
         y += 14;

@@ -46,11 +46,35 @@ int np_serial_open(const char *path)
 
 void np_serial_pulse_dtr(int fd)
 {
-    int bits = TIOCM_DTR;
-    /* Stuck firmware (IMU scan loop, hung chon_) needs a Nano reset. */
+    int bits = TIOCM_DTR | TIOCM_RTS;
+    /* Avrdude: both lines low discharge the Nano RESET capacitor. */
     ioctl(fd, TIOCMBIC, &bits);
-    usleep(100000);
+    usleep(250000);
     ioctl(fd, TIOCMBIS, &bits);
+    usleep(50000);
+}
+
+int np_serial_set_baud(int fd, int baud)
+{
+    struct termios tio;
+    speed_t sp;
+
+    if (fd < 0) {
+        return -1;
+    }
+    if (baud == 57600) {
+        sp = B57600;
+    } else if (baud == 115200) {
+        sp = B115200;
+    } else {
+        return -1;
+    }
+    if (tcgetattr(fd, &tio) != 0) {
+        return -1;
+    }
+    cfsetispeed(&tio, sp);
+    cfsetospeed(&tio, sp);
+    return tcsetattr(fd, TCSANOW, &tio) == 0 ? 0 : -1;
 }
 
 void np_serial_close(int fd)

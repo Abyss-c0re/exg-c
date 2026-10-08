@@ -19,7 +19,7 @@
 static pthread_mutex_t usb_mu = PTHREAD_MUTEX_INITIALIZER;
 static JavaVM *jvm;
 static jclass cls;
-static jmethodID m_list, m_open, m_close, m_read, m_read_for, m_write, m_dtr, m_flush;
+static jmethodID m_list, m_open, m_close, m_read, m_read_for, m_write, m_dtr, m_flush, m_baud;
 static int bound;
 static int open_ok;
 
@@ -78,8 +78,9 @@ static int bind_locked(JNIEnv *env)
     m_write = (*env)->GetStaticMethodID(env, cls, "write", "([BI)I");
     m_dtr = (*env)->GetStaticMethodID(env, cls, "pulseDtr", "()V");
     m_flush = (*env)->GetStaticMethodID(env, cls, "flush", "()V");
+    m_baud = (*env)->GetStaticMethodID(env, cls, "setBaud", "(I)I");
     if (!m_list || !m_open || !m_close || !m_read || !m_read_for || !m_write || !m_dtr ||
-        !m_flush) {
+        !m_flush || !m_baud) {
         AERR("UsbSerial method missing");
         if ((*env)->ExceptionCheck(env)) {
             (*env)->ExceptionClear(env);
@@ -133,6 +134,30 @@ void np_serial_pulse_dtr(int fd)
         }
     }
     pthread_mutex_unlock(&usb_mu);
+}
+
+int np_serial_set_baud(int fd, int baud)
+{
+    JNIEnv *env;
+    jint rc;
+
+    (void)fd;
+    env = env_now();
+    if (!env) {
+        return -1;
+    }
+    pthread_mutex_lock(&usb_mu);
+    if (bind_locked(env) != 0) {
+        pthread_mutex_unlock(&usb_mu);
+        return -1;
+    }
+    rc = (*env)->CallStaticIntMethod(env, cls, m_baud, (jint)baud);
+    if ((*env)->ExceptionCheck(env)) {
+        (*env)->ExceptionClear(env);
+        rc = -1;
+    }
+    pthread_mutex_unlock(&usb_mu);
+    return rc == 0 ? 0 : -1;
 }
 
 void np_serial_close(int fd)

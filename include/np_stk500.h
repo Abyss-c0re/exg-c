@@ -2,6 +2,9 @@
 #define NP_STK500_H
 
 /* Optiboot on the Knight Nano speaks STK500v1 at 115200.
+ * One INSYNC OK is enough, and only after the line has gone quiet.
+ * One GET_SYNC is in flight. The 328P UART holds two bytes.
+ * A second reset is for a sketch that never stops talking.
  * The application image must stay below the 512-byte bootloader. */
 #define NP_STK_PAGE 128
 #define NP_STK_APP_MAX (32768 - 512)
@@ -13,6 +16,8 @@ struct np_stk_io {
     /* Read up to n bytes, waiting at most timeout_ms. 0 on timeout, -1 on error. */
     int (*read)(void *ctx, unsigned char *buf, int n, int timeout_ms);
     void (*pulse_dtr)(void *ctx);
+    /* Optional. 0 on success, -1 if this baud cannot be set. NULL skips 57600. */
+    int (*set_baud)(void *ctx, int baud);
     /* Optional progress line. NULL is fine. */
     void (*note)(void *ctx, const char *line);
 };

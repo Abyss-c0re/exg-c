@@ -49,7 +49,9 @@ public final class UsbSerial {
     private static final Object lock = new Object();
     private static CountDownLatch permLatch;
     private static boolean permOk;
-    private static int sTick, sPay;
+    private static int sTick, sPay, sRaw, sDataLog;
+    /* Set for the upload pulse. Full-size all-zero reads are padding, not UART. */
+    private static boolean flashRx;
     private static final int RD_MAX = 1024;
     private static final byte[] rdTmp = new byte[RD_MAX];
     /* Bytes past the caller's request stay here. Dropping them ate the
@@ -163,6 +165,9 @@ public final class UsbSerial {
             kind = 0;
             sTick = 0;
             sPay = 0;
+            sRaw = 0;
+            sDataLog = 0;
+            flashRx = false;
             holdN = 0;
         }
     }
@@ -225,6 +230,12 @@ public final class UsbSerial {
             int idle = 0;
             for (int li = 0; li < 4 && out < n; li++) {
                 int cap = kind == 1 ? maxp : Math.min(n - out, RD_MAX);
+                if (flashRx && kind == 1) {
+                    int z = cap < rdTmp.length ? cap : rdTmp.length;
+                    for (int zi = 0; zi < z; zi++) {
+                        rdTmp[zi] = 0;
+                    }
+                }
                 int got = conn.bulkTransfer(epIn, rdTmp, cap, li == 0 ? timeoutMs : 2);
                 if (got < 0) {
                     if (out == 0 && sTick++ % 40 == 0) {
@@ -235,6 +246,13 @@ public final class UsbSerial {
                 if (got == 0) {
                     break;
                 }
+                if (flashRx && (sRaw < 80 || (got > 2 && sDataLog < 16))) {
+                    Log.i(TAG, "ftdi rx got=" + got + " " + hexPrefix(rdTmp, got));
+                    sRaw++;
+                    if (got > 2) {
+                        sDataLog++;
+                    }
+                }
                 if (kind == 1) {
                     int src = 0;
                     int produced = 0;
@@ -243,6 +261,11 @@ public final class UsbSerial {
                         if (len <= 2) {
                             if (sTick++ == 0) {
                                 Log.i(TAG, "ftdi status-only packet (uart idle)");
+                            }
+                        } else if (flashRx && len == maxp && allZero(rdTmp, src + 2, len - 2)) {
+                            /* A full packet of zeros is padding from a short status read. */
+                            if (sTick++ == 0) {
+                                Log.i(TAG, "ftdi phantom zeros got=" + got);
                             }
                         } else {
                             int pay = len - 2;
@@ -307,27 +330,116 @@ public final class UsbSerial {
 
     public static void pulseDtr() {
         synchronized (lock) {
+            int lo, hi;
             if (conn == null) {
                 return;
             }
+            /* High, then low, so a stuck-low DTR still falls. One request for both lines. */
             if (kind == 1) {
-                conn.controlTransfer(FTDI_HOST, FTDI_MODEM, 0x0100, 0, null, 0, 200);
+                int arm, purge;
+                flashRx = true;
+                sRaw = 0;
+                sDataLog = 0;
+                sTick = 0;
+                holdN = 0;
+                arm = conn.controlTransfer(FTDI_HOST, FTDI_MODEM, 0x0303, 0, null, 0, 200);
+                pauseMs(20);
+                lo = conn.controlTransfer(FTDI_HOST, FTDI_MODEM, 0x0300, 0, null, 0, 200);
                 pauseMs(100);
-                conn.controlTransfer(FTDI_HOST, FTDI_MODEM, 0x0101, 0, null, 0, 200);
+                purge = ctrl(FTDI_RESET, 1, 0);
+                ctrl(FTDI_RESET, 2, 0);
+                discardRx();
+                hi = conn.controlTransfer(FTDI_HOST, FTDI_MODEM, 0x0303, 0, null, 0, 200);
+                Log.i(TAG, "ftdi reset arm=" + arm + " low=" + lo + " purge=" + purge + " high=" + hi);
+                pauseMs(30);
             } else if (kind == 2) {
                 byte[] line = new byte[] {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08};
                 conn.controlTransfer(0x21, 0x22, 0x00, 0, null, 0, 200);
-                pauseMs(100);
+                pauseMs(250);
                 conn.controlTransfer(0x21, 0x22, 0x03, 0, null, 0, 200);
                 conn.controlTransfer(0x21, 0x20, 0, 0, line, line.length, 200);
+                pauseMs(50);
             } else if (kind == 3) {
-                ch340Lines(false, true);
-                pauseMs(100);
+                ch340Lines(false, false);
+                pauseMs(250);
                 ch340Lines(true, true);
+                pauseMs(50);
             } else if (kind == 4) {
-                cpOut(0x07, 0x0302, 0); /* DTR low, RTS high */
-                pauseMs(100);
+                cpOut(0x07, 0x0300, 0); /* DTR and RTS low */
+                pauseMs(250);
                 cpOut(0x07, 0x0303, 0);
+                pauseMs(50);
+            }
+        }
+    }
+
+    /** 115200 (running sketch and optiboot) or 57600 (old Nano bootloader). */
+    public static int setBaud(int baud) {
+        synchronized (lock) {
+            if (conn == null || (baud != 115200 && baud != 57600)) {
+                return -1;
+            }
+            holdN = 0;
+            if (kind == 1) {
+                int div = baud == 57600 ? 52 : 26; /* 3 MHz / baud */
+                int r = ctrl(FTDI_BAUD, div, 0);
+                Log.i(TAG, "ftdi baud " + baud + " div " + div + " -> " + r);
+                return r < 0 ? -1 : 0;
+            }
+            if (kind == 3) {
+                return ch340Baud(baud) ? 0 : -1;
+            }
+            if (kind == 4) {
+                byte[] b = new byte[] {
+                        (byte) (baud & 0xff),
+                        (byte) ((baud >> 8) & 0xff),
+                        (byte) ((baud >> 16) & 0xff),
+                        (byte) ((baud >> 24) & 0xff)
+                };
+                int r = conn.controlTransfer(0x41, 0x1e, 0, 0, b, 4, 200);
+                Log.i(TAG, "cp210 baud " + baud + " -> " + r);
+                return r < 0 ? -1 : 0;
+            }
+            return -1;
+        }
+    }
+
+    private static boolean allZero(byte[] b, int off, int len) {
+        int i;
+        for (i = 0; i < len; i++) {
+            if (b[off + i] != 0) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static String hexPrefix(byte[] b, int n) {
+        StringBuilder sb = new StringBuilder();
+        int i;
+        if (n > 12) {
+            n = 12;
+        }
+        for (i = 0; i < n; i++) {
+            if (i > 0) {
+                sb.append(' ');
+            }
+            sb.append(String.format(Locale.US, "%02X", b[i] & 0xFF));
+        }
+        return sb.toString();
+    }
+
+    /** Drop USB packets already queued from the running sketch. */
+    private static void discardRx() {
+        int i;
+        holdN = 0;
+        if (conn == null || epIn == null) {
+            return;
+        }
+        for (i = 0; i < 16; i++) {
+            int got = conn.bulkTransfer(epIn, rdTmp, 64, 2);
+            if (got <= 0) {
+                break;
             }
         }
     }
@@ -477,10 +589,12 @@ public final class UsbSerial {
     private static int ctrl(int req, int value, int index) {
         int r = conn.controlTransfer(FTDI_HOST, req, value, index, null, 0, 200);
         if (r < 0) {
-            Log.w(TAG, "ftdi ctrl req=" + req + " val=" + value + " -> " + r);
+            Log.w(TAG, "ftdi ctrl req=" + req + " val=" + value + " idx=" + index + " -> " + r);
         }
         return r;
     }
+
+
 
     private static boolean configure() {
         if (kind == 1) {
@@ -494,9 +608,8 @@ public final class UsbSerial {
             ctrl(FTDI_BAUD, 26, 0);
             ctrl(FTDI_DATA, 8, 0);
             ctrl(FTDI_FLOW, 0, 0);
-            /* Official serial open asserts DTR/RTS. Low DTR holds the Nano. */
-            ctrl(FTDI_MODEM, 0x0101, 0);
-            ctrl(FTDI_MODEM, 0x0202, 0);
+            /* One write. A second RTS-only request can drop DTR on this chip. */
+            ctrl(FTDI_MODEM, 0x0303, 0);
             Log.i(TAG, "ftdi configured 115200 8N1 DTR/RTS on in="
                     + epIn.getAddress() + " out=" + epOut.getAddress()
                     + " max=" + epIn.getMaxPacketSize());

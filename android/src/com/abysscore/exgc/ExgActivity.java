@@ -901,7 +901,7 @@ public class ExgActivity extends Activity {
         hint(lp, "Low-pass. Removes what is faster than this frequency.");
         hint(algo, "Opens the Algos tab. CubalC decides which cube cells light.");
         hint(board, "Auto locks a 21-byte EEG frame or a 57-byte IMU frame. The other two force one length.");
-        hint(streamMode, "Sends exgmode over USB. The Knight restarts into that rate. Connect first. Firmware 2 is required once.");
+        hint(streamMode, "Sends exgmode over USB. The Knight restarts into that rate. Connect first. Firmware 3 is required once.");
         hint(flashOpen, "One knight.hex. Electrodes off. Two taps. The banner stays on FLASHED or FAILED.");
         hint(debugOpen, "Serial lines: EXG-FW, EXG-MODE, EXG-SWITCH, and host commands. Sample bytes stay off this page.");
         hint(negRail, "NEG RAIL turns bias off on every channel. Each sample is the + electrode minus the − electrode. bias RLD restores per-channel bias and reads each channel as one site.");

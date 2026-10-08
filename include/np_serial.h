@@ -5,6 +5,8 @@
 
 int np_serial_open(const char *path);
 void np_serial_pulse_dtr(int fd);
+/* 115200 or 57600. 0 on success, -1 if the port cannot change. */
+int np_serial_set_baud(int fd, int baud);
 void np_serial_close(int fd);
 int np_serial_write(int fd, const void *buf, int n);
 int np_serial_read(int fd, void *buf, int n);

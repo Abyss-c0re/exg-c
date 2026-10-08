@@ -15,4 +15,7 @@ int np_banner_sps(const char *line);
 /* "EXG-FW 1" from the sketch. 0 when the line is not a version. */
 int np_fw_version_line(const char *line);
 
+/* "EXG-MODE N" or "EXG-SWITCH N". -1 when the line is not a mode. */
+int np_fw_mode_line(const char *line);
+
 #endif

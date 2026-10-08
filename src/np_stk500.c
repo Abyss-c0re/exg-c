@@ -2,6 +2,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 
 static void err_set(char *err, int err_n, const char *msg)
 {
@@ -205,36 +206,237 @@ static int stk_cmd(const struct np_stk_io *io, const unsigned char *cmd, int n, 
 
 static void stk_note(const struct np_stk_io *io, const char *msg);
 static int stk_drain(const struct np_stk_io *io);
+static void stk_hex(const unsigned char *b, int n, char *out, int out_n);
+
+static int mono_ms(void)
+{
+    struct timespec ts;
+
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (int)(ts.tv_sec * 1000LL + ts.tv_nsec / 1000000LL);
+}
+
+/* A read that already waited reports real time. A read that returns 0
+ * immediately still consumes the slice, so a mock cannot spin the window. */
+static int read_charged(const struct np_stk_io *io, unsigned char *buf, int n, int slice, int *spent)
+{
+    int t0, elapsed, r;
+
+    if (slice < 1) {
+        slice = 1;
+    }
+    t0 = mono_ms();
+    r = io->read(io->ctx, buf, n, slice);
+    elapsed = mono_ms() - t0;
+    if (elapsed < 0) {
+        elapsed = 0;
+    }
+    if (r == 0 && elapsed < slice) {
+        elapsed = slice;
+    }
+    if (r > 0 && elapsed < 1) {
+        elapsed = 1;
+    }
+    if (spent) {
+        *spent = elapsed;
+    }
+    return r;
+}
+
+/* RESET release leaves the old sketch in the USB FIFO. Those bytes are not
+ * a failed reset, and a 14 10 inside them is not optiboot. Sync bytes go
+ * out only after 25 ms of silence. budget_ms is charged time, not a spin.
+ * A sketch that never goes quiet returns "board did not reset". */
+static int stk_sync_window(const struct np_stk_io *io, int budget_ms, char *err, int err_n)
+{
+    unsigned char cmd[2] = {STK_GET_SYNC, STK_CRC_EOP};
+    unsigned char junk[12];
+    char hex[48];
+    char msg[96];
+    int junk_n = 0;
+    int since = 0;
+    int quiet = 0;
+    int nonzero = 0;
+    int spent_total = 0;
+    int left = budget_ms > 0 ? budget_ms : 1200;
+    int tries;
+
+    while (left > 0 && quiet < 25) {
+        unsigned char b[32];
+        int spent = 0;
+        int slice = left > 20 ? 20 : left;
+        int r;
+
+        if (slice < 1) {
+            slice = 1;
+        }
+        r = read_charged(io, b, (int)sizeof(b), slice, &spent);
+        if (spent < 1) {
+            spent = 1;
+        }
+        left -= spent;
+        spent_total += spent;
+        if (r < 0) {
+            err_set(err, err_n, "serial read failed");
+            return -1;
+        }
+        if (r == 0) {
+            quiet += spent;
+            continue;
+        }
+        quiet = 0;
+        since += r;
+        /* A USB backlog is a few packets. A sketch that is still clocking
+         * frames never gives us 25 ms of silence. */
+        if (since > 400 && spent_total > 250) {
+            snprintf(msg, sizeof(msg), "sketch still streaming (%d bytes)", since);
+            stk_note(io, msg);
+            err_set(err, err_n, "board did not reset");
+            return -1;
+        }
+    }
+    if (quiet < 25) {
+        err_set(err, err_n, "board did not reset");
+        return -1;
+    }
+    if (since > 0) {
+        snprintf(msg, sizeof(msg), "drained %d stream bytes", since);
+        stk_note(io, msg);
+    }
+    stk_note(io, "line quiet");
+
+    /* Optiboot flashes the LED before it reads, and drops what arrived
+     * during that flash. The Knight answers about half a second after
+     * reset. One command fills the 328P UART. A second GET_SYNC still
+     * in that FIFO is read as the CRC of READ_SIGN, and the watchdog
+     * starts the sketch ("Scanning for IMU..."). */
+    {
+        int held = 0;
+        while (left > 0 && held < 480) {
+            unsigned char b[32];
+            int spent = 0;
+            int slice = left > 20 ? 20 : left;
+            int r;
+
+            if (slice < 1) {
+                slice = 1;
+            }
+            r = read_charged(io, b, (int)sizeof(b), slice, &spent);
+            if (spent < 1) {
+                spent = 1;
+            }
+            left -= spent;
+            spent_total += spent;
+            if (r < 0) {
+                err_set(err, err_n, "serial read failed");
+                return -1;
+            }
+            if (r == 0) {
+                held += spent;
+                continue;
+            }
+            since += r;
+            if (since > 400 && spent_total > 250) {
+                snprintf(msg, sizeof(msg), "sketch still streaming (%d bytes)", since);
+                stk_note(io, msg);
+                err_set(err, err_n, "board did not reset");
+                return -1;
+            }
+        }
+    }
+    since = 0;
+    nonzero = 0;
+    tries = 0;
+    if (!io->write || io->write(io->ctx, cmd, 2) != 2) {
+        err_set(err, err_n, "serial write failed");
+        return -1;
+    }
+    stk_note(io, "sync sent");
+    {
+    unsigned char prev = 0;
+    int have = 0;
+    int win = 0;
+    while (left > 0 && tries < 40) {
+        unsigned char b[32];
+        int spent = 0;
+        int slice = left > 20 ? 20 : left;
+        int r, i;
+
+        tries++;
+        if (slice < 1) {
+            slice = 1;
+        }
+        r = read_charged(io, b, (int)sizeof(b), slice, &spent);
+        if (spent < 1) {
+            spent = 1;
+        }
+        left -= spent;
+        if (r < 0) {
+            err_set(err, err_n, "serial read failed");
+            return -1;
+        }
+        if (r == 0) {
+            continue;
+        }
+        for (i = 0; i < r; i++) {
+            if (have && prev == STK_INSYNC && b[i] == STK_OK && win <= 2) {
+                int extra = stk_drain(io);
+                if (extra > 0) {
+                    snprintf(msg, sizeof(msg), "dropped %d extra boot bytes", extra);
+                    stk_note(io, msg);
+                }
+                return 0;
+            }
+            if (junk_n < (int)sizeof(junk)) {
+                junk[junk_n++] = b[i];
+            }
+            if (b[i] != 0) {
+                nonzero++;
+            }
+            win++;
+            since++;
+            prev = b[i];
+            have = 1;
+        }
+        if (since > 24) {
+            snprintf(msg, sizeof(msg), "sketch still streaming (%d bytes)", since);
+            stk_note(io, msg);
+            err_set(err, err_n, "board did not reset");
+            return -1;
+        }
+    }
+    }
+    if (nonzero <= 0) {
+        err_set(err, err_n, "bootloader did not answer");
+        return -1;
+    }
+    stk_hex(junk, junk_n, hex, (int)sizeof(hex));
+    snprintf(msg, sizeof(msg), "bootloader said %d bytes nz=%d %s", since, nonzero, hex);
+    err_set(err, err_n, msg);
+    return -1;
+}
 
 static int stk_sync(const struct np_stk_io *io, char *err, int err_n)
 {
-    int i;
+    int attempt;
 
-    if (io->pulse_dtr) {
-        io->pulse_dtr(io->ctx);
-    }
-    stk_note(io, "reset into bootloader");
-    /* Each miss waits the 40 ms read. 25 tries stay inside optiboot's second. */
-    for (i = 0; i < 25; i++) {
-        unsigned char cmd[2] = {STK_GET_SYNC, STK_CRC_EOP};
-        unsigned char b[2];
-        int n;
-        if (!io->write || io->write(io->ctx, cmd, 2) != 2) {
-            err_set(err, err_n, "serial write failed");
-            return -1;
+    /* One 14 10 at 115200 is optiboot. If the sketch is still streaming,
+     * reset once more. Do not reset after a real answer. */
+    for (attempt = 0; attempt < 2; attempt++) {
+        if (attempt == 1) {
+            stk_note(io, "stream still running, reset again");
         }
-        n = read_full(io, b, 2, 40);
-        if (n == 2 && b[0] == STK_INSYNC && b[1] == STK_OK) {
-            int extra = stk_drain(io);
-            if (extra > 0) {
-                char msg[48];
-                snprintf(msg, sizeof(msg), "dropped %d extra boot bytes", extra);
-                stk_note(io, msg);
-            }
+        if (io->pulse_dtr) {
+            io->pulse_dtr(io->ctx);
+        }
+        stk_note(io, "reset into bootloader");
+        if (stk_sync_window(io, 1200, err, err_n) == 0) {
             return 0;
         }
+        if (!err || !strstr(err, "board did not reset")) {
+            return -1;
+        }
     }
-    err_set(err, err_n, "bootloader did not answer");
     return -1;
 }
 
@@ -302,17 +504,28 @@ static int stk_signature(const struct np_stk_io *io, char *err, int err_n)
         err_set(err, err_n, "serial write failed");
         return -1;
     }
-    while (n < (int)sizeof(b) && spins < 6) {
-        int r = io->read(io->ctx, b + n, (int)sizeof(b) - n, n == 0 ? 80 : 40);
-        spins++;
+    /* A 5-byte reply must not wait out a 32-byte fill. Budget is wall time. */
+    while (n < (int)sizeof(b) && spins < 450) {
+        int spent = 0;
+        int slice = 450 - spins;
+        int r;
+        if (slice > 25) {
+            slice = 25;
+        }
+        if (slice < 1) {
+            slice = 1;
+        }
+        r = read_charged(io, b + n, (int)sizeof(b) - n, slice, &spent);
+        if (spent < 1) {
+            spent = 1;
+        }
+        spins += spent;
         if (r < 0) {
             err_set(err, err_n, "serial read failed");
             return -1;
         }
         if (r > 0) {
             n += r;
-        } else if (n > 0) {
-            break;
         }
         for (i = 0; i + 5 <= n; i++) {
             if (!stk_sig_at(b, n, i)) {
@@ -327,7 +540,7 @@ static int stk_signature(const struct np_stk_io *io, char *err, int err_n)
             err_set(err, err_n, msg);
             return -1;
         }
-        if (r <= 0) {
+        if (r == 0 && n >= 5) {
             break;
         }
     }

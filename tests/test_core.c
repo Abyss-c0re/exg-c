@@ -438,6 +438,78 @@ static void stk_pulse(void *ctx)
     m->qn = 0;
 }
 
+static int flood_pulses;
+static int flood_writes;
+static int flood_bauds;
+
+static int flood_baud(void *ctx, int baud)
+{
+    (void)ctx;
+    (void)baud;
+    flood_bauds++;
+    return 0;
+}
+
+static int silent_pulses;
+static int silent_bauds;
+static int silent_writes;
+
+static int silent_write(void *ctx, const unsigned char *buf, int n)
+{
+    (void)ctx;
+    (void)buf;
+    silent_writes++;
+    return n;
+}
+
+static int silent_read(void *ctx, unsigned char *buf, int n, int timeout_ms)
+{
+    (void)ctx;
+    (void)buf;
+    (void)n;
+    (void)timeout_ms;
+    return 0;
+}
+
+static void silent_pulse(void *ctx)
+{
+    (void)ctx;
+    silent_pulses++;
+}
+
+static int silent_baud(void *ctx, int baud)
+{
+    (void)ctx;
+    (void)baud;
+    silent_bauds++;
+    return 0;
+}
+
+static int flood_read(void *ctx, unsigned char *buf, int n, int timeout_ms)
+{
+    (void)ctx;
+    (void)timeout_ms;
+    if (n > 48) {
+        n = 48;
+    }
+    memset(buf, 0xA0, (size_t)n);
+    return n;
+}
+
+static int flood_write(void *ctx, const unsigned char *buf, int n)
+{
+    (void)ctx;
+    (void)buf;
+    flood_writes++;
+    return n;
+}
+
+static void flood_pulse(void *ctx)
+{
+    (void)ctx;
+    flood_pulses++;
+}
+
 static void test_rate_and_flash(void)
 {
     struct stk_mock mock;
@@ -460,6 +532,11 @@ static void test_rate_and_flash(void)
     expect(np_banner_sps("EEG 250 SPS") == 250, "banner 250");
     expect(np_banner_sps("EEG rate unset") == -1, "banner unset");
     expect(np_fw_version_line("EXG-FW 1") == 1, "boot line EXG-FW 1");
+    expect(np_fw_mode_line("EXG-MODE 0") == 0, "mode line 0");
+    expect(np_fw_mode_line("EXG-MODE 2") == 2, "mode line 2");
+    expect(np_fw_mode_line("EXG-SWITCH 1") == 1, "switch line 1");
+    expect(np_fw_mode_line("EEG 125 SPS") == -1, "banner is not a mode line");
+    expect(np_fw_mode_line("EXG-MODE 9") == -1, "mode line rejects 9");
     {
         char mode[16];
         np_fmt_mode(mode, sizeof(mode), 1);
@@ -478,6 +555,11 @@ static void test_rate_and_flash(void)
     memset(&mock, 0, sizeof(mock));
     for (i = 0; i < 200; i++) {
         image[i] = (unsigned char)(i * 3 + 1);
+    }
+    {
+        /* Bytes already in the FIFO, including a false INSYNC OK. */
+        unsigned char stale[4] = {0xA0, 0x00, 0x14, 0x10};
+        stk_reply(&mock, stale, 4);
     }
     memset(&io, 0, sizeof(io));
     io.ctx = &mock;
@@ -504,6 +586,45 @@ static void test_rate_and_flash(void)
     }
     expect(rc == 0 && mock.resets == 1 && mock.bad == 0, "stk writes the mode byte");
     expect(mock.eeprom[0] == 2 && mock.eeprom[1] == 0xFF, "mode byte 2, pad FF");
+
+    /* A sketch that keeps streaming must not be programmed. */
+    {
+        struct np_stk_io fio;
+        unsigned char flood_image[16];
+
+        flood_pulses = 0;
+        flood_writes = 0;
+        flood_bauds = 0;
+        memset(flood_image, 0xA5, sizeof(flood_image));
+        memset(&fio, 0, sizeof(fio));
+        fio.write = flood_write;
+        fio.read = flood_read;
+        fio.pulse_dtr = flood_pulse;
+        fio.set_baud = flood_baud;
+        rc = np_stk_program(&fio, flood_image, (int)sizeof(flood_image), err, (int)sizeof(err));
+        expect(rc != 0 && flood_writes == 0 && flood_pulses == 2 && flood_bauds == 0 &&
+                   strstr(err, "board did not reset") != NULL,
+               "streaming board is not programmed");
+    }
+    /* No bootloader answer: one reset, no page write. */
+    {
+        struct np_stk_io sio;
+        unsigned char tiny[16];
+
+        silent_pulses = 0;
+        silent_bauds = 0;
+        silent_writes = 0;
+        memset(tiny, 0xA5, sizeof(tiny));
+        memset(&sio, 0, sizeof(sio));
+        sio.write = silent_write;
+        sio.read = silent_read;
+        sio.pulse_dtr = silent_pulse;
+        sio.set_baud = silent_baud;
+        rc = np_stk_program(&sio, tiny, (int)sizeof(tiny), err, (int)sizeof(err));
+        expect(rc != 0 && silent_pulses == 1 && silent_bauds == 0 && silent_writes >= 1 &&
+                   strstr(err, "bootloader did not answer") != NULL,
+               "silent line is not programmed");
+    }
 }
 
 static void test_ring(void)
@@ -2003,7 +2124,7 @@ static void test_api(void)
          strstr(body, "/stream") && strstr(body, "EXG1");
     expect(ok, "api GET / index lists stream");
     expect(strstr(body, "stream.json") == NULL, "api index has no NDJSON live path");
-    expect(strstr(body, "\"v\":\"2.96\"") != NULL, "api index version 2.96");
+    expect(strstr(body, "\"v\":\"3.03\"") != NULL, "api index version 3.03");
     expect(strstr(body, "/pair") != NULL, "api index lists /pair");
     expect(strstr(body, "\"ip\":\"127.0.0.1\"") != NULL, "api local ip is loopback");
     {

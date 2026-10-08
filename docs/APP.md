@@ -1,4 +1,4 @@
-# App (2.96)
+# App (3.03)
 
 What the host does. The LAN wire is [API.md](API.md).
 
@@ -57,6 +57,20 @@ Follows the published [firmware](https://docs.neuropawn.tech/knight-board/firmwa
 | Connect | Wait for the binary stream, **2 s** settle, then per active channel `chon_` then `rldadd_`/`rldremove_` with ≥1 s between commands. Channels start off on the board. |
 
 Do not write other text on the USB serial link. Do not shell CubalC at 125 Hz.
+
+## Flash
+
+One image, `knight.hex`, firmware 3. **Settings** sends `exgmode_0`, `exgmode_1`, or `exgmode_2`. The mode button follows `EXG-MODE` and the live rate, not an older saved label. Flash does not write the mode byte.
+
+Upload is two taps. The first only arms. Electrodes off. The banner stays on **FLASHED** or **FAILED**.
+
+The programmer raises DTR and RTS, drops both for 100 ms, and raises them again. That edge resets the Knight. Bytes left in the USB buffer from a sketch that was already streaming are drained. They are not a failed reset, and a `14 10` inside them is not the bootloader. After the line has been quiet, the programmer waits about half a second, then sends one sync command. Optiboot is still flashing its LED during that wait and drops earlier bytes. It answers `14 10` once. A second sync is not sent: the 328P UART holds two bytes, and a leftover sync byte makes the signature command reset the chip back into the sketch. If the sketch never goes quiet, the same Upload resets one more time at 115200. The signature must be ATmega328P `1E 95 0F` before any page is written. Each page is read back. Nothing is erased until that signature matches.
+
+After a verified upload the app stores firmware 3. It asks to flash again only when the connected board prints an older `EXG-FW` line. Frames with no banner are not a second request.
+
+Debug shows `EXG-FW`, `EXG-MODE`, and `EXG-SWITCH`. The sketch prints `EXG-SWITCH N` before it restarts into that mode.
+
+Observed on the Titan, app 3.03, Knight `usb:0403:6001`, 2026-10-08. The first Upload ran while the channel ladder was still writing and failed: about 7 KB was still arriving, banner `board did not reset`. The next Upload used one reset. The line went quiet, one sync followed about half a second later, and the signature was `1E 95 0F`. The image was 22578 bytes, 177 pages, then **FLASHED**. Boot printed `IMU OK`, `EEG 125 SPS`, `EXG-FW 3`, `EXG-MODE 0`. A Settings pick of 500 printed `EXG-SWITCH 2`, `EEG 500 SPS`, `EXG-FW 3`, `EXG-MODE 2`. The status line read `stream 500 SPS` and `501 sps`. The Settings button read `500 EEG`. A later pick of 125 printed `EXG-SWITCH 0` and `EEG 125 SPS`, then 500 again printed `EXG-SWITCH 2`. Force-stop and relaunch opened the same USB port, showed no firmware dialog, and measured 501 sps. Opening USB does not reset the chip, so `EXG-FW` is not printed again.
 
 ## DC vs CLEAN
 

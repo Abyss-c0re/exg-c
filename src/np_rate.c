@@ -56,3 +56,19 @@ int np_fw_version_line(const char *line)
     }
     return v;
 }
+
+int np_fw_mode_line(const char *line)
+{
+    int m = -1;
+
+    if (!line) {
+        return -1;
+    }
+    if (sscanf(line, "EXG-MODE %d", &m) != 1 && sscanf(line, "EXG-SWITCH %d", &m) != 1) {
+        return -1;
+    }
+    if (m < 0 || m > 2) {
+        return -1;
+    }
+    return m;
+}

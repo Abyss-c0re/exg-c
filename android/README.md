@@ -2,7 +2,7 @@
 
 Same C host as `./np-exg`. Serial is USB Host. UI is Java. Native library is `libexg.so` from `src/np_core.c` — not the desktop SDL file.
 
-App: **2.96**, package `com.abysscore.exgc`, min SDK 28, ABI `arm64-v8a`.
+App: **3.03**, package `com.abysscore.exgc`, min SDK 28, ABI `arm64-v8a`.
 Quest 3: `com.oculus.intent.category.2D` so it runs as a 2D panel.
 
 How the app behaves: [../docs/APP.md](../docs/APP.md).  
@@ -28,7 +28,7 @@ Or `make android`. Output is `android/exg-c.apk` (debug-signed).
 
 1. Plug the Knight (FTDI `0403:6001`) or CH340 / CP210x / CDC ACM.
 2. Grant USB. Open **exg-c**. Tap **Connect**.
-3. Warming is under 64% of the locked rate (80 sps at 125). ID / Record stay idle until then. **Flash** writes the Knight image. **Debug** shows boot text. Take the electrodes off before Upload.
+3. Warming is under 64% of the locked rate (80 sps at 125). ID / Record stay idle until then. **Flash** writes the one Knight image. DTR and RTS reset the board. Sync waits until the USB line is quiet, waits out the bootloader LED, then sends one command. A sketch that was already streaming is not a failed reset. If it never goes quiet, Upload resets once more. On the Titan that image was 22578 bytes and 177 pages. A ladder that is still sending can keep the line busy, so the first reset misses and the next Upload is the one that finishes. **Debug** shows boot text. Take the electrodes off before Upload. A finished upload does not ask again unless the board prints an older `EXG-FW`. Settings then sends `exgmode_N`. The button reads `125 + IMU`, `250 EEG`, or `500 EEG` from `EXG-MODE` and from the live rate.
 4. **Calibrate**: 5 s to set the kit down, desk plate, wear, sit still.
 5. Cut button: teal **DC on** is the still-plate offset. **CLEAN on** only if the window is ≥ 3 s and a noise plate exists.
 6. **ID** should say `still Nx`. Blink / clench change the class. That is EXG vs baseline, not a take.

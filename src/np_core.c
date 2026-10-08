@@ -3424,7 +3424,12 @@ static void *cmd_thread(void *arg)
         gain = g.q[g.qt].gain;
         g.qt = (g.qt + 1) % QMAX;
         pthread_mutex_unlock(&g.qmu);
-        if (g.fd < 0 || !g.connected) {
+        /* g.flashing: the programmer owns the UART. A chon_ here is
+         * read as a bootloader command and resets the chip. */
+        if (g.fd < 0 || !g.connected || g.flashing) {
+            if (op == CMD_MODE) {
+                NP_ALOG("mode: dropped exgmode_%d", ch);
+            }
             continue;
         }
         if (op == CMD_CHON) {
@@ -3469,10 +3474,37 @@ static void *cmd_thread(void *arg)
 
 static char boot_note[96];
 
+static int mode_from_rate(int sps)
+{
+    if (sps == 125) {
+        return 0;
+    }
+    if (sps == 250) {
+        return 1;
+    }
+    if (sps == 500) {
+        return 2;
+    }
+    return -1;
+}
+
+/* The button is the live Knight mode. A saved 500 must not stay on screen
+ * while the board is streaming 125. A switch in flight keeps the request
+ * until EXG-MODE confirms it or the quiet window ends. */
+static void adopt_fw_mode(int mode)
+{
+    if (mode_pending || mode < 0 || mode > 2 || g.fw_mode == mode) {
+        return;
+    }
+    g.fw_mode = mode;
+    fw_save_pending = 1;
+}
+
 static void note_boot(const char *s)
 {
     int banner = np_banner_sps(s);
     int fwv = np_fw_version_line(s);
+    int mm = np_fw_mode_line(s);
     pthread_mutex_lock(&g.mu);
     snprintf(boot_note, sizeof(boot_note), "%s", s);
     if (banner > 0) {
@@ -3489,10 +3521,23 @@ static void note_boot(const char *s)
         }
         if (mode_pending) {
             mode_pending = 0;
+            mode_quiet_until = 0;
             mode_enable = 1;
         }
     } else if (g.fw_seen <= 0) {
         fw_stock_boot = 1;
+    }
+    if (mm >= 0) {
+        if (g.fw_mode != mm) {
+            g.fw_mode = mm;
+            fw_save_pending = 1;
+        }
+    } else if (!mode_pending) {
+        int from_banner = mode_from_rate(banner);
+        if (from_banner >= 0 && g.fw_mode != from_banner) {
+            g.fw_mode = from_banner;
+            fw_save_pending = 1;
+        }
     }
     pthread_mutex_unlock(&g.mu);
     debug_log_add(s);
@@ -3584,6 +3629,7 @@ static int rate_consider(float delivered, float chip)
         return 0;
     }
     if (next == g.rate_snap && limited == g.link_limited) {
+        adopt_fw_mode(mode_from_rate(limited ? g.chip_sps : next));
         return 0;
     }
     if (g.rate_snap != 0) {
@@ -3610,6 +3656,7 @@ static int rate_consider(float delivered, float chip)
     } else {
         set_status(1, "stream %d SPS", next);
     }
+    adopt_fw_mode(mode_from_rate(limited ? g.chip_sps : next));
     return 1;
 }
 
@@ -3809,6 +3856,12 @@ static void *enable_thread(void *arg)
     }
 #ifdef __ANDROID__
     if (!wait_live(20, 40, 100000)) {
+        /* A kick here shares the FTDI port with Upload. Do not pulse
+         * while the programmer owns the reset line. */
+        if (!g.connected || g.flashing || g.fd < 0) {
+            g.en_running = 0;
+            return NULL;
+        }
         set_status(1, "uart idle - one board kick");
         np_serial_pulse_dtr(g.fd);
         np_serial_flush(g.fd);
@@ -3861,7 +3914,7 @@ static void *enable_thread(void *arg)
 
 void stream_recover(void)
 {
-    if (!g.connected || g.fd < 0 || g.en_running) {
+    if (!g.connected || g.fd < 0 || g.en_running || g.flashing) {
         return;
     }
 #ifdef __ANDROID__
@@ -4927,6 +4980,11 @@ void np_host_tick(void)
     if (fw_save_pending) {
         fw_save_pending = 0;
         cfg_save();
+    }
+    if (mode_pending && mode_quiet_until && SDL_GetTicks() > mode_quiet_until) {
+        mode_pending = 0;
+        mode_quiet_until = 0;
+        set_status(0, "mode did not change");
     }
     sps = (int)design_sps();
     if (g.connected && g.rate_snap > 0 && share_rate_is_design(g.api_hz) && g.api_hz != sps &&
@@ -7682,14 +7740,18 @@ void np_host_stream_mode(int mode)
     }
     np_host_fw_label(mode, label, (int)sizeof(label));
     if (!g.connected || g.link == 1) {
+        NP_ALOG("mode: refuse %d connected=%d link=%d", mode, g.connected, g.link);
         set_status(0, "Connect the Knight on USB, then pick %s", label);
         return;
     }
     live = g.fw_seen > 0 ? g.fw_seen : g.fw_have;
-    if (live < 2) {
-        set_status(0, "Upload firmware 2 once. Then Settings sends exgmode_%d", mode);
+    if (live < EXG_FW_NEED) {
+        NP_ALOG("mode: refuse %d fw=%d need=%d", mode, live, EXG_FW_NEED);
+        set_status(0, "Upload firmware %d once. Then Settings sends exgmode_%d",
+                   EXG_FW_NEED, mode);
         return;
     }
+    NP_ALOG("mode: queue exgmode_%d", mode);
     g.fw_mode = mode;
     g.board_pref = NP_BOARD_AUTO;
     g.board = NP_BOARD_AUTO;
@@ -7962,6 +8024,12 @@ static void flash_dtr(void *ctx)
     np_serial_pulse_dtr(p->fd);
 }
 
+static int flash_baud(void *ctx, int baud)
+{
+    struct flash_port *p = (struct flash_port *)ctx;
+    return np_serial_set_baud(p->fd, baud);
+}
+
 static void flash_note(void *ctx, const char *line)
 {
     (void)ctx;
@@ -8032,6 +8100,7 @@ static void *flash_thread(void *arg)
     io.write = flash_write;
     io.read = flash_read;
     io.pulse_dtr = flash_dtr;
+    io.set_baud = flash_baud;
     io.note = flash_note;
     if (np_stk_program_ex(&io, image, len, eeprom_only ? mode : -1, err, (int)sizeof(err)) != 0) {
         char fail[160];
@@ -8104,6 +8173,11 @@ int np_host_fw_behind(void)
     }
     if (g.fw_seen > 0) {
         return g.fw_seen < EXG_FW_NEED;
+    }
+    /* A finished upload, or an earlier EXG-FW line, is stored in fw_have.
+     * Frames with no banner are not another request to flash. */
+    if (g.fw_have >= EXG_FW_NEED) {
+        return 0;
     }
     /* A line before EXG-FW is not a verdict. Frames mean boot text is done. */
     if (fw_stock_boot && g.parser.locked) {
