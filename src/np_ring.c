@@ -3,12 +3,18 @@
 
 #include <string.h>
 
+/* Locked ring of newest EEG µV plus last IMU and lead-off.
+ * push adds the sample drop count. Nothing here increments bad. */
+
+/* Zero the ring and init its mutex. A second call on the same ring leaks the first mutex. */
 void np_ring_init(struct np_ring *r)
 {
     memset(r, 0, sizeof(*r));
     pthread_mutex_init(&r->mu, NULL);
 }
 
+/* Store uv (µV) and the acc triple at wr, then count the sample as good.
+ * gyr, mag, and imu_ok update only when s->imu is set. drops is added. bad stays as it was. */
 void np_ring_push(struct np_ring *r, const struct np_sample *s)
 {
     uint32_t i, w;
@@ -38,6 +44,8 @@ void np_ring_push(struct np_ring *r, const struct np_sample *s)
     pthread_mutex_unlock(&r->mu);
 }
 
+/* Copy the newest n samples of one channel, oldest first, in µV.
+ * n is clipped to what is stored, at most NP_RING. Returns 0 when ch is outside 0..7. */
 uint32_t np_ring_copy(struct np_ring *r, int ch, float *dst, uint32_t n)
 {
     uint32_t have, i, start;
@@ -57,6 +65,8 @@ uint32_t np_ring_copy(struct np_ring *r, int ch, float *dst, uint32_t n)
     return n;
 }
 
+/* Snapshot total, good, and bad under the lock. Any pointer may be null.
+ * bad stays 0 unless some other caller writes it. */
 void np_ring_stats(struct np_ring *r, uint64_t *total, uint32_t *good, uint32_t *bad)
 {
     pthread_mutex_lock(&r->mu);
@@ -72,6 +82,7 @@ void np_ring_stats(struct np_ring *r, uint64_t *total, uint32_t *good, uint32_t 
     pthread_mutex_unlock(&r->mu);
 }
 
+/* Cumulative sample-number gaps added by push. */
 uint32_t np_ring_drops(struct np_ring *r)
 {
     uint32_t n;
@@ -81,6 +92,7 @@ uint32_t np_ring_drops(struct np_ring *r)
     return n;
 }
 
+/* Last lead-off bytes. Bit 0 is channel 1. Either pointer may be null. */
 void np_ring_loff(struct np_ring *r, uint8_t *p, uint8_t *n)
 {
     pthread_mutex_lock(&r->mu);
@@ -93,6 +105,8 @@ void np_ring_loff(struct np_ring *r, uint8_t *p, uint8_t *n)
     pthread_mutex_unlock(&r->mu);
 }
 
+/* Last IMU that arrived with imu set: acc in m/s², gyr in rad/s, mag in µT.
+ * ok stays 0 until that first frame. Any array pointer may be null. */
 void np_ring_imu(struct np_ring *r, float acc[3], float gyr[3], float mag[3], int *ok)
 {
     int k;

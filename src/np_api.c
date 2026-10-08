@@ -17,6 +17,9 @@
 #include <time.h>
 #include <unistd.h>
 
+/* Share cooked µV as 68-byte little-endian EXG1. HTTP is control.
+ * UDP and TCP carry frames. A short write finishes before the next one. */
+
 #ifdef __ANDROID__
 #include <android/log.h>
 #define NP_API_LOG(...) __android_log_print(ANDROID_LOG_INFO, "exg-api", __VA_ARGS__)
@@ -92,6 +95,7 @@ static np_api_pair_ask_fn pair_ask_fn;
 
 static void close_fd(int *fd);
 
+/* Monotonic milliseconds, truncated to uint32, so the value wraps. */
 static uint32_t now_ms(void)
 {
     struct timespec t;
@@ -99,6 +103,7 @@ static uint32_t now_ms(void)
     return (uint32_t)(t.tv_sec * 1000u + (uint32_t)(t.tv_nsec / 1000000u));
 }
 
+/* Store 32 bits little-endian. */
 static void put_u32le(unsigned char *p, uint32_t v)
 {
     p[0] = (unsigned char)(v);
@@ -107,6 +112,7 @@ static void put_u32le(unsigned char *p, uint32_t v)
     p[3] = (unsigned char)(v >> 24);
 }
 
+/* Store 64 bits little-endian. */
 static void put_u64le(unsigned char *p, uint64_t v)
 {
     int i;
@@ -115,6 +121,7 @@ static void put_u64le(unsigned char *p, uint64_t v)
     }
 }
 
+/* Store a float as little-endian IEEE bits. The host is assumed little-endian. */
 static void put_f32le(unsigned char *p, float f)
 {
     union {
@@ -125,12 +132,14 @@ static void put_f32le(unsigned char *p, float f)
     put_u32le(p, u.u);
 }
 
+/* Read a little-endian uint32. */
 static uint32_t get_u32le(const unsigned char *p)
 {
     return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) |
            ((uint32_t)p[3] << 24);
 }
 
+/* Read a little-endian uint64. */
 static uint64_t get_u64le(const unsigned char *p)
 {
     int i;
@@ -141,6 +150,7 @@ static uint64_t get_u64le(const unsigned char *p)
     return v;
 }
 
+/* Read a little-endian float. The host is assumed little-endian. */
 static float get_f32le(const unsigned char *p)
 {
     union {
@@ -151,6 +161,8 @@ static float get_f32le(const unsigned char *p)
     return u.f;
 }
 
+/* Write one 68-byte EXG1 frame: magic, seq, t_us, frames, nch, mask, clip, flags, eight µV floats, sps, id_score, id_best.
+ * Returns 68, or 0 when dst or s is null or cap is below 68. Bytes 65..67 are zero. */
 int np_api_pack(unsigned char *dst, int cap, const struct np_api_sample *s)
 {
     int i;
@@ -180,6 +192,8 @@ int np_api_pack(unsigned char *dst, int cap, const struct np_api_sample *s)
     return NP_API_FRAME;
 }
 
+/* Read one EXG1 frame into s. Returns 68, or 0 on a short buffer, a null pointer, or a bad magic.
+ * Bytes 65..67 are not checked. */
 int np_api_unpack(const unsigned char *src, int n, struct np_api_sample *s)
 {
     int i;
@@ -210,6 +224,7 @@ static uint64_t stamp_next_us;
 static uint32_t stamp_last_fr;
 static int stamp_ok;
 
+/* Forget the burst grid. The next burst starts a new one. */
 void np_api_stamp_reset(void)
 {
     stamp_next_us = 0;
@@ -217,6 +232,8 @@ void np_api_stamp_reset(void)
     stamp_ok = 0;
 }
 
+/* Space t_us by 1e6/sps µs, at least 1, and sps below 1 becomes 125. n below 1 writes start = now_us and step = 8000 and does not arm the grid.
+ * A hole in frame0, or a stall over 150 ms, starts a new grid, and a late restart does not move a stamp already sent. */
 void np_api_stamp_burst(uint32_t frame0, int n, int sps, uint64_t now_us, struct np_api_grid *out)
 {
     uint64_t step, span, start;
@@ -256,6 +273,7 @@ void np_api_stamp_burst(uint32_t frame0, int n, int sps, uint64_t now_us, struct
     stamp_ok = 1;
 }
 
+/* Sharing off, LAN on (0.0.0.0), HTTP 8765, UDP 8766, TCP 8767, 125 Hz. A null cfg returns. */
 void np_api_cfg_default(struct np_api_cfg *c)
 {
     if (!c) {
@@ -270,6 +288,7 @@ void np_api_cfg_default(struct np_api_cfg *c)
     c->hz = 125;
 }
 
+/* Set O_NONBLOCK. fd below 0 returns -1. Returns fd. */
 static int nb(int fd)
 {
     int fl;
@@ -283,6 +302,7 @@ static int nb(int fd)
     return fd;
 }
 
+/* Set IPTOS_LOWDELAY and TCP_NODELAY. fd below 0 returns. TCP_NODELAY on a UDP socket is attempted too. */
 static void sock_lowdelay(int fd)
 {
     int tos = 0x10; /* IPTOS_LOWDELAY */
@@ -294,6 +314,7 @@ static void sock_lowdelay(int fd)
     setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
 }
 
+/* Open the wake pipe, both ends non-blocking. A second call does nothing. A failed pipe leaves the fds unset. */
 static void wake_open(void)
 {
     int p[2];
@@ -307,12 +328,14 @@ static void wake_open(void)
     wake_w = nb(p[1]);
 }
 
+/* Close both wake ends and store -1. */
 static void wake_close(void)
 {
     close_fd(&wake_r);
     close_fd(&wake_w);
 }
 
+/* Write one byte so the API thread wakes. A full pipe drops the error. */
 static void wake_kick(void)
 {
     char x = 1;
@@ -321,6 +344,7 @@ static void wake_kick(void)
     }
 }
 
+/* Read the wake pipe until it would block. */
 static void wake_drain(void)
 {
     char b[32];
@@ -331,6 +355,8 @@ static void wake_drain(void)
     }
 }
 
+/* Bind and listen, backlog 8, any address when ip is null, empty, or 0.0.0.0. Port outside 1..65535 returns -1.
+ * The socket is non-blocking. Bind or listen failure returns -1. */
 static int listen_tcp(const char *ip, int port)
 {
     int fd, on = 1;
@@ -359,6 +385,7 @@ static int listen_tcp(const char *ip, int port)
     return nb(fd);
 }
 
+/* Bind a UDP socket with a 256 KiB send buffer. Same address and port rules as the TCP listener. Returns a non-blocking fd, or -1. */
 static int bind_udp(const char *ip, int port)
 {
     int fd, on = 1;
@@ -391,6 +418,7 @@ static int bind_udp(const char *ip, int port)
     return nb(fd);
 }
 
+/* Close *fd when it is 0 or above, then store -1. A null pointer does nothing. */
 static void close_fd(int *fd)
 {
     if (fd && *fd >= 0) {
@@ -399,12 +427,14 @@ static void close_fd(int *fd)
     }
 }
 
+/* Set the label string to 0.0.0.0 or 127.0.0.1 from cfg.lan. No route is probed. */
 static void pick_ip(void)
 {
     /* Bind label only. Never probe a private unicast. */
     snprintf(self_ip, sizeof(self_ip), "%s", cfg.lan ? "0.0.0.0" : "127.0.0.1");
 }
 
+/* Dotted IPv4 host:port into out. No DNS. A bad string returns 0. Success returns 1. */
 static int parse_push(const char *s, struct sockaddr_in *out)
 {
     char host[64];
@@ -435,6 +465,7 @@ static int parse_push(const char *s, struct sockaddr_in *out)
     return 1;
 }
 
+/* Close one HTTP client and clear its slot. A streaming client decrements the stream count. */
 static void drop_http(int i)
 {
     if (http_c[i].fd >= 0) {
@@ -450,6 +481,7 @@ static void drop_http(int i)
     http_c[i].fd = -1;
 }
 
+/* Close one TCP client, clear its hold, and decrement the count. */
 static void drop_tcp(int i)
 {
     if (tcp_c[i].fd >= 0) {
@@ -463,6 +495,7 @@ static void drop_tcp(int i)
     tcp_c[i].hold_n = 0;
 }
 
+/* Close the listeners and every client. UDP subscriptions are cleared. */
 static void sockets_close(void)
 {
     int i;
@@ -481,6 +514,7 @@ static void sockets_close(void)
     n_tcp = 0;
 }
 
+/* Bind HTTP, UDP, and TCP when each port is above 0. Port 0 is skipped. Success is any one bind. All three failing returns -1. */
 static int sockets_open(void)
 {
     const char *ip = cfg.lan ? "0.0.0.0" : "127.0.0.1";
@@ -514,6 +548,7 @@ static int sockets_open(void)
     return (http_fd >= 0 || udp_fd >= 0 || tcp_fd >= 0) ? 0 : -1;
 }
 
+/* Push one control op. The ring holds 16. A full ring drops the new op and does not wake anyone. */
 static void enqueue_op(int op, int arg)
 {
     int n;
@@ -527,6 +562,7 @@ static void enqueue_op(int op, int arg)
     pthread_mutex_unlock(&cmu);
 }
 
+/* Pop one control op. Returns 1 when a slot was filled, 0 when the ring is empty. Either pointer may be null. */
 int np_api_take_op(int *op, int *arg)
 {
     int have = 0;
@@ -545,6 +581,7 @@ int np_api_take_op(int *op, int *arg)
     return have;
 }
 
+/* Write all n bytes. EAGAIN polls POLLOUT for up to 80 ms. A zero-length send returns -1. */
 static int send_all(int fd, const void *p, int n)
 {
     const unsigned char *b = p;
@@ -620,6 +657,8 @@ static int send_frame(int fd, unsigned char *hold, int *hold_n, const void *p, i
     }
 }
 
+/* Send one HTTP/1.1 reply with CORS and Content-Length. Codes 200, 204, and 401 use their reasons. Any other code is labeled Not Found.
+ * A header that does not fit in 512 bytes sends nothing. */
 static void http_reply(int fd, int code, const char *ctype, const char *body)
 {
     char hdr[512];
@@ -642,6 +681,7 @@ static void http_reply(int fd, int code, const char *ctype, const char *body)
     }
 }
 
+/* One JSON object for the sample. uv is eight µV values. The text is cut to n bytes. */
 static void sample_json(const struct np_api_sample *s, char *out, int n)
 {
     snprintf(out, (size_t)n,
@@ -654,6 +694,7 @@ static void sample_json(const struct np_api_sample *s, char *out, int n)
              (double)s->uv[4], (double)s->uv[5], (double)s->uv[6], (double)s->uv[7]);
 }
 
+/* Copy a token from token=, X-EXG-Token, or Authorization Bearer. Returns 1 when a token was stored. A null request returns 0. */
 static int hdr_tok(const char *req, char *tok, int n)
 {
     const char *p, *q, *qs;
@@ -715,6 +756,7 @@ static int hdr_tok(const char *req, char *tok, int n)
     return tok[0] != 0;
 }
 
+/* 1 when the peer is 127.0.0.1. A failed getpeername returns 0. */
 static int local_peer(int fd)
 {
     struct sockaddr_in a;
@@ -725,6 +767,8 @@ static int local_peer(int fd)
     return a.sin_addr.s_addr == htonl(INADDR_LOOPBACK);
 }
 
+/* 1 for a localhost peer. Otherwise the header token must match cfg.token, or grant_fn must accept it.
+ * An empty server token with no grant_fn accepts everyone. */
 static int tok_ok(int fd, const char *req)
 {
     char got[NP_API_TOKEN];
@@ -745,6 +789,7 @@ static int tok_ok(int fd, const char *req)
     return 0;
 }
 
+/* Read key as a JSON number, true/false, lan/local, or a key= form. Returns 1 when *out was set. */
 static int json_int(const char *body, const char *key, int *out)
 {
     char pat[40];
@@ -791,6 +836,8 @@ static int json_int(const char *body, const char *key, int *out)
     return 1;
 }
 
+/* Copy the value, keeping only letters, digits, and _.- . A space becomes _. Returns 1 when any character was kept.
+ * A null pointer or n below 2 returns 0. */
 static int json_str(const char *body, const char *key, char *out, int n)
 {
     char pat[40];
@@ -850,6 +897,8 @@ static int json_str(const char *body, const char *key, char *out, int n)
     return out[0] != 0;
 }
 
+/* One HTTP request. /, /health, and /pair skip the token. GET covers those plus /index, /status, /sample, /cfg, /stream, and /kit.
+ * POST covers /connect, /disconnect, /pause, /cfg, /kit, and /pair. OPTIONS is 204. /stream stays open. Other paths are closed by the reader after the reply. */
 static void handle_req(struct http_cli *c)
 {
     char path[128], method[8], body[JSON_MAX], js[JSON_MAX];
@@ -1067,6 +1116,7 @@ static void handle_req(struct http_cli *c)
     http_reply(c->fd, 404, "application/json", "{\"ok\":false,\"err\":\"no such path\"}");
 }
 
+/* Accept clients up to 6. A further client gets "busy" and is closed. */
 static void accept_http(void)
 {
     int fd, i;
@@ -1093,6 +1143,7 @@ static void accept_http(void)
     }
 }
 
+/* Accept raw EXG1 clients up to 4, with TCP_NODELAY. A further client is closed with no reply. */
 static void accept_tcp(void)
 {
     int fd, i, one = 1;
@@ -1120,6 +1171,8 @@ static void accept_tcp(void)
     }
 }
 
+/* A datagram of 12 or more bytes starting with PING gets a 20-byte PONG (echoed 8 bytes plus server realtime microseconds) and does not subscribe.
+ * Any other datagram refreshes or adds a subscriber, at most 8. When grant_fn is set, the bytes after the first four must pass it. */
 static void udp_hear(void)
 {
     unsigned char buf[64];
@@ -1192,6 +1245,7 @@ static void udp_hear(void)
     }
 }
 
+/* Drop UDP subscribers silent for more than 8 seconds. Called when a frame is sent. */
 static void count_udp(uint32_t now)
 {
     int i, n = 0;
@@ -1206,6 +1260,7 @@ static void count_udp(uint32_t now)
     n_udp = n;
 }
 
+/* Pack 68 bytes and send them. UDP uses sendto with no hold. TCP and HTTP streams finish a short write before the next frame, and a dead socket is dropped. */
 static void emit_frame(const struct np_api_sample *s)
 {
     unsigned char raw[NP_API_FRAME];
@@ -1244,6 +1299,7 @@ static void emit_frame(const struct np_api_sample *s)
     }
 }
 
+/* Send at most 32 queued samples. */
 static void drain_q(void)
 {
     struct np_api_sample batch[32];
@@ -1259,6 +1315,8 @@ static void drain_q(void)
     }
 }
 
+/* Read request bytes. A client already streaming is left alone. 8192 bytes with no header break drops the client.
+ * A finished request that is not /stream is closed after the reply. */
 static void read_http(void)
 {
     int i;
@@ -1292,6 +1350,7 @@ static void read_http(void)
     }
 }
 
+/* Poll listeners and idle HTTP clients for 20 ms, then accept, read, and drain the sample queue. Exit closes the sockets. */
 static void *api_thread(void *arg)
 {
     (void)arg;
@@ -1343,6 +1402,7 @@ static void *api_thread(void *arg)
     return NULL;
 }
 
+/* on and lan become 0 or 1. A port outside 0..65535 returns to 8765, 8766, or 8767. hz is clamped to 1..500. */
 static void np_api_cfg_clamp(struct np_api_cfg *c)
 {
     if (!c) {
@@ -1369,6 +1429,7 @@ static void np_api_cfg_clamp(struct np_api_cfg *c)
     c->push[NP_API_PUSH - 1] = 0;
 }
 
+/* 1 when on, lan, ports, hz, token, and push all match. */
 static int cfg_same(const struct np_api_cfg *a, const struct np_api_cfg *b)
 {
     return a->on == b->on && a->lan == b->lan && a->http == b->http && a->udp == b->udp &&
@@ -1376,6 +1437,7 @@ static int cfg_same(const struct np_api_cfg *a, const struct np_api_cfg *b)
            !strcmp(a->push, b->push);
 }
 
+/* Join the thread when it was started, then close sockets and the wake pipe. A stop before start only clears running. */
 void np_api_stop(void)
 {
     if (!started) {
@@ -1389,6 +1451,8 @@ void np_api_stop(void)
     wake_close();
 }
 
+/* Stop, copy c, and clamp it. on = 0 stays stopped and returns 0. An unchanged running config returns 0.
+ * Every bind failing returns -1 and forces on back to 0. A thread that will not start returns -1 with the sockets closed. */
 int np_api_apply(const struct np_api_cfg *c)
 {
     struct np_api_cfg next;
@@ -1424,36 +1488,43 @@ int np_api_apply(const struct np_api_cfg *c)
     return 0;
 }
 
+/* 1 when sharing is on and the thread has started. */
 int np_api_on(void)
 {
     return cfg.on && started;
 }
 
+/* The configured rate. A stored hz below 1 returns 125. */
 int np_api_hz(void)
 {
     return cfg.hz < 1 ? 125 : cfg.hz;
 }
 
+/* 1 when the bind label is the LAN address. */
 int np_api_lan(void)
 {
     return cfg.lan ? 1 : 0;
 }
 
+/* The HTTP port, which may be 0 when that listener is skipped. */
 int np_api_http_port(void)
 {
     return cfg.http;
 }
 
+/* The UDP port. */
 int np_api_udp_port(void)
 {
     return cfg.udp;
 }
 
+/* The TCP port. */
 int np_api_tcp_port(void)
 {
     return cfg.tcp;
 }
 
+/* Copy the token. A null out or n below 1 returns. */
 void np_api_token(char *out, int n)
 {
     if (!out || n < 1) {
@@ -1462,6 +1533,7 @@ void np_api_token(char *out, int n)
     snprintf(out, (size_t)n, "%s", cfg.token);
 }
 
+/* Copy the push host:port string. A null out or n below 1 returns. */
 void np_api_push_dest(char *out, int n)
 {
     if (!out || n < 1) {
@@ -1470,6 +1542,7 @@ void np_api_push_dest(char *out, int n)
     snprintf(out, (size_t)n, "%s", cfg.push);
 }
 
+/* "not sharing EXG" when off. Otherwise a line with wifi or "this device", the three ports, and hz per second. */
 void np_api_line(char *out, int n)
 {
     if (!out || n < 1) {
@@ -1483,6 +1556,8 @@ void np_api_line(char *out, int n)
              cfg.lan ? "wifi" : "this device", cfg.http, cfg.udp, cfg.tcp, cfg.hz);
 }
 
+/* Copy the sample, replace seq with the next number, and queue it. The queue holds 256 and drops the oldest when full. The wake pipe is kicked.
+ * Off, or a null sample, returns without queueing. */
 void np_api_push(const struct np_api_sample *s)
 {
     int n;
@@ -1506,6 +1581,7 @@ void np_api_push(const struct np_api_sample *s)
     wake_kick();
 }
 
+/* Copy the last queued sample. Returns 1 when one exists, 0 when s is null or nothing has been queued. */
 int np_api_latest(struct np_api_sample *s)
 {
     int ok = 0;
@@ -1521,27 +1597,32 @@ int np_api_latest(struct np_api_sample *s)
     return ok;
 }
 
+/* Store the /status callback. NULL is allowed. */
 void np_api_set_status_fn(np_api_status_fn fn)
 {
     status_fn = fn;
 }
 
+/* Store the /cfg extra-JSON callback. NULL is allowed. */
 void np_api_set_view_fn(np_api_view_fn fn)
 {
     view_fn = fn;
 }
 
+/* Store the token grant check. NULL means no grant list. */
 void np_api_set_grant_fn(np_api_grant_fn fn)
 {
     grant_fn = fn;
 }
 
+/* Store the /kit get and put callbacks. Either may be null. */
 void np_api_set_kit_fn(np_api_kit_get_fn get, np_api_kit_put_fn put)
 {
     kit_get_fn = get;
     kit_put_fn = put;
 }
 
+/* Store the /pair callback. NULL makes /pair answer state 2 with an empty grant. */
 void np_api_set_pair_ask_fn(np_api_pair_ask_fn fn)
 {
     pair_ask_fn = fn;

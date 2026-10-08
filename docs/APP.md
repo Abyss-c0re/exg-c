@@ -1,22 +1,12 @@
-# App (3.03)
+# App (3.04)
 
 What the host does. The LAN wire is [API.md](API.md).
 
 ## Stack
 
-```
-Knight USB (FTDI 0403:6001, 8ch, 115200 8N1)
-        │
-        ▼
-src/np_core.c     cook on the USB reader thread
-  np_host_*       product calls for any UI
-  np_api.c        optional LAN (off until you turn it on)
-        │
-        ├─ src/np_ui.c          Linux SDL
-        └─ android Java + JNI   Quest / phone, libexg.so
-```
+The Knight speaks 8 channels at 115200 8N1 on an FTDI adapter (`0403:6001`). `src/np_stream.c` reads that port. `src/np_cook.c` turns the frames into the traces on that same thread. The screen calls `include/np_host.h`. On Linux the screen is `src/np_ui.c`. On Android it is Java, through `src/np_android_jni.c`, and `np_ui.c` is not in the APK. The LAN API is off until Settings turns it on.
 
-Android does **not** compile `np_ui.c`. Java talks to `include/np_host.h` via `src/np_android_jni.c`.
+The file map and the thread rules are in [DEV.md](DEV.md).
 
 ## Defaults (first load, then `set_gen=5`)
 
@@ -54,27 +44,31 @@ Follows the published [firmware](https://docs.neuropawn.tech/knight-board/firmwa
 | Scale | `4/(2^15-1)/79.57/gain*1e6` µV (~0.128 µV/count at gain 12). Gains `1 2 3 4 6 8 12`. |
 | Mode | Auto locks two 21-byte EEG frames, or one 57-byte IMU frame. The picker can still force one length. Delivered rate snaps to 125, 200, 250, or 500. 200 means the USB link is full. |
 | Commands | `chon_{ch}_{gain}`, `choff_{ch}`, `rldadd_{ch}`, `rldremove_{ch}` |
-| Connect | Wait for the binary stream, **2 s** settle, then per active channel `chon_` then `rldadd_`/`rldremove_` with ≥1 s between commands. Channels start off on the board. |
+| Connect | Wait for the binary stream. The channel ladder (`chon_` then `rldadd_` / `rldremove_`, at least 1 s apart, after a 2 s settle) runs only after `EXG-FW` or a reset this app requested. Opening the port does not reset the board and does not repeat the ladder. Channels start off on a fresh boot. |
 
 Do not write other text on the USB serial link. Do not shell CubalC at 125 Hz.
 
 ## Flash
 
-One image, `knight.hex`, firmware 3. **Settings** sends `exgmode_0`, `exgmode_1`, or `exgmode_2`. The mode button follows `EXG-MODE` and the live rate, not an older saved label. Flash does not write the mode byte.
+One image, `knight.hex`, firmware 4. **Settings** sends `exgmode_0`, `exgmode_1`, or `exgmode_2`. The mode button follows `EXG-MODE` and the live rate, not an older saved label. Flash does not write the mode byte.
 
 Upload is two taps. The first only arms. Electrodes off. The banner stays on **FLASHED** or **FAILED**.
 
 The programmer raises DTR and RTS, drops both for 100 ms, and raises them again. That edge resets the Knight. Bytes left in the USB buffer from a sketch that was already streaming are drained. They are not a failed reset, and a `14 10` inside them is not the bootloader. After the line has been quiet, the programmer waits about half a second, then sends one sync command. Optiboot is still flashing its LED during that wait and drops earlier bytes. It answers `14 10` once. A second sync is not sent: the 328P UART holds two bytes, and a leftover sync byte makes the signature command reset the chip back into the sketch. If the sketch never goes quiet, the same Upload resets one more time at 115200. The signature must be ATmega328P `1E 95 0F` before any page is written. Each page is read back. Nothing is erased until that signature matches.
 
-After a verified upload the app stores firmware 3. It asks to flash again only when the connected board prints an older `EXG-FW` line. Frames with no banner are not a second request.
+After a verified upload the app stores firmware 4. It asks to flash again only when the connected board prints an older `EXG-FW` line. Frames with no banner are not a second request.
 
-Debug shows `EXG-FW`, `EXG-MODE`, and `EXG-SWITCH`. The sketch prints `EXG-SWITCH N` before it restarts into that mode.
+The channel ladder (`chon_` / `rldremove_`, one second apart) runs after `EXG-FW`, or after a reset this app requested. A USB open that does not reboot leaves the channels alone. The USB read thread runs at audio priority so a busy phone still drains 500 SPS.
 
-Observed on the Titan, app 3.03, Knight `usb:0403:6001`, 2026-10-08. The first Upload ran while the channel ladder was still writing and failed: about 7 KB was still arriving, banner `board did not reset`. The next Upload used one reset. The line went quiet, one sync followed about half a second later, and the signature was `1E 95 0F`. The image was 22578 bytes, 177 pages, then **FLASHED**. Boot printed `IMU OK`, `EEG 125 SPS`, `EXG-FW 3`, `EXG-MODE 0`. A Settings pick of 500 printed `EXG-SWITCH 2`, `EEG 500 SPS`, `EXG-FW 3`, `EXG-MODE 2`. The status line read `stream 500 SPS` and `501 sps`. The Settings button read `500 EEG`. A later pick of 125 printed `EXG-SWITCH 0` and `EEG 125 SPS`, then 500 again printed `EXG-SWITCH 2`. Force-stop and relaunch opened the same USB port, showed no firmware dialog, and measured 501 sps. Opening USB does not reset the chip, so `EXG-FW` is not printed again.
+Firmware 4 drops a partial `e` line on a later call, 20 ms on. It does not wait inside `available()`.
+
+Debug shows `EXG-FW`, `EXG-MODE`, and `EXG-SWITCH`. The sketch prints `EXG-SWITCH N` and then resets into that mode.
+
+Opening USB does not reset the board, so `EXG-FW` is not printed again and the channel ladder does not run a second time. If Upload fails with "board did not reset" while the status line is still moving, the sketch was still streaming. Tap Upload again once the line is quiet.
 
 ## DC vs CLEAN
 
-| Chrome | Machine |
+| On screen | What it does |
 |--------|---------|
 | **DC on** (teal) | Subtract still-plate mean (`np_sub_dc`). Default 2 s window. |
 | **DC off** (dark) | No DC subtract, no Wiener. |

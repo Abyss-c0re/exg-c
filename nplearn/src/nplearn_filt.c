@@ -3,10 +3,14 @@
 #include <math.h>
 #include <string.h>
 
+/* One channel: 2 Hz high-pass, optional notch, 40 Hz low-pass, then detrend.
+ * Warmup is dropped, 64 samples are packed, and RMS stays in input units. */
+
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
 
+/* Snap a residual inside ±1e-18 to 0 so the IIR does not sink into denormals. */
 static float npl_flush(float y)
 {
     if (y < 1e-18f && y > -1e-18f) {
@@ -28,6 +32,7 @@ struct npl_lp {
     float a, y;
 };
 
+/* One-pole high-pass. a is rc/(rc+dt). hz or sps at or below 0 leaves a at 0, and the step then copies the input. */
 static void hp_init(struct npl_hp *f, float hz, float sps)
 {
     float rc, dt;
@@ -40,6 +45,7 @@ static void hp_init(struct npl_hp *f, float hz, float sps)
     f->a = rc / (rc + dt);
 }
 
+/* One high-pass sample. a at or below 0 returns x unchanged. */
 static float hp_step(struct npl_hp *f, float x)
 {
     float y;
@@ -52,6 +58,7 @@ static float hp_step(struct npl_hp *f, float x)
     return y;
 }
 
+/* Cookbook notch. hz or sps at or below 0 is an identity, hz at or past half the rate becomes 0.48*sps, Q below 0.5 becomes 0.5, Q above 4 past 0.42*sps is cut to 3, and the pole radius stays in 0.55..0.98. */
 static void notch_init(struct npl_notch *f, float hz, float sps, float q)
 {
     float w, c, r, bw, g, den;
@@ -94,6 +101,7 @@ static void notch_init(struct npl_notch *f, float hz, float sps, float q)
     f->a2 = r * r;
 }
 
+/* One notch sample. Identity coefficients (b0 = 1 and b1 = 0) return x unchanged. */
 static float notch_step(struct npl_notch *f, float x)
 {
     float y;
@@ -108,6 +116,7 @@ static float notch_step(struct npl_notch *f, float x)
     return y;
 }
 
+/* One-pole low-pass. a is dt/(rc+dt). hz or sps at or below 0 sets a to 1, so the step copies the input. */
 static void lp_init(struct npl_lp *f, float hz, float sps)
 {
     float rc, dt;
@@ -121,12 +130,14 @@ static void lp_init(struct npl_lp *f, float hz, float sps)
     f->a = dt / (rc + dt);
 }
 
+/* One low-pass sample. y moves toward x by a. */
 static float lp_step(struct npl_lp *f, float x)
 {
     f->y += f->a * (x - f->y);
     return f->y;
 }
 
+/* Subtract the mean in place. n at or below 0 returns. */
 static void detrend(float *x, int n)
 {
     int i;
@@ -143,6 +154,8 @@ static void detrend(float *x, int n)
     }
 }
 
+/* High-pass at 2 Hz, notch at notch_hz only when that is above 1 Hz (Q 30), then low-pass at 40 Hz, then subtract the mean.
+ * n samples, in place. */
 void npl_filter(float *x, int n, float sps, float notch_hz)
 {
     struct npl_hp hp;
@@ -162,6 +175,8 @@ void npl_filter(float *x, int n, float sps, float notch_hz)
     detrend(x, n);
 }
 
+/* Average src down to 64 bins and scale to unit energy.
+ * n < 4, or near-zero energy, leaves zeros. */
 void npl_pack(float *dst, const float *src, int n)
 {
     int i, j;
@@ -202,6 +217,8 @@ void npl_pack(float *dst, const float *src, int n)
     }
 }
 
+/* Keep the last 2048 samples, filter, drop 0.35 s of warmup (capped at n/3, and skipped when the tail would be under 16), pack 64 bins, and write RMS in input units. sps below 1 becomes 125.
+ * Returns -1 when src is null or n < 16, and any amplitude is still accepted. */
 int npl_prep(float wave[NPL_LEN], float *rms, const float *src, int n, float sps, float notch_hz)
 {
     float tmp[2048];

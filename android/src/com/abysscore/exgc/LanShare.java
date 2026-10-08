@@ -6,8 +6,10 @@ import java.nio.charset.Charset;
 final class LanShare {
     private static final Charset UTF8 = Charset.forName("UTF-8");
 
+    /** Exists so the class is not instantiated. */
     private LanShare() {}
 
+    /** POSTs the exported kit as UTF-8. Returns if the export is null or empty. */
     static void sendKit() {
         byte[] kit = kitBytes();
         if (kit == null) {
@@ -16,15 +18,18 @@ final class LanShare {
         httpKit(true, new String(kit, UTF8));
     }
 
+    /** GETs /kit and imports the body. No request body is sent. */
     static void takeKit() {
         httpKit(false, null);
     }
 
+    /** Sends, then starts a take. The take does not wait for the send to finish. */
     static void copyBoth() {
         sendKit();
         takeKit();
     }
 
+    /** UTF-8 bytes of the export. A null or empty export returns null. */
     private static byte[] kitBytes() {
         String s = ExgNative.kitExport();
         if (s == null || s.length() < 1) {
@@ -33,6 +38,7 @@ final class LanShare {
         return s.getBytes(UTF8);
     }
 
+    /** Host and port from the follow address. Null, empty, or a bt: address returns null, and a missing numeric port is 8765. */
     private static String[] destParts() {
         String d = ExgNative.linkDest();
         if (d == null || d.length() < 1 || d.startsWith("bt:")) {
@@ -52,6 +58,7 @@ final class LanShare {
         return new String[] {d.substring(0, c), d.substring(c + 1)};
     }
 
+    /** Returns if the address cannot be split. Connect timeout is 800 ms and the read timeout is 1500 ms; POST writes body, GET imports the text after the header break, and a null POST body or any socket error is ignored. */
     private static void httpKit(final boolean post, final String body) {
         final String[] p = destParts();
         if (p == null) {

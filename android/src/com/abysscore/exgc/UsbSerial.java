@@ -59,8 +59,10 @@ public final class UsbSerial {
     private static final byte[] hold = new byte[256];
     private static int holdN;
 
+    /** No instances. The port is process-wide static state. */
     private UsbSerial() {}
 
+    /** Stores the application context and UsbManager. Returns if the permission receiver is already registered; API 33+ registers it not exported. */
     public static void init(Context ctx) {
         app = ctx.getApplicationContext();
         mgr = (UsbManager) app.getSystemService(Context.USB_SERVICE);
@@ -78,6 +80,7 @@ public final class UsbSerial {
 
     private static final BroadcastReceiver permRx = new BroadcastReceiver() {
         @Override
+        /** Main-thread permission result. Another action returns without changing permOk; a match stores the grant and counts the latch down when one is waiting. */
         public void onReceive(Context context, Intent intent) {
             if (!ACTION_PERM.equals(intent.getAction())) {
                 return;
@@ -89,6 +92,7 @@ public final class UsbSerial {
         }
     };
 
+    /** Labels of FTDI, CH340, CP210x, and CDC devices, on the USB caller. Empty array if the manager or the device list is null. */
     public static String[] listPorts() {
         List<String> out = new ArrayList<String>();
         if (mgr == null) {
@@ -106,6 +110,7 @@ public final class UsbSerial {
         return out.toArray(new String[0]);
     }
 
+    /** Closes any current port, then claims and configures on the USB caller, often the native reader. Returns 0, or −1 if the manager, device, permission, open, claim, or setup fails; the permission wait can block 20 s. */
     public static int open(String path) {
         synchronized (lock) {
             close();
@@ -147,6 +152,7 @@ public final class UsbSerial {
         }
     }
 
+    /** Drops the interface, endpoints, kind, counters, flash-read flag, and hold count, under the USB lock. A missing connection still clears that state. */
     public static void close() {
         synchronized (lock) {
             if (conn != null && iface != null) {
@@ -172,6 +178,7 @@ public final class UsbSerial {
         }
     }
 
+    /** Appends unread bytes to the 256-byte hold. Returns if src is null, off < 0, or len ≤ 0; a longer chunk keeps only its tail and drops bytes already held. */
     private static void holdAdd(byte[] src, int off, int len) {
         if (src == null || len <= 0 || off < 0) {
             return;
@@ -190,6 +197,7 @@ public final class UsbSerial {
         holdN += len;
     }
 
+    /** Copies min(n, held) bytes into buf and slides the rest to the front. Returns 0 when nothing is held or n ≤ 0. */
     private static int holdTake(byte[] buf, int n) {
         int k = holdN < n ? holdN : n;
         if (k <= 0) {
@@ -203,6 +211,7 @@ public final class UsbSerial {
         return k;
     }
 
+    /** Forwards to readFor with an 80 ms timeout, on the USB caller (often the native reader). */
     public static int read(byte[] buf, int n) {
         return readFor(buf, n, 80);
     }
@@ -311,6 +320,7 @@ public final class UsbSerial {
         }
     }
 
+    /** Bulk OUT on the USB caller, 200 ms per chunk. Returns −1 if closed, n ≤ 0, or the first chunk sends nothing; a later failure returns how many bytes were already written. */
     public static int write(byte[] buf, int n) {
         synchronized (lock) {
             if (conn == null || epOut == null || n <= 0) {
@@ -328,6 +338,9 @@ public final class UsbSerial {
         }
     }
 
+    /** Reset on the USB caller. Returns at once if the port is closed.
+     * FTDI marks the following reads as a flash, drives DTR and RTS high, waits 20 ms, holds both low for 100 ms, purges, discards RX, then raises both and waits 30 ms.
+     * CDC, CH340, and CP210x hold both lines low for 250 ms, then high. CDC also sends a line-coding block of zeros. */
     public static void pulseDtr() {
         synchronized (lock) {
             int lo, hi;
@@ -404,6 +417,7 @@ public final class UsbSerial {
         }
     }
 
+    /** True if the span is all zeros, including a length of 0. readFor uses that to drop a full FTDI packet of padding after the two status bytes. */
     private static boolean allZero(byte[] b, int off, int len) {
         int i;
         for (i = 0; i < len; i++) {
@@ -414,6 +428,7 @@ public final class UsbSerial {
         return true;
     }
 
+    /** Up to 12 bytes as upper-case hex, separated by spaces, in the US locale. */
     private static String hexPrefix(byte[] b, int n) {
         StringBuilder sb = new StringBuilder();
         int i;
@@ -444,6 +459,7 @@ public final class UsbSerial {
         }
     }
 
+    /** Sleeps ms milliseconds on the USB caller. InterruptedException is ignored, which also clears the interrupt status. */
     private static void pauseMs(int ms) {
         try {
             Thread.sleep(ms);
@@ -451,6 +467,7 @@ public final class UsbSerial {
         }
     }
 
+    /** Clears the hold, then returns if closed; otherwise drains bulk IN on the USB caller. Stops at 30 ms, 6 packets, a non-positive read, or an FTDI read of 2 bytes or fewer. */
     public static void flush() {
         synchronized (lock) {
             holdN = 0;
@@ -475,6 +492,7 @@ public final class UsbSerial {
         }
     }
 
+    /** Blocks the USB caller up to 20 s for the dialog (mutable pending intent on API 31+) and returns false on timeout or interrupt. The wait must not be the main thread, or the receiver cannot count the latch down. */
     private static boolean requestPerm(UsbDevice dev) {
         permOk = false;
         permLatch = new CountDownLatch(1);
@@ -494,6 +512,7 @@ public final class UsbSerial {
         return permOk || mgr.hasPermission(dev);
     }
 
+    /** Supported device whose label or device name equals path. A null, empty, or unknown path still returns the first supported device, or null when the list is missing or empty. */
     private static UsbDevice find(String path) {
         HashMap<String, UsbDevice> map = mgr.getDeviceList();
         if (map == null) {
@@ -515,10 +534,12 @@ public final class UsbSerial {
         return first;
     }
 
+    /** "usb:vvvv:pppp" from the vendor and product ids, four lower-case hex digits each. */
     private static String label(UsbDevice d) {
         return String.format(Locale.US, "usb:%04x:%04x", d.getVendorId(), d.getProductId());
     }
 
+    /** FTDI 0403, CH340 1a86, CP210x 10c4, or a device with a CDC data or comm interface. */
     private static boolean supported(UsbDevice d) {
         int vid = d.getVendorId();
         if (vid == VID_FTDI || vid == VID_CH340 || vid == VID_CP210) {
@@ -534,6 +555,7 @@ public final class UsbSerial {
         return false;
     }
 
+    /** Claims a data interface and keeps its bulk IN and OUT; FTDI takes the first interface as kind 1. Returns false when no data interface exists, the claim fails, or either bulk endpoint is missing. */
     private static boolean claim(UsbDevice dev) {
         UsbInterface data = null;
         UsbInterface comm = null;
@@ -586,6 +608,7 @@ public final class UsbSerial {
         return epIn != null && epOut != null;
     }
 
+    /** One FTDI vendor control OUT, type 0x40, 200 ms, empty data stage. A negative status is logged and returned. */
     private static int ctrl(int req, int value, int index) {
         int r = conn.controlTransfer(FTDI_HOST, req, value, index, null, 0, 200);
         if (r < 0) {
@@ -596,6 +619,7 @@ public final class UsbSerial {
 
 
 
+    /** Programs 115200 8N1 with DTR and RTS high on the USB caller; 57600 is not applied here, and the Knight bootloader is 115200. FTDI uses divisor 26 and one 0x0303 write, because a second RTS-only request can drop DTR, and that path returns true even if a control fails. */
     private static boolean configure() {
         if (kind == 1) {
             ctrl(FTDI_RESET, 0, 0);
@@ -630,6 +654,7 @@ public final class UsbSerial {
         return true;
     }
 
+    /** 1 for FTDI, 3 for CH340, 4 for CP210x, 2 when a CDC interface is present, otherwise 3. */
     private static int kindOf(UsbDevice dev) {
         int vid = dev.getVendorId();
         if (vid == VID_FTDI) {
@@ -651,10 +676,12 @@ public final class UsbSerial {
         return 3;
     }
 
+    /** Vendor OUT, request type 0x40, 200 ms, no data. Returns the transfer status, negative on failure. */
     private static int vendOut(int req, int value, int index) {
         return conn.controlTransfer(0x40, req, value, index, null, 0, 200);
     }
 
+    /** CP210x vendor OUT, request type 0x41, 200 ms, no data. Returns the transfer status, negative on failure. */
     private static int cpOut(int req, int value, int index) {
         return conn.controlTransfer(0x41, req, value, index, null, 0, 200);
     }
@@ -677,11 +704,13 @@ public final class UsbSerial {
         return vendOut(0x9a, 0x1312, val1) >= 0 && vendOut(0x9a, 0x0f2c, val2) >= 0;
     }
 
+    /** CH340 DTR (bit 0x20) and RTS (bit 0x40), inverted, on request 0xa4. False when that control transfer fails. */
     private static boolean ch340Lines(boolean dtr, boolean rts) {
         int bits = (dtr ? 0x20 : 0) | (rts ? 0x40 : 0);
         return vendOut(0xa4, (~bits) & 0xffff, 0) >= 0;
     }
 
+    /** CH340 115200 8N1 with DTR and RTS high, releasing reset. Returns true when the first baud setup or the final line write succeeded, and does not check the second baud write. */
     private static boolean configureCh340() {
         boolean baud, lines;
         vendOut(0xa1, 0, 0);
@@ -694,6 +723,7 @@ public final class UsbSerial {
         return baud || lines;
     }
 
+    /** Enables the CP210x, then 115200 little-endian, 8N1, and DTR/RTS high (0x0303). Returns false only when the enable request fails. */
     private static boolean configureCp210() {
         byte[] baud = new byte[] {0x00, (byte) 0xc2, 0x01, 0x00}; /* 115200 LE */
         int en = cpOut(0x00, 0x0001, 0);

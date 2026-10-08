@@ -3,6 +3,10 @@
 #include <math.h>
 #include <string.h>
 
+/* Eight-channel template matcher, no heap.
+ * MATCH uses wave and RMS. Cube and SMX are stored beside that. */
+
+/* Zero the library, select nothing, and turn matching on. L must be non-null. */
 void npl_init(struct npl *L)
 {
     memset(L, 0, sizeof(*L));
@@ -11,6 +15,7 @@ void npl_init(struct npl *L)
     L->match = 1;
 }
 
+/* Copy src into a 24-byte name and pad the rest with zeros. A null src stores an empty name. */
 static void copy_name(char *dst, const char *src)
 {
     int i;
@@ -22,6 +27,8 @@ static void copy_name(char *dst, const char *src)
     }
 }
 
+/* Replace the sample with the same name, or append. Returns the slot, -1 for bad arguments including a zero mask, or -2 when 16 slots are full.
+ * Cube and SMX on that slot are cleared. */
 int npl_add(struct npl *L, const char *name, const float wave[NPL_NCHAN][NPL_LEN],
             const float rms[NPL_NCHAN], uint8_t mask)
 {
@@ -57,6 +64,7 @@ int npl_add(struct npl *L, const char *name, const float wave[NPL_NCHAN][NPL_LEN
     return slot;
 }
 
+/* Store 64 cube bytes on slot i and mark them present. A bad index or a null cube returns. */
 void npl_set_cube(struct npl *L, int i, const uint8_t cube[64])
 {
     if (!L || i < 0 || i >= L->n || !cube) {
@@ -66,6 +74,8 @@ void npl_set_cube(struct npl *L, int i, const uint8_t cube[64])
     L->s[i].have_cube = 1;
 }
 
+/* Store up to 8 row bytes and the fold byte. A null rows or n < 1 clears the rows and still stores fold.
+ * n above 8 is clipped. */
 void npl_set_smx(struct npl *L, int i, const uint8_t *rows, int n, uint8_t fold)
 {
     if (!L || i < 0 || i >= L->n) {
@@ -84,6 +94,7 @@ void npl_set_smx(struct npl *L, int i, const uint8_t *rows, int n, uint8_t fold)
     L->s[i].smx_n = (uint8_t)n;
 }
 
+/* Bit Jaccard of two 64-byte cubes. A null side, or two empty cubes, returns 0. */
 float npl_cube_jaccard(const uint8_t a[64], const uint8_t b[64])
 {
     int i, both = 0, either = 0;
@@ -104,6 +115,7 @@ float npl_cube_jaccard(const uint8_t a[64], const uint8_t b[64])
     return (float)both / (float)either;
 }
 
+/* Remove slot i and slide the tail down. Selection follows the shift. best is cleared. Out of range returns. */
 void npl_del(struct npl *L, int i)
 {
     if (!L || i < 0 || i >= L->n) {
@@ -122,6 +134,7 @@ void npl_del(struct npl *L, int i)
     L->best = -1;
 }
 
+/* Cosine over the channels set in mask. A near-zero side returns 0. A negative cosine is kept. */
 static float cosine8(const float *a, const float *b, uint8_t mask)
 {
     int c;
@@ -140,6 +153,8 @@ static float cosine8(const float *a, const float *b, uint8_t mask)
     return (float)(dot / (sqrt(da) * sqrt(db)));
 }
 
+/* Score is 0.60 times the mean of positive per-channel dots, plus 0.40 times the RMS cosine. Negative dots are dropped.
+ * best is set only when the top score is at least 0.55 and leads by 0.08. Otherwise every score is zeroed and best is -1. */
 void npl_score(struct npl *L, const float wave[NPL_NCHAN][NPL_LEN], const float rms[NPL_NCHAN],
                uint8_t mask)
 {
@@ -200,6 +215,8 @@ void npl_score(struct npl *L, const float wave[NPL_NCHAN][NPL_LEN], const float 
     }
 }
 
+/* Jaccard of each stored cube against cube. A slot with no cube scores 0.
+ * Wave scores and best stay as they were. A null L or cube returns. */
 void npl_score_cube(struct npl *L, const uint8_t cube[64])
 {
     int i;
@@ -216,6 +233,7 @@ void npl_score_cube(struct npl *L, const uint8_t cube[64])
     }
 }
 
+/* Does nothing. The arguments are ignored, and MATCH is unchanged. */
 void npl_score_smx(struct npl *L, const uint8_t *rows, int n)
 {
     /* SMX is stored on the pose. It does not mix into MATCH. */
@@ -224,6 +242,7 @@ void npl_score_smx(struct npl *L, const uint8_t *rows, int n)
     (void)n;
 }
 
+/* Byte size of a full version-3 export: header plus 16 templates with wave, RMS, cube, and SMX. */
 int npl_bound(void)
 {
     /* v3: cube + smx seconds + fold */
@@ -231,6 +250,7 @@ int npl_bound(void)
                           (int)sizeof(float) * (NPL_NCHAN + NPL_NCHAN * NPL_LEN));
 }
 
+/* Copy n bytes and advance. Returns -1 when fewer than n bytes remain, and then writes nothing. */
 static int put(unsigned char **p, int *left, const void *src, int n)
 {
     if (*left < n) {
@@ -242,6 +262,7 @@ static int put(unsigned char **p, int *left, const void *src, int n)
     return 0;
 }
 
+/* Write magic EXGL, version 3, and every template. Returns the byte count, or -1 when L or buf is null or cap runs out. */
 int npl_export(const struct npl *L, void *buf, int cap)
 {
     unsigned char *p = (unsigned char *)buf;
@@ -267,6 +288,8 @@ int npl_export(const struct npl *L, void *buf, int cap)
     return (int)(p - (unsigned char *)buf);
 }
 
+/* Accept EXGL version 1, 2, or 3. A short record re-inits L and returns -1.
+ * Version 1 has no cube. Version 2 has no SMX. */
 int npl_import(struct npl *L, const void *buf, int n)
 {
     const unsigned char *p = (const unsigned char *)buf;

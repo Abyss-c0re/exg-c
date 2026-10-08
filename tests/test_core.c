@@ -31,11 +31,13 @@
 
 static int fails;
 
+/* JSON tail the index test expects: one white swatch and the site FCz. */
 static void test_view_extra(char *out, int n)
 {
     snprintf(out, (size_t)n, "\"color\":[[255,255,255]],\"elec\":[\"FCz\"]");
 }
 
+/* Prints ok or FAIL. cond 0 counts as a failure. */
 static void expect(int cond, const char *name)
 {
     if (!cond) {
@@ -46,12 +48,14 @@ static void expect(int cond, const char *name)
     }
 }
 
+/* Writes one signed sample big-endian. Knight EEG channels use that order. */
 static void put_i16be(unsigned char *p, int v)
 {
     p[0] = (unsigned char)((v >> 8) & 0xFF);
     p[1] = (unsigned char)(v & 0xFF);
 }
 
+/* Writes one float little-endian. IMU fields in a 57-byte frame use that order. */
 static void put_f32le(unsigned char *p, float f)
 {
     union {
@@ -62,6 +66,7 @@ static void put_f32le(unsigned char *p, float f)
     memcpy(p, u.c, 4);
 }
 
+/* Builds one 57-byte IMU frame: start, sequence, eight channels, acc x, end byte. */
 static void make_imu_frame(unsigned char *f, uint8_t seq, const int raw[NP_NCHAN],
                            float ax)
 {
@@ -80,12 +85,14 @@ static void make_imu_frame(unsigned char *f, uint8_t seq, const int raw[NP_NCHAN
     f[56] = NP_END;
 }
 
+/* Knight count-to-microvolt conversion for one raw sample at this gain. */
 static float scale_uv_ref(int raw, int gain)
 {
     return (4.0f / 32767.0f / (float)gain) * 1000000.0f / NP_KNIGHT_DIV
         * (float)raw;
 }
 
+/* chon_, choff_, rldadd_, and rldremove_ text, including the newline. */
 static void test_cmds(void)
 {
     char s[32];
@@ -101,6 +108,7 @@ static void test_cmds(void)
     expect(strcmp(s, "rldremove_1\n") == 0, "fmt rldremove_1");
 }
 
+/* Locks a 57-byte IMU frame and a 21-byte EEG frame. Checks scale, contacts, sequence gaps, and resync. */
 static void test_parser(void)
 {
     struct np_parser p;
@@ -209,6 +217,7 @@ static void test_parser(void)
     expect(s.seq == 7, "IMU payload 0xC0 keeps seq");
 }
 
+/* Auto length stays open after one EEG frame, locks 21 after two, and keeps 57 when 0xC0 is early. */
 static void test_parser_auto(void)
 {
     struct np_parser p;
@@ -274,6 +283,7 @@ struct stk_mock {
     int resets;
 };
 
+/* Appends bytes the flasher will read. Drops them and counts a fault if the mock buffer is full. */
 static void stk_reply(struct stk_mock *m, const unsigned char *b, int n)
 {
     if (m->out_i > 0) {
@@ -289,18 +299,21 @@ static void stk_reply(struct stk_mock *m, const unsigned char *b, int n)
     m->out_n += n;
 }
 
+/* Queues the two-byte optiboot OK, 0x14 0x10. */
 static void stk_ok(struct stk_mock *m)
 {
     unsigned char r[2] = {0x14, 0x10};
     stk_reply(m, r, 2);
 }
 
+/* Drops n bytes from the front of the command queue. */
 static void stk_drop(struct stk_mock *m, int n)
 {
     memmove(m->q, m->q + n, (size_t)(m->qn - n));
     m->qn -= n;
 }
 
+/* Answers complete STK500 commands. A short command waits. GET_SYNC answers twice so a late OK cannot shift the signature. */
 static void stk_consume(struct stk_mock *m)
 {
     while (m->qn >= 2) {
@@ -402,6 +415,7 @@ static void stk_consume(struct stk_mock *m)
     }
 }
 
+/* Mock UART write. Parses as soon as the bytes land. -1 if the queue cannot hold them. */
 static int stk_write(void *ctx, const unsigned char *buf, int n)
 {
     struct stk_mock *m = ctx;
@@ -414,6 +428,7 @@ static int stk_write(void *ctx, const unsigned char *buf, int n)
     return n;
 }
 
+/* Mock UART read. timeout_ms is ignored. 0 when nothing is queued. */
 static int stk_read(void *ctx, unsigned char *buf, int n, int timeout_ms)
 {
     struct stk_mock *m = ctx;
@@ -431,6 +446,7 @@ static int stk_read(void *ctx, unsigned char *buf, int n, int timeout_ms)
     return have;
 }
 
+/* Counts one reset and clears the unread command queue. */
 static void stk_pulse(void *ctx)
 {
     struct stk_mock *m = ctx;
@@ -442,6 +458,7 @@ static int flood_pulses;
 static int flood_writes;
 static int flood_bauds;
 
+/* Counts a baud change and accepts it. The flood port never goes quiet. */
 static int flood_baud(void *ctx, int baud)
 {
     (void)ctx;
@@ -454,6 +471,7 @@ static int silent_pulses;
 static int silent_bauds;
 static int silent_writes;
 
+/* Counts a write and answers nothing. Used for a board that stays in the sketch. */
 static int silent_write(void *ctx, const unsigned char *buf, int n)
 {
     (void)ctx;
@@ -462,6 +480,7 @@ static int silent_write(void *ctx, const unsigned char *buf, int n)
     return n;
 }
 
+/* Always empty. timeout_ms is ignored. */
 static int silent_read(void *ctx, unsigned char *buf, int n, int timeout_ms)
 {
     (void)ctx;
@@ -471,12 +490,14 @@ static int silent_read(void *ctx, unsigned char *buf, int n, int timeout_ms)
     return 0;
 }
 
+/* Counts a reset pulse and does not answer. */
 static void silent_pulse(void *ctx)
 {
     (void)ctx;
     silent_pulses++;
 }
 
+/* Counts a baud change. The silent test expects this to stay at 0. */
 static int silent_baud(void *ctx, int baud)
 {
     (void)ctx;
@@ -485,6 +506,7 @@ static int silent_baud(void *ctx, int baud)
     return 0;
 }
 
+/* Fills the buffer with 0xA0, at most 48 bytes. timeout_ms is ignored. A streaming sketch looks like this. */
 static int flood_read(void *ctx, unsigned char *buf, int n, int timeout_ms)
 {
     (void)ctx;
@@ -496,6 +518,7 @@ static int flood_read(void *ctx, unsigned char *buf, int n, int timeout_ms)
     return n;
 }
 
+/* Counts a write and keeps the flood going. */
 static int flood_write(void *ctx, const unsigned char *buf, int n)
 {
     (void)ctx;
@@ -504,12 +527,14 @@ static int flood_write(void *ctx, const unsigned char *buf, int n)
     return n;
 }
 
+/* Counts a reset. The next read is still a flood, so the line never goes quiet. */
 static void flood_pulse(void *ctx)
 {
     (void)ctx;
     flood_pulses++;
 }
 
+/* Rate snap, banner parse, the channel ladder, and one mock upload. A silent line is not programmed. */
 static void test_rate_and_flash(void)
 {
     struct stk_mock mock;
@@ -544,6 +569,24 @@ static void test_rate_and_flash(void)
     }
     expect(np_fw_version_line("IMU OK") == 0, "boot line ignores IMU OK");
     expect(np_fw_version_line("EXG-FW 0") == 0, "boot line rejects 0");
+    {
+        struct np_ladder lad;
+        unsigned seen;
+        memset(&lad, 0, sizeof(lad));
+        lad.fresh = 1;
+        expect(!np_ladder_due(&lad, 3), "known board leaves channels");
+        expect(np_ladder_due(&lad, 0), "unseen board arms once");
+        np_ladder_mark(&lad);
+        expect(!np_ladder_due(&lad, 0), "one arm is enough");
+        np_ladder_reboot(&lad);
+        expect(np_ladder_due(&lad, 3), "reboot asks for channels");
+        seen = lad.boot;
+        np_ladder_reboot(&lad);
+        lad.armed = seen;
+        expect(np_ladder_due(&lad, 3), "reboot during arm stays due");
+        np_ladder_mark(&lad);
+        expect(!np_ladder_due(&lad, 3), "marked generation is quiet");
+    }
 
     snprintf(hex, sizeof(hex), ":100000000102030405060708090A0B0C0D0E0F1068\n:00000001FF\n");
     rc = np_ihex_decode(hex, decoded, NP_STK_APP_MAX, &n, err, (int)sizeof(err));
@@ -627,6 +670,7 @@ static void test_rate_and_flash(void)
     }
 }
 
+/* The ring keeps the newest samples and the last IMU triple. */
 static void test_ring(void)
 {
     struct np_ring r;
@@ -656,6 +700,7 @@ static void test_ring(void)
     }
 }
 
+/* One second of a mains sine plus a smaller signal sine. sps is samples per second. */
 static void synth(float *x, int n, float sps, float line_hz, float line_a, float sig_hz,
                   float sig_a)
 {
@@ -667,6 +712,7 @@ static void synth(float *x, int n, float sps, float line_hz, float line_a, float
     }
 }
 
+/* A 50 Hz plate sets the AUTO notch. A 60 Hz notch at 125 SPS still cuts. */
 static void test_auto_from_cal(void)
 {
     float cal[256], live[256];
@@ -712,6 +758,7 @@ static void test_auto_from_cal(void)
     expect(pout < 0.5f * pin, "60 Hz wide notch cuts");
 }
 
+/* Root mean square. n of 0 returns 0. */
 static float rms_of(const float *x, int n)
 {
     int i;
@@ -785,6 +832,7 @@ static void test_ml_harness(void)
            "harness: noise plate only, no CALM, is noise");
 }
 
+/* Wiener against the desk plate cuts 50 Hz and keeps an 8 Hz burst. A 4 s window has no raw tail. */
 static void test_plate_destroy(void)
 {
     float noise[NP_PLATE_N], live[NP_PLATE_N], sig[NP_PLATE_N], psd[NP_PSD_BINS];
@@ -836,6 +884,7 @@ static void test_plate_destroy(void)
     }
 }
 
+/* MATCH scores a pose against itself, ignores an empty cube, and does not name one of two twins. */
 static void test_nplearn(void)
 {
     struct npl L;
@@ -886,6 +935,7 @@ static void test_nplearn(void)
     }
 }
 
+/* The checked-in live CSV has at least 128 rows and a 50 Hz tone. */
 static void test_replay_live_csv(void)
 {
     FILE *f = fopen("tests/fixtures/live-table.csv", "r");
@@ -917,6 +967,7 @@ static void test_replay_live_csv(void)
     expect(hz > 48.f && hz < 52.f, "replay live tone is 50 Hz mains");
 }
 
+/* Loads the checked-in cal file: 8 channels, idle tone, then a ~50 Hz tone. */
 static void test_disk_cal(void)
 {
     FILE *f = fopen("exg-c.cal", "r");
@@ -946,6 +997,7 @@ static void test_disk_cal(void)
     expect(rows == 8, "on-disk cal 8 channels");
 }
 
+/* One second of bits, a 32 s cap, cube budget, and the fold from packed slots back to channels. */
 static void test_smx(void)
 {
     struct np_smx m;
@@ -1024,6 +1076,7 @@ static void test_smx(void)
     }
 }
 
+/* 10-10 names, default sites, NEG RAIL pairs, and the view JSON the screen reads. */
 static void test_elec_view(void)
 {
     struct np_elec e[NP_NCHAN], back;
@@ -1216,6 +1269,7 @@ static void test_elec_view(void)
     }
 }
 
+/* Every 10-10 name lands on the shell. The default eight sites are distinct cells. */
 static void test_cube3(void)
 {
     struct np_smx m;
@@ -1284,6 +1338,7 @@ static void test_cube3(void)
     expect(np_cube_get(&m, 0, 0, 0) == 0, "IMU tick does not keep a shell bit");
 }
 
+/* CubalC compare, a syntax error, the ch2<ch5 rule, and a SoT pack on disk. */
 static void test_algo(void)
 {
     float hi[32], mix[32], z[32];
@@ -1519,6 +1574,7 @@ static void test_algo(void)
     }
 }
 
+/* A profile file keeps filters, sites, gain, bias, and per-channel minus sites including NONE. */
 static void test_profile_format(void)
 {
     const char *path = "/tmp/exg-c-profile-mock.ini";
@@ -1578,6 +1634,7 @@ static void test_profile_format(void)
            "profile keeps per-channel − sites including NONE");
 }
 
+/* ID classes: need a plate, still, blink, clench, one-channel burst, open rail. */
 static void test_id_event(void)
 {
     float rms[8], calm[8];
@@ -1614,6 +1671,7 @@ static void test_id_event(void)
     expect(np_id_event(rms, calm, fp, mask, 1, &r) == NP_ID_RAIL, "id: open rail");
 }
 
+/* Clip is 4 mV. CAR removes a common mode and leaves an open rail. Low-pass cuts a Nyquist square. */
 static void test_process(void)
 {
     float v[8];
@@ -1658,6 +1716,7 @@ static void test_process(void)
     expect(np_env_step(&ev, -80.f) >= 0.f, "envelope is unsigned");
 }
 
+/* Take files round-trip. Rest is not clip. A clench matches its pattern and not the rest tail. */
 static void test_atom(void)
 {
     float planar[8 * 125];
@@ -1871,6 +1930,7 @@ static void test_atom(void)
     }
 }
 
+/* One HTTP/1.0 GET. Returns the byte count, or -1 if the socket fails. Times out at 250 ms. */
 static int http_get(const char *host, int port, const char *path, char *out, int n)
 {
     int fd, w, r, got = 0;
@@ -1912,6 +1972,7 @@ static int http_get(const char *host, int port, const char *path, char *out, int
     return got;
 }
 
+/* One HTTP/1.0 POST. body may be NULL. Returns the byte count, or -1 if the socket fails. */
 static int http_post(const char *host, int port, const char *path, const char *body, char *out, int n)
 {
     int fd, w, r, got = 0, bl;
@@ -1961,6 +2022,7 @@ static int http_post(const char *host, int port, const char *path, const char *b
 
 static int t_pair_st;
 static char t_pair_g[32];
+/* Pair-ask stand-in. The first real name returns 1. State 2 copies the grant and returns 2. */
 static int t_pair_ask(const char *name, char *grant, int gn)
 {
     if (name && name[0] && t_pair_st == 0) {
@@ -1974,6 +2036,7 @@ static int t_pair_ask(const char *name, char *grant, int gn)
     return t_pair_st;
 }
 
+/* EXG1 time steps 8 ms at 125 Hz, abuts the next burst, and starts a new grid after a 150 ms stall. */
 static void test_stamp(void)
 {
     struct np_api_grid g;
@@ -2004,6 +2067,7 @@ static void test_stamp(void)
     np_api_stamp_reset();
 }
 
+/* EXG1 layout, loopback HTTP, UDP subscribe, TCP framing, and the 3.04 version string. */
 static void test_api(void)
 {
     struct np_api_sample a, b;
@@ -2124,7 +2188,7 @@ static void test_api(void)
          strstr(body, "/stream") && strstr(body, "EXG1");
     expect(ok, "api GET / index lists stream");
     expect(strstr(body, "stream.json") == NULL, "api index has no NDJSON live path");
-    expect(strstr(body, "\"v\":\"3.03\"") != NULL, "api index version 3.03");
+    expect(strstr(body, "\"v\":\"3.04\"") != NULL, "api index version 3.04");
     expect(strstr(body, "/pair") != NULL, "api index lists /pair");
     expect(strstr(body, "\"ip\":\"127.0.0.1\"") != NULL, "api local ip is loopback");
     {
@@ -2266,6 +2330,7 @@ static void test_api(void)
     (void)errno;
 }
 
+/* Runs the mock suite. Returns 1 if any expect failed. Does not open a serial port. */
 int main(void)
 {
     test_cmds();

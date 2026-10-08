@@ -54,10 +54,10 @@ enum { FFT_STRIP_N = 128, FFT_STRIP_BINS = 64 };
 #define NPAL 12
 
 struct np_app {
-    int fd;
+    int fd; /* tty on desktop. Android open returns 100, not a kernel fd. */
     int running;
     int connected;
-    int want_connect;
+    int want_connect; /* declared only */
     enum np_board board;      /* live frame: EXG, IMU, or still Auto */
     enum np_board board_pref; /* Auto, or a forced length. Saved. */
     int port_i;
@@ -73,23 +73,23 @@ struct np_app {
     int status_ok;
     struct np_parser parser;
     struct np_ring ring;
-    pthread_t thr;
-    pthread_t en_thr;
-    pthread_t cmd_thr;
+    pthread_t thr; /* USB reader. Android raises this thread to audio priority. */
+    pthread_t en_thr; /* channel ladder. Runs only after EXG-FW or a reset this app requested. */
+    pthread_t cmd_thr; /* command queue. Not raised to audio priority. */
     int en_running;
     pthread_mutex_t mu;
     pthread_mutex_t qmu;
     pthread_cond_t qcv;
-    int qh, qt;
+    int qh, qt; /* command queue head and tail */
     struct {
         int op, ch, gain;
     } q[QMAX];
     /* visualization / sampling */
     int window_s;
     int autoscale;
-    int og;
+    int og; /* 1 = scale fit, the min and max of the strip */
     int scale_uv;
-    int notch_hz;
+    int notch_hz; /* 50, 60, 0 off, or -1 so AUTO follows the plate */
     int hp_hz;
     int lp_hz;
     int car;
@@ -122,9 +122,9 @@ struct np_app {
         int have;
         uint32_t n;
         float dc[NP_NCHAN], rms[NP_NCHAN], pk[NP_NCHAN];
-    } off, on, cal, calm;
+    } off, on, cal, calm; /* off and on are unused. cal is desk noise. calm is the still wear. */
     int cal_arm;
-    int cal_cut;
+    int cal_cut; /* 1 turns DC on. DC on is the still-plate mean. */
     int set_gen; /* 1 EXG, 2 API off, 3 pair montage, 4 pair colors, 5 raw default, 6 motor+visual */
     float cal_hz; /* line tone from noise plate; 0 = none */
     float noise_psd[NP_PSD_BINS];
@@ -160,7 +160,7 @@ struct np_app {
     int neg_rail; /* 1 = NEG RAIL: bias off, per-channel − site, sample is V(+)−V(−) */
     int neg_site[NP_NCHAN]; /* 10-10 index of each channel's negative electrode, -1 unset */
     int neg_pick; /* 1 = map Assign writes neg_site[elec_sel] */
-    int pair_mode; /* unused */
+    int pair_mode; /* 1 = two bipolar pairs, motor FC and visual PO. 0 = eight channel labels. */
     int made_n;
     int made_sel;
     struct {
@@ -224,56 +224,107 @@ extern const int WINPREF[NWINPREF][2];
 extern float fft_hold[FFT_STRIP_BINS];
 extern int fft_used, fft_open, fft_peak_hz;
 
+/* Status line under g.mu. ok 0 is a fault. fmt is printf-style and may truncate. */
 void set_status(int ok, const char *fmt, ...);
+/* Turns on-screen text entry on or off. Turning it off also clears a profile-name edit. */
 void typing_set(int on);
+/* Raw Knight view: filters, CAR, envelope, detrend, and the DC cut off, scale 1000 µV, window 2 s. Does not touch NEG RAIL or the electrode map. */
 void apply_readable_defaults(void);
+/* Reads exg-c.ini, or ~/.config/exg-c.conf if that is missing, then fills empty algos. Does not recook plates. */
 void cfg_load(void);
+/* Writes exg-c.ini under the config root, map included. A failed open leaves the previous file. */
 void cfg_save(void);
+/* USB opens the selected port and starts the reader and enable threads. A LAN follow only starts the link. Returns if already up, or if a flash is running and flash_owner is clear. */
 void do_connect(void);
+/* Drops the link and joins the reader. Closes an open CSV without fsync. Returns if already down, or if a flash is running and flash_owner is clear. */
 void do_disconnect(void);
+/* Queues one Knight command. cmd_thread writes it. Drops it if the queue is already full. */
 void cmd_push(int op, int ch, int gain);
+/* Rebuilds HP, notch, LP, and envelope poles at the design rate. Zeros the live cursor, so the next sync starts from a fresh history. */
 void filt_reset(void);
+/* Short ID text. A LAN follow name wins and skips the local classifier. A cold stream says it is warming, in measured SPS. */
 void id_label(char *out, int n);
+/* Path of exg-c.learn under the config root. Creates the root directory if it can. */
 void learn_path(char *out, size_t n);
+/* Writes the MATCH pose bank to exg-c.learn. Does not write take files. */
 void learn_persist(void);
+/* Arms a 4 s pose record under the typed name. No name opens the keyboard and returns. No board returns without arming. */
 void learn_start_hold(void);
+/* While MATCH is on, scores the last second against saved poses about ten times a second. A cold stream, MATCH off, or a failed capture clears the winner and returns. */
 void learn_tick(void);
+/* files dir if set, else desktop ~/.config or Android HOME. The non-UI Android build tries SDL internal storage first. Does not create it. */
 void np_cfg_root(char *out, size_t n);
+/* Makes every directory along path, mode 0755. NULL or empty returns. mkdir errors are ignored. */
 void np_mkdir_p(const char *path);
+/* Samples a plate asks for: window seconds times the design rate, never under NP_PLATE_N and never over the ring. */
 uint32_t plate_want(void);
+/* Loads the next saved profile. The electrode map stays, and plates and takes are recooked from raw. */
 void prof_cycle(void);
+/* Loads the named profile but puts the electrode map back, then recooks plates and takes from raw and writes exg-c.ini. An empty name jumps to the first saved profile. */
 void prof_load(void);
+/* Writes the named profile without the electrode map, then writes exg-c.ini with the map. Returns without a new profile file if the name is illegal or that write fails. */
 void prof_save(void);
+/* Fills the profile list from *.ini in the profiles directory. A missing directory leaves the count at 0. */
 void prof_scan(void);
+/* Writes the newest n_samp live samples as planar µV. Returns if n_samp < 16 or malloc fails. Caps at NP_RING. */
 void raw_dump_ring(const char *path, uint32_t n_samp);
+/* <raw>/<which>.nprw. which is the file name as given, with no sanitize. */
 void raw_plate_path(const char *which, char *out, int n);
+/* UI tick, at most once a second, and only while connected. Folds live channels into the cube and may store one SMX byte. */
 void smx_tick(void);
+/* After a stall, at most 3 resets. Returns while disconnected, enabling, or flashing. Android does not pulse DTR, and a link with under 10 frames is not reset. */
 void stream_recover(void);
+/* UI. Opens a timestamped CSV under the config root, or closes the current one. Refuses when not connected. */
 void toggle_record(void);
+/* CLEAN STFT at ~12 Hz, not 60×8. Plot uses the last cooked window. */
 uint32_t view_copy(int ch, float *dst, uint32_t n);
+/* Once a second, while connected and not cold, packs one cooked second into the atom ring. The envelope is forced off for that second and restored. A cold stream returns without a fold. */
 void atom_tick(void);
+/* Binds or rebinds the share from g. If the bind fails while share was on, turns it off. */
 void api_apply(void);
+/* Copies the built-in share settings into g and clears the token. Does not bind a socket. */
 void api_defaults(void);
+/* dc and rms of buf, pk the max absolute sample. Same unit as buf. n of 0 writes zeros. */
 void ch_stats(const float *buf, uint32_t n, float *dc, float *rms, float *pk);
+/* Button face: "CLN" when Wiener can run, "DC" when only offset subtract is on, else "dc". */
 const char *clean_btn(void);
+/* Status line for the DC/CLEAN switch. Does not change the switch. */
 void clean_set_status(void);
+/* Plot suffix: " CLEAN", " DC", or empty. Same switch as the button. */
 const char *clean_tag(void);
+/* Held snap 125/200/250/500, else a measured 100–160, else 125. 200 is the USB ceiling. Do not build filter poles from a lagged rate. */
 float design_sps(void);
+/* UI. Rebuilds the strip magnitude at most every 80 ms from cooked windows. Skips a channel that still looks like the noise plate. */
 void fft_refresh(void);
+/* Pulls the cube zoom into 0.70 .. 2.80. */
 void cube_zoom_clamp(void);
+/* dir > 0 steps in by 0.20. Any other dir steps out by 0.20, then clamps. */
 void cube_zoom_by(int dir);
+/* Steps the 10-10 focus by dir, wrapping. Returns if the site list is empty. */
 void cube_site_by(int dir);
+/* Storage index of the focus-th used virtual cell. -1 if focus is past that set. */
 int cube_virt_slot(int focus);
+/* Steps virt_focus across used cells, wrapping. Sets 0 when none are used. */
 void cube_virt_by(int dir);
+/* Writes the focused 10-10 site onto the selected channel and saves. With neg_pick and a channel selected, sets that NEG site and returns. Out of range returns. */
 void cube_assign_focus(void);
+/* Next ADS gain code for ch. Does nothing if the current code is not in the table. ch is not bounds-checked. */
 void next_gain(int ch);
+/* Next palette RGB for channel c (0..7). An unknown color jumps to swatch 0. Out of range returns. */
 void chcol_cycle(int c);
+/* Writes the noise and still plates to exg-c.cal. 0 on success, -1 if it cannot open. */
 int cal_save(void);
+/* Reads exg-c.cal into the plates. 0 if at least one channel row loaded. -1 if the file is missing or empty. */
 int cal_load(void);
+/* Noise plate from the live ring, plus a raw dump. Sets the plate even if the file write fails. */
 void cal_capture(void);
+/* Still plate. Returns without writing if no noise plate exists. Notches a tone above 1 Hz, then stores DC and the residual RMS. */
 void calm_capture(void);
+/* Desktop only. Re-execs under sg dialout once. Android, NP_EXG_NOSG, or an existing dialout membership returns. A failed sg does not loop. */
 void ensure_dialout(int argc, char **argv);
+/* 0 off, 1 flat, 2 lead-off, 3 open above 250 mV, 4 live. buf is µV. c is not checked. Bit 0 of lp and ln is channel 1. */
 int ch_quality(int c, const float *buf, uint32_t n, uint8_t lp, uint8_t ln);
+/* Weak no-op. The UI's own definition replaces it. w and h are ignored here. */
 void np_ui_apply_window_size(int w, int h);
 
 #endif

@@ -4,6 +4,9 @@
 #include <math.h>
 #include <string.h>
 
+/* Filters, spectra, and short-window labels. Samples are µV.
+ * Clip is ±4000. Rail is ±250000. SIGNAL needs a worn CALM plate. */
+
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
@@ -18,6 +21,7 @@ static float np_flush(float y)
     return y;
 }
 
+/* Subtract the mean in place. n at or below 0 returns. */
 void np_detrend(float *x, int n)
 {
     int i;
@@ -34,6 +38,7 @@ void np_detrend(float *x, int n)
     }
 }
 
+/* Bit-reverse re and im in place. n must be a power of two. */
 static void bitrev(float *re, float *im, int n)
 {
     int i, j, k;
@@ -55,6 +60,7 @@ static void bitrev(float *re, float *im, int n)
     }
 }
 
+/* Radix-2 FFT in place. A non-zero inv also divides by n. n must be a power of two. */
 static void fft_inplace(float *re, float *im, int n, int inv)
 {
     int i, len, step;
@@ -90,6 +96,8 @@ static void fft_inplace(float *re, float *im, int n, int inv)
     }
 }
 
+/* Magnitude of a forward FFT. n above 256 is clipped to 256, and n must be a power of two.
+ * mag[i] is |bin i| / n for the first n/2 bins. */
 void np_fft_mag(const float *in, int n, float *mag)
 {
     float re[NP_FFT_N], im[NP_FFT_N];
@@ -106,6 +114,7 @@ void np_fft_mag(const float *in, int n, float *mag)
     }
 }
 
+/* Hann PSD, hop 128, mean power into NP_PSD_BINS. A null x or n below 256 leaves zeros. */
 void np_welch_psd(const float *x, int n, float *psd)
 {
     float re[NP_FFT_N], im[NP_FFT_N];
@@ -134,6 +143,7 @@ void np_welch_psd(const float *x, int n, float *psd)
     }
 }
 
+/* Median of bins from index 2 through the end. A null psd returns 0. */
 float np_psd_floor(const float *psd)
 {
     float v[NP_PSD_BINS];
@@ -231,6 +241,7 @@ void np_plate_destroy(float *x, int n, const float *noise_psd)
     }
 }
 
+/* One-pole high-pass. a is rc/(rc+dt). hz or sps at or below 0 leaves a at 0, so the step copies the input. */
 void np_hp_init(struct np_hp *f, float hz, float sps)
 {
     float rc, dt;
@@ -244,6 +255,7 @@ void np_hp_init(struct np_hp *f, float hz, float sps)
     f->a = rc / (rc + dt);
 }
 
+/* One high-pass sample. a at or below 0 returns x unchanged. */
 float np_hp_step(struct np_hp *f, float x)
 {
     float y;
@@ -256,6 +268,7 @@ float np_hp_step(struct np_hp *f, float x)
     return y;
 }
 
+/* One-pole low-pass. a is dt/(rc+dt). hz or sps at or below 0 sets a to 1, so the step copies the input. */
 void np_lp_init(struct np_lp *f, float hz, float sps)
 {
     float rc, dt;
@@ -269,12 +282,14 @@ void np_lp_init(struct np_lp *f, float hz, float sps)
     f->a = dt / (rc + dt);
 }
 
+/* One low-pass sample. y moves toward x by a. */
 float np_lp_step(struct np_lp *f, float x)
 {
     f->y += f->a * (x - f->y);
     return f->y;
 }
 
+/* Envelope coefficient from tau_s in seconds. a is 1/(tau_s*sps+1). tau_s or sps at or below 0 sets a to 1. */
 void np_env_init(struct np_lp *f, float tau_s, float sps)
 {
     memset(f, 0, sizeof(*f));
@@ -285,6 +300,7 @@ void np_env_init(struct np_lp *f, float tau_s, float sps)
     f->a = 1.f / (tau_s * sps + 1.f);
 }
 
+/* RMS of x² through the low-pass state. A negative power is clamped to 0 before the square root. */
 float np_env_step(struct np_lp *f, float x)
 {
     float p = x * x;
@@ -295,16 +311,19 @@ float np_env_step(struct np_lp *f, float x)
     return sqrtf(f->y);
 }
 
+/* 1 when |v| is above 4000 µV. */
 int np_sample_clip(float v)
 {
     return v > NP_CLIP_UV || v < -NP_CLIP_UV;
 }
 
+/* 1 when |v| is above 250000 µV. */
 int np_sample_rail(float v)
 {
     return v > 250000.f || v < -250000.f;
 }
 
+/* 1 when any sample is outside ±4000 µV. A null x or n below 1 returns 0. */
 int np_window_clip(const float *x, int n)
 {
     int i;
@@ -319,6 +338,8 @@ int np_window_clip(const float *x, int n)
     return 0;
 }
 
+/* Subtract the mean of used channels that are inside ±250000 µV. Fewer than two such channels leaves v unchanged.
+ * A null v returns. A null use mask selects nothing. */
 void np_car_sample(float *v, const int *use)
 {
     int c, n = 0;
@@ -346,6 +367,7 @@ void np_car_sample(float *v, const int *use)
     }
 }
 
+/* Name for a band id: raw, line-kill, EEG, or EMG. An id outside 0..3 returns "raw". */
 const char *np_band_name(int id)
 {
     static const char *n[NP_BAND_N] = {"raw", "line-kill", "EEG", "EMG"};
@@ -355,6 +377,7 @@ const char *np_band_name(int id)
     return n[id];
 }
 
+/* Cookbook notch. hz or sps at or below 0 is an identity, hz at or past half the rate becomes 0.48*sps, Q below 0.5 becomes 0.5, Q above 4 past 0.42*sps is cut to 3, and the pole radius stays in 0.55..0.98. */
 void np_notch_init(struct np_notch *f, float hz, float sps, float q)
 {
     float w, c, r, bw, g, den;
@@ -399,6 +422,7 @@ void np_notch_init(struct np_notch *f, float hz, float sps, float q)
     f->a2 = r * r;
 }
 
+/* One notch sample. Identity coefficients (b0 = 1 and b1 = 0) return x unchanged. */
 float np_notch_step(struct np_notch *f, float x)
 {
     float y;
@@ -413,6 +437,8 @@ float np_notch_step(struct np_notch *f, float x)
     return y;
 }
 
+/* Search 40 Hz through 0.47*sps. The peak must be at least 4 times the mean of that band, then a parabolic bin shift.
+ * Returns 0 and writes hz, or -1. sps below 1, or a null pointer, returns -1. */
 int np_tone_from_psd(const float *psd, float sps, float *hz_out)
 {
     int N = NP_FFT_N, i, lo, hi, peak_i = 0, cnt = 0;
@@ -452,6 +478,8 @@ int np_tone_from_psd(const float *psd, float sps, float *hz_out)
     return 0;
 }
 
+/* Windowed FFT of at most 256 samples after detrend, same 40 Hz .. 0.47*sps peak test.
+ * n below 32, sps below 1, or a null pointer returns -1. */
 int np_tone_hz(const float *x, int n, float sps, float *hz_out)
 {
     float tmp[NP_FFT_N], mag[NP_FFT_N / 2];
@@ -506,6 +534,7 @@ int np_tone_hz(const float *x, int n, float sps, float *hz_out)
     return 0;
 }
 
+/* Subtract a 2/n least-squares sinusoid at hz. n below 8, or hz outside (0, 0.47*sps), returns with x unchanged. */
 void np_tone_cancel(float *x, int n, float hz, float sps)
 {
     int i;
@@ -528,6 +557,7 @@ void np_tone_cancel(float *x, int n, float hz, float sps)
     }
 }
 
+/* Subtract dc from each sample. A null x or n at or below 0 returns. */
 void np_sub_dc(float *x, int n, float dc)
 {
     int i;
@@ -539,6 +569,8 @@ void np_sub_dc(float *x, int n, float dc)
     }
 }
 
+/* ratio is set to 0 first. calm_rms above 1 µV uses resid/calm: 1.50 or more is SIGNAL, raw within 0.70..1.40 of a real noise floor is NOISE, otherwise CALM.
+ * With no calm plate the same noise test can return NOISE, and every other case returns NONE. */
 int np_detect(float raw_rms, float resid_rms, float noise_rms, float calm_rms, float *ratio)
 {
     const float floor_uv = 1.f;
@@ -568,6 +600,7 @@ int np_detect(float raw_rms, float resid_rms, float noise_rms, float calm_rms, f
     return NP_DET_NONE;
 }
 
+/* none, need CALM, rail, still, blink, clench, burst, or CLIP. An id outside 0..7 returns "none". */
 const char *np_id_name(int id)
 {
     static const char *n[] = {"none", "need CALM", "rail", "still", "blink", "clench",
@@ -578,6 +611,8 @@ const char *np_id_name(int id)
     return n[id];
 }
 
+/* Rail when any masked rms exceeds 250000 µV; otherwise NEED with no calm plate, STILL below 1.80, BLINK when frontopolar is hot and the rest is quiet, CLENCH at four hot channels, BURST at 2.50, else STILL.
+ * A missing calm base is 25 µV. CLIP is never returned. A null rms returns NONE and ratio stays 0. */
 int np_id_event(const float *rms, const float *calm, const int *fp, uint8_t mask,
                 int have_calm, float *ratio)
 {

@@ -27,6 +27,7 @@ public class StreamService extends Service {
     private long lastNoteMs;
     private int lastPair;
 
+    /** Starts the service when on is true and stops it when on is false. The service is started, not bound. */
     public static void ensure(Context c, boolean on) {
         Intent i = new Intent(c, StreamService.class);
         if (on) {
@@ -38,6 +39,7 @@ public class StreamService extends Service {
         }
     }
 
+    /** Creates the share and ask channels, then tries to go foreground. Returns before the wake and wifi locks if that start fails. */
     @Override
     public void onCreate() {
         super.onCreate();
@@ -76,6 +78,7 @@ public class StreamService extends Service {
         }
     }
 
+    /** Tries to go foreground again. Returns START_NOT_STICKY if that fails; otherwise posts the 8 ms tick once and returns START_STICKY. */
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         if (!goForeground(note())) {
@@ -89,6 +92,7 @@ public class StreamService extends Service {
     }
 
     private final Runnable tick = new Runnable() {
+        /** Returns at once if the service is stopping. Ticks the host, updates the pair note on a state change, refreshes the stream note about once a second, and stops itself when the API is off and the board is disconnected; otherwise runs again in 8 ms. */
         @Override
         public void run() {
             if (!ticking) {
@@ -123,6 +127,7 @@ public class StreamService extends Service {
         }
     };
 
+    /** Starts as a data-sync foreground service on API 29 and later, otherwise the older foreground call. On failure stops the service and returns false. */
     private boolean goForeground(Notification n) {
         try {
             if (Build.VERSION.SDK_INT >= 29) {
@@ -137,16 +142,19 @@ public class StreamService extends Service {
         }
     }
 
+    /** First foreground note: title "EXG stream", text "starting". */
     private Notification bootNote() {
         return buildNote("EXG stream", "starting");
     }
 
+    /** Title is "EXG on" when connected, otherwise "Sharing EXG". The text is the API status line. */
     private Notification note() {
         String line = ExgNative.apiLine();
         String title = ExgNative.connected() ? "EXG on" : "Sharing EXG";
         return buildNote(title, line);
     }
 
+    /** Allow and No actions for the waiting ask. A null or empty peer name is shown as "Someone", and underscores in the name become spaces. */
     private Notification pairNote() {
         String who = ExgNative.pairName();
         if (who == null || who.length() < 1) {
@@ -181,6 +189,7 @@ public class StreamService extends Service {
         return b.build();
     }
 
+    /** Ongoing notification that opens the main activity. title and line are shown as given. */
     private Notification buildNote(String title, String line) {
         Intent open = new Intent(this, ExgActivity.class);
         open.setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);
@@ -207,6 +216,7 @@ public class StreamService extends Service {
         return b.build();
     }
 
+    /** Stops the tick and releases the wake and wifi locks if they are held. */
     @Override
     public void onDestroy() {
         ticking = false;
@@ -220,6 +230,7 @@ public class StreamService extends Service {
         super.onDestroy();
     }
 
+    /** Returns null. The service is started, not bound. */
     @Override
     public IBinder onBind(Intent intent) {
         return null;

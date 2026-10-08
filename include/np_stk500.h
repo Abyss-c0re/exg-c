@@ -15,6 +15,7 @@ struct np_stk_io {
     int (*write)(void *ctx, const unsigned char *buf, int n);
     /* Read up to n bytes, waiting at most timeout_ms. 0 on timeout, -1 on error. */
     int (*read)(void *ctx, unsigned char *buf, int n, int timeout_ms);
+    /* Optional. Resets the Nano. NULL skips it. */
     void (*pulse_dtr)(void *ctx);
     /* Optional. 0 on success, -1 if this baud cannot be set. NULL skips 57600. */
     int (*set_baud)(void *ctx, int baud);

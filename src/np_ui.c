@@ -23,12 +23,18 @@
 #include <time.h>
 #include <unistd.h>
 
+/* Desktop SDL shell. Touch widths differ from desk.
+ * Wave strips are µV. Cube tab is live lattice or 10-10 map. */
+
+const int WINPREF[NWINPREF][2] = {{1280, 800}, {1440, 900}, {1600, 1000}, {1920, 1080}};
+
 #ifndef NP_ANDROID_UI
 
 static int win_w = WIN_W, win_h = WIN_H;
 static SDL_Window *Win;
 static SDL_Renderer *R;
 
+/* Touch width is 36% of the window, clamped to 300..380 px and at most half the width. Desk returns SIDE_W. */
 static int sidew(void)
 {
     if (NP_TOUCH) {
@@ -46,18 +52,22 @@ static int sidew(void)
     }
     return SIDE_W;
 }
+/* 42 px on touch, otherwise STATUS_H. */
 static int statush(void)
 {
     return NP_TOUCH ? 42 : STATUS_H;
 }
+/* 40 px on touch, otherwise 22. */
 static int btnh(void)
 {
     return NP_TOUCH ? 40 : 22;
 }
+/* 48 px on touch, otherwise 26. */
 static int rowh(void)
 {
     return NP_TOUCH ? 48 : 26;
 }
+/* Touch is 150 px when the window is under 560 tall, else 168. Desk is 88 under 520, else LEARN_H. */
 static int learnh(void)
 {
     if (NP_TOUCH) {
@@ -68,6 +78,7 @@ static int learnh(void)
     }
     return LEARN_H;
 }
+/* 56 px under 520 tall, 72 under 640, otherwise FFT_H. */
 static int ffth(void)
 {
     if (win_h < 520) {
@@ -78,6 +89,7 @@ static int ffth(void)
     }
     return FFT_H;
 }
+/* g.ui_scale is tenths and must be 10, 15, or 20; any other value is treated as 15. Returns tenths/10. */
 static float ui_f(void)
 {
     int t = g.ui_scale;
@@ -87,6 +99,7 @@ static float ui_f(void)
     return (float)t / 10.f;
 }
 
+/* Sets the SDL window to w by h pixels when Win exists. A null window returns, and w and h go to SDL as given. */
 void np_ui_apply_window_size(int w, int h)
 {
     if (Win) {
@@ -95,6 +108,7 @@ void np_ui_apply_window_size(int w, int h)
 }
 
 
+/* Fills an opaque rectangle, alpha 255. */
 static void fill(int x, int y, int w, int h, int r, int gcol, int b)
 {
     SDL_Rect rc = {x, y, w, h};
@@ -102,6 +116,7 @@ static void fill(int x, int y, int w, int h, int r, int gcol, int b)
     SDL_RenderFillRect(R, &rc);
 }
 
+/* One 5×7 glyph from np_font5x7, each set bit a square of s pixels, bits 4..0 left to right. A byte outside 32..127 is drawn as ?. */
 static void glyph(int x, int y, char ch, int r, int gcol, int b, int s)
 {
     int row, col;
@@ -119,6 +134,7 @@ static void glyph(int x, int y, char ch, int r, int gcol, int b, int s)
     }
 }
 
+/* Draws s at scale sc; sc below 1 becomes 1, and each glyph advances 6*sc px. s must be non-null. */
 static void text(int x, int y, const char *s, int r, int gcol, int b, int sc)
 {
     if (sc < 1) {
@@ -147,12 +163,14 @@ static void btn(int x, int y, int w, int h, const char *label, int on, int kind,
 static int draw_flash_side(int x, int y);
 static int draw_debug_side(int x, int y);
 
+/* Pane height under the status bar, in px, at least 40. */
 static int side_view(void)
 {
     int h = win_h - statush();
     return h > 40 ? h : 40;
 }
 
+/* Keeps side_scroll inside 0 .. max(0, side_need − view). */
 static void side_clamp(void)
 {
     int max = side_need - side_view();
@@ -167,11 +185,13 @@ static void side_clamp(void)
     }
 }
 
+/* 1 when x is in the right pane and y is inside the view under the status bar. */
 static int in_side(int x, int y)
 {
     return x >= win_w - sidew() && y >= 0 && y < side_view();
 }
 
+/* Clears the clip, sets side_need to y + scroll + 28, then clamps. An overflowing pane draws a scrollbar plus up/down hits (kinds 45 and 46). */
 static void side_end(int x, int y)
 {
     int view = side_view();
@@ -197,6 +217,7 @@ static void side_end(int x, int y)
     }
 }
 
+/* Stores one hit, at most 128; a full table drops the new one. A side hit fully above the pinned body, or with y at or below the view, is dropped. */
 static void add_hit(int x, int y, int w, int h, int kind, int ch)
 {
     if (nhits >= 128) {
@@ -217,11 +238,13 @@ static void add_hit(int x, int y, int w, int h, int kind, int ch)
     nhits++;
 }
 
+/* 1 when the point is inside the rect. The right and bottom edges are outside. */
 static int inside(const SDL_Rect *r, int x, int y)
 {
     return x >= r->x && y >= r->y && x < r->x + r->w && y < r->y + r->h;
 }
 
+/* Fills the rect, draws the label, and registers a hit of the given kind. on only brightens the label. */
 static void btn(int x, int y, int w, int h, const char *label, int on, int kind, int ch,
                 int r, int gcol, int b)
 {
@@ -232,6 +255,8 @@ static void btn(int x, int y, int w, int h, const char *label, int on, int kind,
 }
 
 
+/* Window is window_s×sps samples (sps ≤ 1 uses NP_DEFAULT_SPS), clamped to 32..NP_RING; inactive channels, no cal, or cal RMS under 1 µV are skipped.
+ * Returns how many left the 0.70..1.40 band, else 0 if some stayed, else -1; ratio_out may be null and receives the max ratio, or 0. */
 static int live_vs_cal(float *ratio_out)
 {
     int c, nbase = 0, nchg = 0;
@@ -267,6 +292,7 @@ static int live_vs_cal(float *ratio_out)
     return nchg > 0 ? nchg : (nbase ? 0 : -1);
 }
 
+/* Writes status and returns: no cal asks for CAL first, and a live_vs_cal of 0 or -1 both read as still at baseline. */
 static void wear_check(void)
 {
     float r = 0.f;
@@ -285,6 +311,8 @@ static void wear_check(void)
 
 static void ch_tag(int c, char *out, int n);
 
+/* Eight µV rows over window_s×design sps samples (clamped 32..NP_RING); pause, or a cal-cut ratio in 0.85..1.18 before calm, freezes the last snap and labels FROZEN, and off or n<4 skips the trace.
+ * Fixed scale is ±scale_uv µV (under 20 becomes 200); autoscale caps the peak at 200000 µV. */
 static void draw_waves(int x, int y, int w, int h)
 {
     int c;
@@ -492,6 +520,8 @@ static void draw_waves(int x, int y, int w, int h)
 }
 
 
+/* Bars of fft_hold across FFT_STRIP_BINS; the caption is "FFT  open" when used equals open_n, and used 0 draws the caption only.
+ * The mark is 60 Hz when notch_hz is 60, otherwise 50; the peak floor is 1e-12 and each bar is at least 1 px. */
 static void draw_fft(int x, int y, int w, int h)
 {
     int i, used, open_n;
@@ -556,6 +586,7 @@ static void draw_fft(int x, int y, int w, int h)
     }
 }
 
+/* Scanline fill after sorting the vertices by y. Equal top and bottom y draws nothing. */
 static void fill_tri(int x0, int y0, int x1, int y1, int x2, int y2, int r, int gc, int b)
 {
     int i;
@@ -629,6 +660,7 @@ static uint32_t viz_t0, viz_last;
 static uint8_t viz_prev[NP_CUBE3_N];
 static float viz_imp[NP_CUBE3_N];
 
+/* Seconds since the first call, from SDL ticks. */
 static float viz_t(void)
 {
     if (!viz_t0) {
@@ -637,6 +669,7 @@ static float viz_t(void)
     return (SDL_GetTicks() - viz_t0) / 1000.f;
 }
 
+/* Adds 0.148 rad/s to the float yaw. A gap over 0.08 s is treated as 0.016 s, and spin drag or a still cube skips the step. */
 static void viz_tick(void)
 {
     uint32_t now = SDL_GetTicks();
@@ -653,6 +686,8 @@ static void viz_tick(void)
     }
 }
 
+/* Projects with cube yaw and pitch; viz view while floating also adds auto yaw and a 0.06 sin bob, and only that view uses perspective 3.6/(3.6+vz+2.2).
+ * Screen y points up, and any of sx, sy, depth may be null. */
 static void cam_pt(float x, float y, float z, int *sx, int *sy, float *depth)
 {
     float vx, vy, vz, yaw = g.cube_yaw, yy = y;
@@ -677,6 +712,7 @@ static void cam_pt(float x, float y, float z, int *sx, int *sy, float *depth)
     }
 }
 
+/* Filled disk of radius r px. r below 1 becomes 1. */
 static void fill_disk(int cx, int cy, int r, int cr, int cg, int cb)
 {
     int y;
@@ -689,6 +725,7 @@ static void fill_disk(int cx, int cy, int r, int cr, int cg, int cb)
     }
 }
 
+/* qsort order: smaller view-z first. Uses cube yaw and pitch, without the auto-yaw offset. */
 static int cube_farther(const void *a, const void *b)
 {
     const struct np_cube *ca = a, *cb = b;
@@ -704,6 +741,7 @@ static int cube_farther(const void *a, const void *b)
     return 0;
 }
 
+/* One cell. Alpha under 120 is wire only, at one third color, and red is at least 8. */
 static void draw_iso_cube(const struct np_cube *c)
 {
     int p[8][2];
@@ -748,6 +786,7 @@ static void draw_iso_cube(const struct np_cube *c)
     SDL_RenderDrawLine(R, p[6][0], p[6][1], p[5][0], p[5][1]);
 }
 
+/* 1 when the point, minus the panel origin, lies in the spin rectangle. */
 static int cube_in_spin(int mx, int my)
 {
     mx -= s_cube_px;
@@ -756,6 +795,7 @@ static int cube_in_spin(int mx, int my)
            my < s_cube_vy + s_cube_vh;
 }
 
+/* Nearest electrode within 24 px of the panel-relative point, or -1. A stored x below -10000 is skipped. */
 static int cube_hit_elec(int mx, int my)
 {
     int i, best = -1, bd = 24 * 24;
@@ -775,6 +815,7 @@ static int cube_hit_elec(int mx, int my)
     return best;
 }
 
+/* Nearest 10-10 node within 14+10×zoom px, or -1. A stored x below -10000 is skipped. */
 static int cube_hit_node(int mx, int my)
 {
     int i, best = -1, reach, bd;
@@ -796,6 +837,7 @@ static int cube_hit_node(int mx, int my)
     return best;
 }
 
+/* Nearest flat-map site within 16 px, or -1. A point outside the map rect returns -1 before the search. */
 static int cube_hit_map(int mx, int my)
 {
     int i, best = -1, bd = 16 * 16;
@@ -815,6 +857,8 @@ static int cube_hit_map(int mx, int my)
     return best;
 }
 
+/* Returns 0 off the cube tab, or when the point misses both the flat map and the spin rect.
+ * A map or node hit focuses that site and assigns when a channel is selected; an electrode selects the channel; empty spin-rect space starts a spin (drag 1). */
 static int cube_pointer_down(int mx, int my)
 {
     int hit, node, c, mapped;
@@ -866,6 +910,7 @@ static int cube_pointer_down(int mx, int my)
     return 1;
 }
 
+/* While drag is 1, yaw and pitch move 0.010 rad per pixel and pitch stays in -0.35..1.20. Any other drag is ignored. */
 static void cube_pointer_move(int mx, int my)
 {
     if (s_cube_drag == 1) {
@@ -882,12 +927,14 @@ static void cube_pointer_move(int mx, int my)
     }
 }
 
+/* Clears drag and the dirty flag. */
 static void cube_pointer_up(void)
 {
     s_cube_drag = 0;
     s_cube_dirty = 0;
 }
 
+/* Twelve edges of the unit cube. Viz view uses a dimmer crimson than the map. */
 static void draw_cube_wire(void)
 {
     const float p[8][3] = {{-1, -1, -1}, {1, -1, -1}, {-1, 1, -1}, {1, 1, -1},
@@ -913,6 +960,7 @@ struct viz_dot {
     int sx, sy, r, on, imp;
 };
 
+/* qsort order: smaller depth first. */
 static int viz_dot_farther(const void *a, const void *b)
 {
     const struct viz_dot *da = a, *db = b;
@@ -925,6 +973,8 @@ static int viz_dot_farther(const void *a, const void *b)
     return 0;
 }
 
+/* Skips an interior cell that is off and whose pulse is under 0.08; a rising edge sets the pulse to 1, then multiplies by 0.88 until under 0.02.
+ * On cells are crimson disks, nearer first. */
 static void draw_cube_lattice(void)
 {
     struct viz_dot dots[NP_CUBE3_N];
@@ -994,6 +1044,8 @@ static void draw_cube_lattice(void)
     }
 }
 
+/* View 0 is the live lattice plus bipolar lines in µV over scale_uv (floor 25); view 1 is iso cubes, 10-10 names, and the flat nose-up map.
+ * The bottom strip is the newest SMX bit per channel, and the pixel scale is at least 50. */
 static void draw_cube(int x, int y, int w, int h)
 {
     struct np_cube cells[NP_CUBE_BUDGET];
@@ -1350,6 +1402,7 @@ cube_sot:
     }
 }
 
+/* "(no port)" when the list is empty. A /dev/ prefix is stripped; any other path is returned whole. */
 static const char *port_short(void)
 {
     const char *p = g.nports ? g.ports[g.port_i] : "";
@@ -1362,6 +1415,8 @@ static const char *port_short(void)
     return p;
 }
 
+/* Writes plus-minus only on NEG RAIL when the minus site is valid and both names are nonempty; otherwise the plus name, or "?".
+ * A null out or n below 2 returns without writing. */
 static void ch_tag(int c, char *out, int n)
 {
     const char *minus;
@@ -1380,6 +1435,8 @@ static void ch_tag(int c, char *out, int n)
              (c >= 0 && c < NP_NCHAN && g.elec[c].name[0]) ? g.elec[c].name : "?");
 }
 
+/* Eight channels in two columns: name, ON/off (kind 6), minus site (73) or RLD (7), and gain (8); NEG RAIL versus bias is kind 72.
+ * Returns the y under the pair legend. */
 static int draw_channels(int x, int y)
 {
     int c, bh = btnh(), rh = rowh();
@@ -1426,6 +1483,8 @@ static int draw_channels(int x, int y)
     return y + 8;
 }
 
+/* View buttons for window, scale, notch (off, 50, 60, AUTO), hp, grid, pause, µV labels, detrend, band, CAR, lp, and envelope; on NEG RAIL the CAR control reads "CAR off (rail)".
+ * Returns the next y. */
 static int draw_view_block(int x, int y)
 {
     char b[40];
@@ -1571,6 +1630,7 @@ static const char *k_help[] = {
     NULL,
 };
 
+/* Draws k_help. A leading # is a header (the # is skipped) and every other line is body text, and the return is y+8. */
 static int draw_help(int x, int y)
 {
     int i;
@@ -1587,6 +1647,8 @@ static int draw_help(int x, int y)
     return y + 8;
 }
 
+/* Right pane: tabs and connect stay pinned, and the body scrolls under them.
+ * Help, cube, flash, debug, and settings each end in side_end; the main tab is the view block plus channels. */
 static void draw_side(int x)
 {
     int y = 8;
@@ -1858,6 +1920,8 @@ static void draw_side(int x)
     side_end(x, y);
 }
 
+/* Touch and desk layouts for name, a hold of REC_MS, MATCH, and delete, showing at most 8 samples.
+ * A chip is marked now only when match is on, the index is best, and the score is above 0.55. */
 static void draw_learn(int x, int y, int w, int h)
 {
     char lab[80];
@@ -2054,6 +2118,8 @@ static void draw_learn(int x, int y, int w, int h)
 }
 
 
+/* A null window returns; the connected title is "exg-c", the short port, and sps (sps ≤ 1 uses NP_DEFAULT_SPS), otherwise "exg-c".
+ * SDL updates only when the string changes. */
 static void refresh_title(void)
 {
     static char last[96];
@@ -2073,6 +2139,8 @@ static void refresh_title(void)
     }
 }
 
+/* Connected line is status, sps, frame total, drop, bad, lock or sync, lead-off as %02X/%02X, and PAUSE; disconnected shows g.status only.
+ * Color follows status_ok, then the title is refreshed. */
 static void draw_status(void)
 {
     char st[240];
@@ -2101,6 +2169,8 @@ static void draw_status(void)
 }
 
 
+/* Runs the first hit under the point and returns; a side rect is ignored when the point is outside the pane.
+ * No hit ends typing. */
 static void click(int x, int y)
 {
     int i;
@@ -2476,6 +2546,8 @@ static void click(int x, int y)
     typing_set(0);
 }
 
+/* which 0 is the flash log and any other value is the serial log; w under 20 or h under 16 returns.
+ * Copies at most 5000 bytes, keeps at most 64 lines, and shows the last rows that fit at 10 px (1..60 rows). */
 static void draw_log(int x, int y, int w, int h, int which)
 {
     char buf[5000];
@@ -2523,6 +2595,8 @@ static void draw_log(int x, int y, int w, int h, int which)
     SDL_RenderSetClipRect(R, NULL);
 }
 
+/* Color follows the state prefix ok, err, or run/arm, and the line shows fw have/need, seen, then the text after the first newline or "idle".
+ * Upload is kind 85, and the return is the next y. */
 static int draw_flash_side(int x, int y)
 {
     char b[180];
@@ -2561,6 +2635,7 @@ static int draw_flash_side(int x, int y)
     return y;
 }
 
+/* Captions boot text, states that sample bytes stay off, and prints design sps with "warming" while the stream is cold. Returns the next y. */
 static int draw_debug_side(int x, int y)
 {
     char b[80];
@@ -2576,6 +2651,8 @@ static int draw_debug_side(int x, int y)
     return y;
 }
 
+/* Wave height is at least NP_NCHAN×28 px, and a firmware prompt forces the flash tab and zeros side scroll.
+ * Tabs 4 and 5 draw the log (serial when the tab is 5), tab 2 presents the cube, and every other tab draws waves, learn, and FFT, then the side and the status line. */
 static void frame(void)
 {
     int plot_w = win_w - sidew() - 24;
@@ -2607,6 +2684,8 @@ static void frame(void)
     draw_status();
 }
 
+/* Returns 1 when the texture is missing or the size, SMX seq, pose, focus, selection, view, or a channel site differs.
+ * A spin (drag 1) within 80 ms of the last bake ignores a pose-only change and returns 0. */
 static int cube_need_bake(int w, int h)
 {
     int c;
@@ -2635,6 +2714,7 @@ static int cube_need_bake(int w, int h)
     return 0;
 }
 
+/* Stores size, SMX seq, yaw, pitch, zoom, focus, selection, view, and each channel site for the next bake check. */
 static void cube_remember(int w, int h)
 {
     int c;
@@ -2708,6 +2788,8 @@ static void present_cube(int x, int y, int w, int h)
 }
 
 #ifndef NP_ANDROID_UI
+/* Destroys the cube texture and the old renderer; a null window returns -1.
+ * Tries accelerated plus vsync, then software, sets blend, and returns 0 or -1. */
 static int gfx_make_renderer(SDL_Window *win)
 {
     if (cube_tex) {
@@ -2735,6 +2817,8 @@ static int gfx_make_renderer(SDL_Window *win)
     return 0;
 }
 
+/* Desktop asks for the X11 driver when it is unset, at the preferred size; Android opens a fullscreen GLES window. Returns 1 if SDL, the window, or the renderer fails.
+ * Mouse points are divided by the UI scale, and while connected with no enable in flight a stall notes at 3 s and recovers at 4 s; quit joins the command thread. */
 static int run_gui(void)
 {
     SDL_Window *win;
@@ -3023,6 +3107,8 @@ static int run_gui(void)
     return 0;
 }
 #endif /* !NP_ANDROID_UI */
+/* A non-null port replaces the port list with that one path, and connect failure returns 1.
+ * Otherwise prints every 100 ms until seconds elapse or the link drops, then lead-off (bit 0 is channel 1) and each channel's last sample in µV. */
 static int run_cli(const char *port, int seconds)
 {
     time_t end = time(NULL) + seconds;
@@ -3066,6 +3152,7 @@ static int run_cli(const char *port, int seconds)
     do_disconnect();
     return 0;
 }
+/* Prints --cli, --port, --imu, --seconds, and the key hints on stderr. */
 static void usage(const char *a0)
 {
     fprintf(stderr,
@@ -3076,6 +3163,8 @@ static void usage(const char *a0)
             a0);
 }
 
+/* --cli, --port, and --seconds (atoi, no range check) select the reader; --imu changes nothing and an unknown flag is skipped.
+ * -h returns 0 after usage; host start failure returns 1; otherwise the timed reader or the SDL shell. */
 int main(int argc, char **argv)
 {
     int i, cli = 0, seconds = 8;

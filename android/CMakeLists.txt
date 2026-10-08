@@ -4,7 +4,21 @@ project(exg-c-android C)
 set(EXG_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/..")
 
 add_library(exg SHARED
-    ${EXG_ROOT}/src/np_core.c
+    ${EXG_ROOT}/src/np_state.c
+    ${EXG_ROOT}/src/np_paths.c
+    ${EXG_ROOT}/src/np_cfg.c
+    ${EXG_ROOT}/src/np_learn.c
+    ${EXG_ROOT}/src/np_take.c
+    ${EXG_ROOT}/src/np_cook.c
+    ${EXG_ROOT}/src/np_stream.c
+    ${EXG_ROOT}/src/np_cal.c
+    ${EXG_ROOT}/src/np_desk.c
+    ${EXG_ROOT}/src/np_cube.c
+    ${EXG_ROOT}/src/np_flash.c
+    ${EXG_ROOT}/src/np_montage.c
+    ${EXG_ROOT}/src/np_plot.c
+    ${EXG_ROOT}/src/np_session.c
+    ${EXG_ROOT}/src/np_share.c
     ${EXG_ROOT}/src/np_serial_android.c
     ${EXG_ROOT}/src/np_android_jni.c
     ${EXG_ROOT}/src/sdl_stub.c

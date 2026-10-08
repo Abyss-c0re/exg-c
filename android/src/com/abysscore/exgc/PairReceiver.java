@@ -10,6 +10,7 @@ public class PairReceiver extends BroadcastReceiver {
     public static final String NO = "com.abysscore.exgc.PAIR_NO";
     public static final int NOTE = 32;
 
+    /** ALLOW accepts the waiting ask and NO rejects it. A null action matches neither, and notification 32 is cancelled when a notification service is present. */
     @Override
     public void onReceive(Context c, Intent i) {
         String a = i.getAction();

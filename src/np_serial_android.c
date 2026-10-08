@@ -23,6 +23,7 @@ static jmethodID m_list, m_open, m_close, m_read, m_read_for, m_write, m_dtr, m_
 static int bound;
 static int open_ok;
 
+/* Remembers the JavaVM. A null vm is ignored. */
 void np_serial_set_vm(JavaVM *vm)
 {
     if (vm) {
@@ -30,6 +31,7 @@ void np_serial_set_vm(JavaVM *vm)
     }
 }
 
+/* JNIEnv for this thread. Attaches if the VM is set. Otherwise asks SDL when that build has it. */
 static JNIEnv *env_now(void)
 {
     JNIEnv *env = NULL;
@@ -50,6 +52,7 @@ static JNIEnv *env_now(void)
     return env;
 }
 
+/* Resolves UsbSerial once and keeps a global ref. 0 when the methods are there. */
 static int bind_locked(JNIEnv *env)
 {
     jclass local;
@@ -91,6 +94,7 @@ static int bind_locked(JNIEnv *env)
     return 0;
 }
 
+/* UsbSerial.open. Copies the path. Returns 100, never 0 or 1. -1 if Java fails. */
 int np_serial_open(const char *path)
 {
     JNIEnv *env;
@@ -119,6 +123,7 @@ int np_serial_open(const char *path)
     return open_ok ? 100 : -1;
 }
 
+/* UsbSerial.pulseDtr. Ignores fd. Clears a Java exception. */
 void np_serial_pulse_dtr(int fd)
 {
     JNIEnv *env = env_now();
@@ -136,6 +141,7 @@ void np_serial_pulse_dtr(int fd)
     pthread_mutex_unlock(&usb_mu);
 }
 
+/* UsbSerial.setBaud. Ignores fd. Does not clamp baud. -1 if Java throws or returns non-zero. */
 int np_serial_set_baud(int fd, int baud)
 {
     JNIEnv *env;
@@ -160,6 +166,7 @@ int np_serial_set_baud(int fd, int baud)
     return rc == 0 ? 0 : -1;
 }
 
+/* UsbSerial.close. Ignores fd. Clears a Java exception. */
 void np_serial_close(int fd)
 {
     JNIEnv *env = env_now();
@@ -178,6 +185,7 @@ void np_serial_close(int fd)
     pthread_mutex_unlock(&usb_mu);
 }
 
+/* Copies n bytes into a Java array and calls UsbSerial.write. n <= 0 returns 0. -1 if the array or the bind fails. */
 int np_serial_write(int fd, const void *buf, int n)
 {
     JNIEnv *env;
@@ -213,6 +221,7 @@ int np_serial_write(int fd, const void *buf, int n)
     return (int)rc;
 }
 
+/* UsbSerial.read into buf. n <= 0 returns 0. A Java count longer than n is clamped. */
 int np_serial_read(int fd, void *buf, int n)
 {
     JNIEnv *env;
@@ -260,6 +269,7 @@ int np_serial_read(int fd, void *buf, int n)
     return (int)rc;
 }
 
+/* UsbSerial.readFor. Clamps the wait to 5..80 ms. n <= 0 returns 0. A count longer than n is clamped. */
 int np_serial_read_wait(int fd, void *buf, int n, int timeout_ms)
 {
     JNIEnv *env;
@@ -308,11 +318,13 @@ int np_serial_read_wait(int fd, void *buf, int n, int timeout_ms)
     return (int)rc;
 }
 
+/* One byte through np_serial_read. */
 int np_serial_read_byte(int fd, unsigned char *b)
 {
     return np_serial_read(fd, b, 1);
 }
 
+/* UsbSerial.flush. Ignores fd. Clears a Java exception. */
 void np_serial_flush(int fd)
 {
     JNIEnv *env = env_now();
@@ -330,6 +342,7 @@ void np_serial_flush(int fd)
     pthread_mutex_unlock(&usb_mu);
 }
 
+/* UsbSerial.listPorts. Copies up to max names and skips a null entry. max <= 0 returns 0. */
 int np_list_ports(char out[][NP_MAX_PATH], int max)
 {
     JNIEnv *env;

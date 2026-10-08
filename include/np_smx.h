@@ -52,7 +52,9 @@ struct np_elec {
 #define NP_PAIR_N 4 /* referential: FC4-FC3, FC2-FC1, PO4-PO3, FCz-POz */
 #define NP_BIPOLAR_N 2 /* laterality: FC4-FC3 motor, PO4-PO3 visual */
 
+/* Zero the record, then claim interior cells for acc, gyr, and mag on X Y Z. A null pointer returns. */
 void np_smx_init(struct np_smx *m);
+/* Append one second of 0/1 bits. nch is clamped to 1..8, and columns past nch are cleared. have stops at 32. seq increments. A null record or bits returns. */
 void np_smx_push(struct np_smx *m, const uint8_t bits[NP_NCHAN], int nch, uint8_t mask);
 /* Newest-first 0/1 string, length have*nch. */
 int np_smx_pack(const struct np_smx *m, char *out, int cap);
@@ -63,6 +65,7 @@ unsigned int np_smx_fold_ch(const struct np_smx *m);
 /* Crimson BrainCube cells, budget ≤ 40 (core + last seconds). */
 int np_smx_cubes(const struct np_smx *m, struct np_cube *out, int cap);
 
+/* Plus sites: FC3 FC1 FCz FC2 FC4 PO3 POz PO4. A null array returns. */
 void np_elec_default(struct np_elec e[NP_NCHAN]);
 /* Minus ends of the default pairs, same channel order as np_elec_default. */
 void np_neg_default(int site[NP_NCHAN]);
@@ -71,35 +74,53 @@ void np_neg_default(int site[NP_NCHAN]);
  * rail off: *car and rld are left as the caller set them. */
 void np_montage_restore(struct np_elec e[NP_NCHAN], int neg[NP_NCHAN], int rail, int *car,
                         int rld[NP_NCHAN]);
+/* Always 4. The pairs are FC4-FC3, FC2-FC1, PO4-PO3, and FCz-POz. */
 int np_pair_count(void);
+/* Plus name of a referential pair (right or front). A bad index returns "". */
 const char *np_pair_site_a(int pair);
+/* Minus name of a referential pair. A bad index returns "". */
 const char *np_pair_site_b(int pair);
 /* Channel indices for a named pair, or -1 if a site is unmapped. */
 int np_pair_chs(const struct np_elec e[NP_NCHAN], int pair, int *cha, int *chb);
+/* Always 2. The pairs are FC4-FC3 and PO4-PO3. */
 int np_bipolar_count(void);
+/* Plus name of a bipolar pair. A bad index returns "". */
 const char *np_bipolar_site_a(int pair);
+/* Minus name of a bipolar pair. A bad index returns "". */
 const char *np_bipolar_site_b(int pair);
+/* Write the channels for a bipolar pair. Same -1 rules as the referential lookup. */
 int np_bipolar_chs(const struct np_elec e[NP_NCHAN], int pair, int *cha, int *chb);
 /* 1 when a differential can carry a blink: exactly one end is Fp*.
  * Empty or NONE minus falls back to the plus name. */
 int np_blink_end(const char *plus, const char *minus);
+/* Copy that site's name and angles. A null electrode returns. A bad site clears the name and stores -1. */
 void np_elec_set_site(struct np_elec *e, int site);
+/* Azimuth 0 is +z (nose), positive azimuth is +x (right), elevation 0 is the ear plane, positive elevation is up. Any null pointer returns without writing. */
 void np_elec_to_xyz(const struct np_elec *e, float r, float *x, float *y, float *z);
+/* Inverse of the sphere map. Elevation is clamped to -25..85 degrees. A tiny radius sets azimuth and elevation to 0 and leaves name and site alone. A null electrode returns. */
 void np_elec_from_xyz(float x, float y, float z, struct np_elec *e);
 /* Fixed cell on the BrainCube. Same site → same xyz every frame. */
 void np_elec_cube_xyz(const struct np_elec *e, float *x, float *y, float *z);
+/* World coordinates of that site's shell cell. A bad site follows the 3, 7, 3 fallback. */
 void np_1010_cube_xyz(int site, float *x, float *y, float *z);
+/* Always 65. That is the headset sites plus A1, A2, M1, and M2. */
 int np_1010_count(void);
+/* Site name. An index outside 0..64 returns "". */
 const char *np_1010_name(int i);
 int np_1010_core(int i); /* 1 = 10-20 name printed larger on the headset */
+/* Azimuth and elevation in degrees from the flat map. A bad index is the origin, which is elevation 90. */
 void np_1010_elaz(int i, float *az, float *el);
 void np_1010_flat(int i, float *fx, float *fy); /* +x right, +y nose, unit cap */
+/* Exact, case-sensitive name. Missing or empty returns -1. */
 int np_1010_find(const char *name);
+/* Site with the smallest chord on the unit sphere. Some site is always returned. */
 int np_1010_nearest(float az, float el);
 /* How many 10-10 names share this shell cell. Writes up to cap site ids. */
 int np_1010_sites_at(int x, int y, int z, int out[], int cap);
+/* Yaw, then pitch. Any null out pointer returns without writing. */
 void np_view_apply(float yaw, float pitch, float x, float y, float z, float *ox, float *oy,
                    float *oz);
+/* Inverse of yaw-then-pitch. Any null out pointer returns without writing. */
 void np_view_undo(float yaw, float pitch, float x, float y, float z, float *ox, float *oy,
                   float *oz);
 /* Core + lattice + channel cells. rgb may be NULL (crimson). */

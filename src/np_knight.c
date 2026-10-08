@@ -5,6 +5,10 @@
 #include <string.h>
 #include <unistd.h>
 
+/* Frames are 0xA0..0xC0, 21 bytes of EEG or 57 with IMU.
+ * µV is 4/32767/gain*1e6/79.57. A command then waits 1.25 s. */
+
+/* Signed big-endian int16. The high bit is sign-extended. */
 static int i16be(const unsigned char *b)
 {
     int v = (b[0] << 8) | b[1];
@@ -14,6 +18,7 @@ static int i16be(const unsigned char *b)
     return v;
 }
 
+/* Raw counts to µV: 4/32767/gain*1e6/79.57. gain below 1 is treated as 12. */
 static float scale_uv(int raw, int gain)
 {
     if (gain < 1) {
@@ -23,6 +28,7 @@ static float scale_uv(int raw, int gain)
         * (float)raw;
 }
 
+/* Little-endian float. The host is assumed little-endian. */
 static float f32le(const unsigned char *b)
 {
     union {
@@ -36,6 +42,8 @@ static float f32le(const unsigned char *b)
     return u.f;
 }
 
+/* Zero the parser. IMU uses 57-byte frames, AUTO starts unlocked, any other board uses 21-byte EEG.
+ * Each channel gain starts at 12. */
 void np_parser_init(struct np_parser *p, enum np_board board)
 {
     int i;
@@ -53,6 +61,7 @@ void np_parser_init(struct np_parser *p, enum np_board board)
     }
 }
 
+/* Set one channel, numbered 1..8. A bad channel or a gain other than 1, 2, 3, 4, 6, 8, or 12 is ignored. */
 void np_parser_set_gain(struct np_parser *p, int ch, int gain)
 {
     if (ch >= 1 && ch <= NP_NCHAN && np_gain_ok(gain)) {
@@ -60,6 +69,8 @@ void np_parser_set_gain(struct np_parser *p, int ch, int gain)
     }
 }
 
+/* Copy legal gains into slots 0..7, which are channels 1..8.
+ * A null parser or array returns. An illegal entry is left as it was. */
 void np_parser_set_gains(struct np_parser *p, const int gain[NP_NCHAN])
 {
     int i;
@@ -73,6 +84,8 @@ void np_parser_set_gains(struct np_parser *p, const int gain[NP_NCHAN])
     }
 }
 
+/* Turn a 0xA0..0xC0 buffer into µV (eight big-endian int16s), lead-off at bytes 18 and 19 with bit 0 = channel 1, and for n >= 57 acc in m/s², gyr in rad/s, mag in µT. drops is the sequence gap.
+ * Returns 0 when the markers or the length are wrong. */
 static int decode_frame(struct np_parser *p, int n, struct np_sample *out)
 {
     int i;
@@ -108,6 +121,8 @@ static int decode_frame(struct np_parser *p, int n, struct np_sample *out)
     return 1;
 }
 
+/* Feed one byte. Returns 1 with a sample, 0 while a frame is still open, or -1 on a resync.
+ * AUTO locks on two back-to-back 21-byte frames with consecutive sequence numbers, or one valid 57-byte frame, and a held frame returns on the next byte, which is stashed. */
 int np_parser_feed(struct np_parser *p, unsigned char b, struct np_sample *out)
 {
     int want, i, from;
@@ -267,6 +282,7 @@ int np_parser_feed(struct np_parser *p, unsigned char b, struct np_sample *out)
  * readStringUntil('\n') return immediately. */
 #define NP_CMD_GAP_US 1250000
 
+/* Write the whole string, then sleep 1.25 s. A short write returns -1 and does not sleep. */
 static int send_cmd(int fd, const char *s)
 {
     int n = (int)strlen(s);
@@ -277,26 +293,31 @@ static int send_cmd(int fd, const char *s)
     return 0;
 }
 
+/* Write "chon_<ch>_<gain>" and a newline. Returns the snprintf count, which can exceed n. */
 int np_fmt_chon(char *s, size_t n, int ch, int gain)
 {
     return snprintf(s, n, "chon_%d_%d\n", ch, gain);
 }
 
+/* Write "choff_<ch>" and a newline. Returns the snprintf count, which can exceed n. */
 int np_fmt_choff(char *s, size_t n, int ch)
 {
     return snprintf(s, n, "choff_%d\n", ch);
 }
 
+/* Write "rldadd_<ch>" and a newline. Returns the snprintf count, which can exceed n. */
 int np_fmt_rldadd(char *s, size_t n, int ch)
 {
     return snprintf(s, n, "rldadd_%d\n", ch);
 }
 
+/* Write "rldremove_<ch>" and a newline. Returns the snprintf count, which can exceed n. */
 int np_fmt_rldremove(char *s, size_t n, int ch)
 {
     return snprintf(s, n, "rldremove_%d\n", ch);
 }
 
+/* Send chon and wait 1.25 s. Returns -1 when the write is short. */
 int np_cmd_chon(int fd, int ch, int gain)
 {
     char s[32];
@@ -304,6 +325,7 @@ int np_cmd_chon(int fd, int ch, int gain)
     return send_cmd(fd, s);
 }
 
+/* Send choff and wait 1.25 s. Returns -1 when the write is short. */
 int np_cmd_choff(int fd, int ch)
 {
     char s[32];
@@ -311,6 +333,7 @@ int np_cmd_choff(int fd, int ch)
     return send_cmd(fd, s);
 }
 
+/* Send rldadd and wait 1.25 s. Returns -1 when the write is short. */
 int np_cmd_rldadd(int fd, int ch)
 {
     char s[32];
@@ -318,6 +341,7 @@ int np_cmd_rldadd(int fd, int ch)
     return send_cmd(fd, s);
 }
 
+/* Send rldremove and wait 1.25 s. Returns -1 when the write is short. */
 int np_cmd_rldremove(int fd, int ch)
 {
     char s[32];
@@ -325,6 +349,8 @@ int np_cmd_rldremove(int fd, int ch)
     return send_cmd(fd, s);
 }
 
+/* Write "exgmode_<mode>" and a newline. mode outside 0..2 is written as 0.
+ * Returns the snprintf count, which can exceed n. */
 int np_fmt_mode(char *s, size_t n, int mode)
 {
     if (mode < 0 || mode > 2) {
@@ -333,6 +359,7 @@ int np_fmt_mode(char *s, size_t n, int mode)
     return snprintf(s, n, "exgmode_%d\n", mode);
 }
 
+/* Send exgmode and wait 1.25 s. Returns -1 when the write is short. */
 int np_cmd_mode(int fd, int mode)
 {
     char s[16];

@@ -16,6 +16,7 @@
 #define M_PI 3.14159265358979323846
 #endif
 
+/* Monotonic seconds. Used only to stop the listen loop. */
 static double now_s(void)
 {
     struct timespec t;
@@ -23,6 +24,7 @@ static double now_s(void)
     return (double)t.tv_sec + t.tv_nsec * 1e-9;
 }
 
+/* Reads up to seconds of frames. Returns the count stored, or -1 on a read error. ax may be NULL. */
 static int read_seconds(int fd, struct np_parser *p, float (*uv)[8], int maxn, float *ax,
                         double seconds, uint32_t *ngood, uint32_t *nbad)
 {
@@ -63,6 +65,7 @@ static int read_seconds(int fd, struct np_parser *p, float (*uv)[8], int maxn, f
     return nout;
 }
 
+/* DC, RMS about that DC, and peak absolute. n under 1 writes zeros. */
 static void stats(const float *x, int n, float *dc, float *rms, float *pk)
 {
     int i;
@@ -87,6 +90,7 @@ static void stats(const float *x, int n, float *dc, float *rms, float *pk)
     *pk = m;
 }
 
+/* Listens on argv[1] (default /dev/ttyUSB1) for 5 s without DTR, pulses once if that was short, and writes a CSV. */
 int main(int argc, char **argv)
 {
     const char *port = argc > 1 ? argv[1] : "/dev/ttyUSB1";

@@ -12,6 +12,7 @@ import android.widget.TextView;
 /** RGB sliders + a few presets. Not a 12-step cycle. */
 final class ColorPick {
     interface Done {
+        /** Chosen 24-bit RGB when Set is pressed. Cancel does not call it. */
         void onColor(int rgb);
     }
 
@@ -21,8 +22,10 @@ final class ColorPick {
         0xFF5A5A, 0x5AFF8C, 0xFFFFFF, 0xFF8C28
     };
 
+    /** Exists so the class is not instantiated. */
     private ColorPick() {}
 
+    /** Opens the RGB dialog; startRgb keeps the low 24 bits. A null done is not called when Set is pressed. */
     static void show(Activity act, String title, int startRgb, Done done) {
         int rgb = startRgb & 0x00FFFFFF;
         LinearLayout root = new LinearLayout(act);
@@ -77,6 +80,7 @@ final class ColorPick {
             v.setWidth(dp(act, 48));
             v.setGravity(Gravity.END);
             sb.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+                /** Writes this channel as 0..255 and repaints the swatch. fromUser is unused. */
                 @Override
                 public void onProgressChanged(SeekBar s, int p, boolean fromUser) {
                     ch[ix] = p;
@@ -84,9 +88,11 @@ final class ColorPick {
                     paint.run();
                 }
 
+                /** Drag start is ignored. The value is already applied on each change. */
                 @Override
                 public void onStartTrackingTouch(SeekBar s) {}
 
+                /** Drag end is ignored. Set is what commits the color. */
                 @Override
                 public void onStopTrackingTouch(SeekBar s) {}
             });
@@ -139,6 +145,7 @@ final class ColorPick {
                 .show();
     }
 
+    /** d in dp, returned as pixels from the activity density. */
     private static int dp(Activity a, int d) {
         return Math.round(d * a.getResources().getDisplayMetrics().density);
     }

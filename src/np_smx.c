@@ -4,10 +4,14 @@
 #include <stdio.h>
 #include <string.h>
 
+/* One bit per channel per second, an 8³ cube, and 10-10 sites.
+ * EEG sits on the shell. Named IMU cells stay interior. */
+
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
 
+/* Zero the record, then claim interior cells for acc, gyr, and mag on X Y Z. A null pointer returns. */
 void np_smx_init(struct np_smx *m)
 {
     if (!m) {
@@ -26,6 +30,7 @@ void np_smx_init(struct np_smx *m)
     np_virt_claim(m, "magZ", 5, 5, 3);
 }
 
+/* Index x + 8*y + 64*z. A coordinate outside 0..7 returns -1. */
 int np_cube_idx(int x, int y, int z)
 {
     if (x < 0 || x > 7 || y < 0 || y > 7 || z < 0 || z > 7) {
@@ -34,6 +39,7 @@ int np_cube_idx(int x, int y, int z)
     return x + NP_CUBE3 * y + NP_CUBE3 * NP_CUBE3 * z;
 }
 
+/* Split an index into x, y, z. An index outside 0..511 is clamped. Any out pointer may be null. */
 void np_cube_unidx(int i, int *x, int *y, int *z)
 {
     if (i < 0) {
@@ -53,11 +59,13 @@ void np_cube_unidx(int i, int *x, int *y, int *z)
     }
 }
 
+/* 1 when x, y, or z is 0 or 7. */
 int np_cube_shell(int x, int y, int z)
 {
     return x == 0 || x == 7 || y == 0 || y == 7 || z == 0 || z == 7;
 }
 
+/* 1 when that cell is on. A null record or a bad index returns 0. */
 int np_cube_get(const struct np_smx *m, int x, int y, int z)
 {
     int i = np_cube_idx(x, y, z);
@@ -67,6 +75,7 @@ int np_cube_get(const struct np_smx *m, int x, int y, int z)
     return m->cube[i] ? 1 : 0;
 }
 
+/* Store on as 0 or 1. kind 0 leaves the old kind tag. A null record or a bad index returns. */
 void np_cube_set(struct np_smx *m, int x, int y, int z, int on, int kind)
 {
     int i = np_cube_idx(x, y, z);
@@ -79,6 +88,7 @@ void np_cube_set(struct np_smx *m, int x, int y, int z, int on, int kind)
     }
 }
 
+/* Turn off every cell whose kind tag matches. The tags themselves stay. A null record returns. */
 void np_cube_clear_kind(struct np_smx *m, int kind)
 {
     int i;
@@ -92,6 +102,7 @@ void np_cube_clear_kind(struct np_smx *m, int kind)
     }
 }
 
+/* 512 characters, index order, '1' or '0', NUL terminated. cap below 2, or a null pointer, returns 0. */
 int np_cube_pack(const struct np_smx *m, char *out, int cap)
 {
     int i, n = 0;
@@ -105,6 +116,7 @@ int np_cube_pack(const struct np_smx *m, char *out, int cap)
     return n;
 }
 
+/* 64 bytes, bit i in byte i>>3 at bit (i&7). A null pointer returns 0. Success returns 64. */
 int np_cube_pack_bin(const struct np_smx *m, uint8_t out[64])
 {
     int i;
@@ -120,6 +132,7 @@ int np_cube_pack_bin(const struct np_smx *m, uint8_t out[64])
     return 64;
 }
 
+/* Bit distance of two 64-byte masks. A null array returns 512. */
 int np_cube_hamming(const uint8_t a[64], const uint8_t b[64])
 {
     int i, d = 0;
@@ -136,6 +149,7 @@ int np_cube_hamming(const uint8_t a[64], const uint8_t b[64])
     return d;
 }
 
+/* Map a cell center into [-1, 1] on each axis. Any out pointer may be null. */
 void np_ijk_world(int x, int y, int z, float *wx, float *wy, float *wz)
 {
     if (wx) {
@@ -149,6 +163,7 @@ void np_ijk_world(int x, int y, int z, float *wx, float *wy, float *wz)
     }
 }
 
+/* Map -1..1 onto 0..7 and clamp. +1 lands on 7. */
 static int u_to_i(float u)
 {
     int i = (int)((u + 1.f) * 4.f);
@@ -161,6 +176,7 @@ static int u_to_i(float u)
     return i;
 }
 
+/* Shell cell for a 10-10 site, dominant axis on the face. A bad site writes 3, 7, 3 and returns -1. */
 int np_1010_ijk(int site, int *x, int *y, int *z)
 {
     struct np_elec e;
@@ -211,6 +227,7 @@ int np_1010_ijk(int site, int *x, int *y, int *z)
     return 0;
 }
 
+/* Count sites that share that cell. out receives at most cap of them. A null out still counts. */
 int np_1010_sites_at(int x, int y, int z, int out[], int cap)
 {
     int i, n = 0, sx, sy, sz;
@@ -230,6 +247,7 @@ int np_1010_sites_at(int x, int y, int z, int out[], int cap)
     return 0;
 }
 
+/* Slot of an exact name, or -1. A null record or name returns -1. */
 int np_virt_find(const struct np_smx *m, const char *name)
 {
     int i;
@@ -244,6 +262,8 @@ int np_virt_find(const struct np_smx *m, const char *name)
     return -1;
 }
 
+/* Bind a name to an interior cell. A shell cell, an empty name, or a full table returns -1.
+ * An existing name is moved. The stored name is cut to 11 characters. */
 int np_virt_claim(struct np_smx *m, const char *name, int x, int y, int z)
 {
     int i, slot = -1;
@@ -277,6 +297,7 @@ int np_virt_claim(struct np_smx *m, const char *name, int x, int y, int z)
     return slot;
 }
 
+/* Turn the named cell on or off and tag it virtual. An unknown name does nothing. */
 void np_virt_write(struct np_smx *m, const char *name, int on)
 {
     int i;
@@ -290,6 +311,7 @@ void np_virt_write(struct np_smx *m, const char *name, int on)
     np_cube_set(m, m->virt[i].x, m->virt[i].y, m->virt[i].z, on, NP_CELL_VIRT);
 }
 
+/* 1 when the named cell is on. An unknown name, or a null record, returns 0. */
 int np_virt_read(const struct np_smx *m, const char *name)
 {
     int i;
@@ -303,6 +325,8 @@ int np_virt_read(const struct np_smx *m, const char *name)
     return np_cube_get(m, m->virt[i].x, m->virt[i].y, m->virt[i].z);
 }
 
+/* Clear IMU-kind cells, then light acc above 0.25, gyr above 0.15, and mag above 0.20 on the claimed axes.
+ * A null axis pointer leaves that trio off. Kind tags of cleared cells stay. */
 void np_cube_imu(struct np_smx *m, const float acc[3], const float gyr[3], const float mag[3])
 {
     static const char *an[3] = {"accX", "accY", "accZ"};
@@ -332,6 +356,8 @@ void np_cube_imu(struct np_smx *m, const float acc[3], const float gyr[3], const
     }
 }
 
+/* Append one second of 0/1 bits. nch is clamped to 1..8, and columns past nch are cleared. have stops at 32. seq increments.
+ * A null record or bits returns. */
 void np_smx_push(struct np_smx *m, const uint8_t bits[NP_NCHAN], int nch, uint8_t mask)
 {
     int i, w;
@@ -358,6 +384,7 @@ void np_smx_push(struct np_smx *m, const uint8_t bits[NP_NCHAN], int nch, uint8_
     m->seq++;
 }
 
+/* Newest second first, nch characters of '0' or '1' per second, no separator. cap below 2, or a null pointer, returns 0. */
 int np_smx_pack(const struct np_smx *m, char *out, int cap)
 {
     int t, c, n = 0;
@@ -374,6 +401,8 @@ int np_smx_pack(const struct np_smx *m, char *out, int cap)
     return n;
 }
 
+/* Mask bits 0..7 become channel ids 1..8, in bit order, until nch ids are filled.
+ * When the mask is shorter than nch, the extra ids are the slot index plus 1. */
 int np_smx_ch_ids(const struct np_smx *m, int ids[NP_NCHAN])
 {
     int c, n = 0;
@@ -392,6 +421,7 @@ int np_smx_ch_ids(const struct np_smx *m, int ids[NP_NCHAN])
     return n;
 }
 
+/* Newest row: column i sets the bit for channel id ids[i]. An empty history returns 0. */
 unsigned int np_smx_fold_ch(const struct np_smx *m)
 {
     unsigned int f = 0;
@@ -411,6 +441,8 @@ unsigned int np_smx_fold_ch(const struct np_smx *m)
     return f;
 }
 
+/* World-space cubes, at most 40. Two core cubes are always attempted, then one cell per channel per second, newest first.
+ * z steps back by 0.24 per second. On cells use role 2. A null pointer or cap below 1 returns 0. */
 int np_smx_cubes(const struct np_smx *m, struct np_cube *out, int cap)
 {
     int n = 0, t, c, nch, nsec;
@@ -498,6 +530,8 @@ static const struct np_1010_def k1010[NP_1010_N] = {
     {"A1", 0, -10, 0},  {"A2", 0, 10, 0},   {"M1", 0, -10, -2}, {"M2", 0, 10, -2},
 };
 
+/* Azimuth is atan2(fx, fy) in degrees, elevation is 90*(1 - radius). A radius above 1 is pulled back to the unit circle.
+ * Either out pointer may be null. */
 static void flat_to_elaz(float fx, float fy, float *az, float *el)
 {
     float rr = sqrtf(fx * fx + fy * fy);
@@ -514,11 +548,13 @@ static void flat_to_elaz(float fx, float fy, float *az, float *el)
     }
 }
 
+/* Always 65. That is the headset sites plus A1, A2, M1, and M2. */
 int np_1010_count(void)
 {
     return NP_1010_N;
 }
 
+/* Site name. An index outside 0..64 returns "". */
 const char *np_1010_name(int i)
 {
     if (i < 0 || i >= NP_1010_N) {
@@ -527,6 +563,7 @@ const char *np_1010_name(int i)
     return k1010[i].name;
 }
 
+/* 1 for a core site. An index outside 0..64 returns 0. */
 int np_1010_core(int i)
 {
     if (i < 0 || i >= NP_1010_N) {
@@ -535,6 +572,7 @@ int np_1010_core(int i)
     return k1010[i].core;
 }
 
+/* Azimuth and elevation in degrees from the flat map. A bad index is the origin, which is elevation 90. */
 void np_1010_elaz(int i, float *az, float *el)
 {
     float fx, fy;
@@ -542,6 +580,7 @@ void np_1010_elaz(int i, float *az, float *el)
     flat_to_elaz(fx, fy, az, el);
 }
 
+/* Flat map in headset units, +x right and +y toward the nose, from tenths. A bad index writes 0, 0. */
 void np_1010_flat(int i, float *fx, float *fy)
 {
     if (i < 0 || i >= NP_1010_N) {
@@ -561,6 +600,7 @@ void np_1010_flat(int i, float *fx, float *fy)
     }
 }
 
+/* Exact, case-sensitive name. Missing or empty returns -1. */
 int np_1010_find(const char *name)
 {
     int i;
@@ -575,6 +615,7 @@ int np_1010_find(const char *name)
     return -1;
 }
 
+/* Site with the smallest chord on the unit sphere. Some site is always returned. */
 int np_1010_nearest(float az, float el)
 {
     int i, best = 0;
@@ -602,6 +643,7 @@ int np_1010_nearest(float az, float el)
     return best;
 }
 
+/* Copy that site's name and angles. A null electrode returns. A bad site clears the name and stores -1. */
 void np_elec_set_site(struct np_elec *e, int site)
 {
     if (!e) {
@@ -635,6 +677,7 @@ static const char *k_bipolar[NP_BIPOLAR_N][2] = {
     {"PO4", "PO3"},
 };
 
+/* Plus sites: FC3 FC1 FCz FC2 FC4 PO3 POz PO4. A null array returns. */
 void np_elec_default(struct np_elec e[NP_NCHAN])
 {
     /* Five motor pairs across the central sulcus, three into visual cortex. */
@@ -647,6 +690,7 @@ void np_elec_default(struct np_elec e[NP_NCHAN])
     }
 }
 
+/* Minus sites: CP3 CP1 CPz CP2 CP4 O1 Oz O2. A null array returns. */
 void np_neg_default(int site[NP_NCHAN])
 {
     int i;
@@ -658,6 +702,8 @@ void np_neg_default(int site[NP_NCHAN])
     }
 }
 
+/* Write the default plus and minus sites. When rail is set, car becomes 0 and every rld entry is cleared.
+ * When rail is clear, car and rld are left as they were. */
 void np_montage_restore(struct np_elec e[NP_NCHAN], int neg[NP_NCHAN], int rail, int *car,
                         int rld[NP_NCHAN])
 {
@@ -678,11 +724,13 @@ void np_montage_restore(struct np_elec e[NP_NCHAN], int neg[NP_NCHAN], int rail,
     }
 }
 
+/* Always 4. The pairs are FC4-FC3, FC2-FC1, PO4-PO3, and FCz-POz. */
 int np_pair_count(void)
 {
     return NP_PAIR_N;
 }
 
+/* Plus name of a referential pair (right or front). A bad index returns "". */
 const char *np_pair_site_a(int pair)
 {
     if (pair < 0 || pair >= NP_PAIR_N) {
@@ -691,6 +739,7 @@ const char *np_pair_site_a(int pair)
     return k_pair[pair][0];
 }
 
+/* Minus name of a referential pair. A bad index returns "". */
 const char *np_pair_site_b(int pair)
 {
     if (pair < 0 || pair >= NP_PAIR_N) {
@@ -699,6 +748,7 @@ const char *np_pair_site_b(int pair)
     return k_pair[pair][1];
 }
 
+/* First channel whose name matches exactly. A null array or an empty name returns -1. */
 static int ch_named(const struct np_elec e[NP_NCHAN], const char *name)
 {
     int c;
@@ -713,6 +763,7 @@ static int ch_named(const struct np_elec e[NP_NCHAN], const char *name)
     return -1;
 }
 
+/* Write the channels for pair A and pair B, or -1 when either name is not on a channel. Both outs are set to -1 before the search. */
 int np_pair_chs(const struct np_elec e[NP_NCHAN], int pair, int *cha, int *chb)
 {
     int a, b;
@@ -739,11 +790,13 @@ int np_pair_chs(const struct np_elec e[NP_NCHAN], int pair, int *cha, int *chb)
     return 0;
 }
 
+/* Always 2. The pairs are FC4-FC3 and PO4-PO3. */
 int np_bipolar_count(void)
 {
     return NP_BIPOLAR_N;
 }
 
+/* Plus name of a bipolar pair. A bad index returns "". */
 const char *np_bipolar_site_a(int pair)
 {
     if (pair < 0 || pair >= NP_BIPOLAR_N) {
@@ -752,6 +805,7 @@ const char *np_bipolar_site_a(int pair)
     return k_bipolar[pair][0];
 }
 
+/* Minus name of a bipolar pair. A bad index returns "". */
 const char *np_bipolar_site_b(int pair)
 {
     if (pair < 0 || pair >= NP_BIPOLAR_N) {
@@ -760,6 +814,7 @@ const char *np_bipolar_site_b(int pair)
     return k_bipolar[pair][1];
 }
 
+/* 1 when exactly one of the two names starts with "Fp". An empty minus, or the word NONE or none, uses the plus name alone. */
 int np_blink_end(const char *plus, const char *minus)
 {
     int a, b;
@@ -771,6 +826,7 @@ int np_blink_end(const char *plus, const char *minus)
     return a != b;
 }
 
+/* Write the channels for a bipolar pair. Same -1 rules as the referential lookup. */
 int np_bipolar_chs(const struct np_elec e[NP_NCHAN], int pair, int *cha, int *chb)
 {
     int a, b;
@@ -797,6 +853,7 @@ int np_bipolar_chs(const struct np_elec e[NP_NCHAN], int pair, int *cha, int *ch
     return 0;
 }
 
+/* World coordinates of that site's shell cell. A bad site follows the 3, 7, 3 fallback. */
 void np_1010_cube_xyz(int site, float *x, float *y, float *z)
 {
     int ix, iy, iz;
@@ -804,6 +861,8 @@ void np_1010_cube_xyz(int site, float *x, float *y, float *z)
     np_ijk_world(ix, iy, iz, x, y, z);
 }
 
+/* World coordinates of the electrode's site, or of the nearest site when site is negative.
+ * A null electrode writes 0, 0.62, 0. */
 void np_elec_cube_xyz(const struct np_elec *e, float *x, float *y, float *z)
 {
     if (!e) {
@@ -825,6 +884,8 @@ void np_elec_cube_xyz(const struct np_elec *e, float *x, float *y, float *z)
     np_1010_cube_xyz(np_1010_nearest(e->az, e->el), x, y, z);
 }
 
+/* Azimuth 0 is +z (nose), positive azimuth is +x (right), elevation 0 is the ear plane, positive elevation is up.
+ * Any null pointer returns without writing. */
 void np_elec_to_xyz(const struct np_elec *e, float r, float *x, float *y, float *z)
 {
     float az, el, ce;
@@ -839,6 +900,8 @@ void np_elec_to_xyz(const struct np_elec *e, float r, float *x, float *y, float 
     *z = r * ce * cosf(az);
 }
 
+/* Inverse of the sphere map. Elevation is clamped to -25..85 degrees. A tiny radius sets azimuth and elevation to 0 and leaves name and site alone.
+ * A null electrode returns. */
 void np_elec_from_xyz(float x, float y, float z, struct np_elec *e)
 {
     float r;
@@ -861,6 +924,7 @@ void np_elec_from_xyz(float x, float y, float z, struct np_elec *e)
     }
 }
 
+/* Yaw, then pitch. Any null out pointer returns without writing. */
 void np_view_apply(float yaw, float pitch, float x, float y, float z, float *ox, float *oy,
                    float *oz)
 {
@@ -876,6 +940,7 @@ void np_view_apply(float yaw, float pitch, float x, float y, float z, float *ox,
     *oz = sp * y + cp * z1;
 }
 
+/* Inverse of yaw-then-pitch. Any null out pointer returns without writing. */
 void np_view_undo(float yaw, float pitch, float x, float y, float z, float *ox, float *oy, float *oz)
 {
     float cy = cosf(yaw), sy = sinf(yaw);
@@ -890,6 +955,8 @@ void np_view_undo(float yaw, float pitch, float x, float y, float z, float *ox, 
     *oz = sy * x + cy * z1;
 }
 
+/* Shell cubes for the eight electrodes, then one cyan cube per claimed virtual cell, at most 40.
+ * A channel is on when its shell cell is on, otherwise from the latest second. A null rgb uses the built-in crimson. Role 3 marks a virtual cell. */
 int np_smx_head_cubes(const struct np_smx *m, const struct np_elec e[NP_NCHAN],
                       const int rgb[NP_NCHAN][3], struct np_cube *out, int cap)
 {

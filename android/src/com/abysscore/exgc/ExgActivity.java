@@ -125,6 +125,7 @@ public class ExgActivity extends Activity {
 
     private final Runnable tick = new Runnable() {
         @Override
+        // Returns at once when the activity is stopping. Otherwise ticks native state, redraws the chrome, pulls traces and FFT on the main tab or the cube on the cube tab, may prompt for firmware on a live USB link, and runs again in 33 ms.
         public void run() {
             if (!running) {
                 return;
@@ -145,6 +146,7 @@ public class ExgActivity extends Activity {
     };
 
     @Override
+    // Initializes USB, creates profile and raw directories, copies knight.hex, and starts the native core. Binds the controls, posts the 33 ms tick, and after 400 ms connects on USB if still idle and the path is not LAN.
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         UsbSerial.init(this);
@@ -309,22 +311,27 @@ public class ExgActivity extends Activity {
         chGrid = findViewById(R.id.chGrid);
         negRail = findViewById(R.id.negRail);
         profChips = findViewById(R.id.profChips);
+        // Flips NEG RAIL, then redraws the channel rows and the chrome.
         negRail.setOnClickListener(v -> {
             ExgNative.setNegRail(!ExgNative.negRail());
             refreshChannels();
             refreshChrome();
         });
+        // Opens the confirm dialog for the eight default pairs. The montage is not changed until Restore is tapped.
         restorePairs.setOnClickListener(v -> confirmRestore());
         learnChips = findViewById(R.id.learnChips);
 
+        // Accepts the follower that asked for live EXG and redraws the chrome.
         pairYes.setOnClickListener(v -> {
             ExgNative.pairAccept();
             refreshChrome();
         });
+        // Refuses that follower and redraws the chrome.
         pairNo.setOnClickListener(v -> {
             ExgNative.pairReject();
             refreshChrome();
         });
+        // Disconnects and returns when a link is up or still connecting. On LAN, asks for a host when the destination is missing or starts with bt:, otherwise connects to the stored host; on USB, opens the Knight and aligns the share service.
         connect.setOnClickListener(v -> {
             if (ExgNative.connected() || connecting) {
                 connecting = false;
@@ -346,85 +353,107 @@ public class ExgActivity extends Activity {
             StreamService.ensure(this, ExgNative.apiOn() || ExgNative.connected());
             refreshChrome();
         });
+        // Flips the path between USB and LAN and redraws the chrome. A board that is open is dropped on the way.
         link.setOnClickListener(v -> {
             ExgNative.cycleLink();
             refreshChrome();
         });
+        // Sends this map and settings to the follower and writes that on the status line.
         kitSend.setOnClickListener(v -> {
             LanShare.sendKit();
             status.setText("sent map & settings");
         });
+        // Asks the follower for their map and settings and writes that on the status line.
         kitTake.setOnClickListener(v -> {
             LanShare.takeKit();
             status.setText("asked for their map & settings");
         });
+        // Copies the map and settings both ways and writes that on the status line.
         kitBoth.setOnClickListener(v -> {
             LanShare.copyBoth();
             status.setText("copying map & settings both ways");
         });
 
+        // Shows the main pane: traces, FFT, and the record bar.
         tabMain.setOnClickListener(v -> showTab(0));
+        // Shows the cube pane.
         tabCube.setOnClickListener(v -> showTab(1));
+        // Shows the CubalC editor.
         tabAlgos.setOnClickListener(v -> showTab(2));
+        // Shows saved takes.
         tabPoses.setOnClickListener(v -> showTab(3));
+        // Shows filters, share, profiles, and the electrode map.
         tabSet.setOnClickListener(v -> showTab(4));
+        // Shows the help page.
         tabHelp.setOnClickListener(v -> showTab(5));
+        // Adds a cube and redraws the cube row and the chrome.
         cubeAdd.setOnClickListener(v -> {
             ExgNative.madeAdd();
             refreshCubeChrome();
             refreshChrome();
         });
+        // Deletes the selected cube and redraws the cube row and the chrome.
         cubeDel.setOnClickListener(v -> {
             int s = ExgNative.madeSel();
             ExgNative.madeDel(s);
             refreshCubeChrome();
             refreshChrome();
         });
+        // Returns without a dialog when no cube exists. Otherwise opens the color picker for the selected cube.
         cubeColor.setOnClickListener(v -> {
             int s = ExgNative.madeSel();
             if (ExgNative.madeN() < 1) {
                 return;
             }
             ColorPick.show(this, "cube " + (s + 1) + " color",
+                    // Stores the chosen RGB on the selected cube and redraws the cube row.
                     ExgNative.madeRgb(s), rgb -> {
                         ExgNative.madeSetRgb(s, rgb);
                         refreshCubeChrome();
                     });
         });
+        // Steps cube zoom out by 0.20, clamped to 0.70-2.80, saves it, and nudges the camera out by the same 0.20.
         findViewById(R.id.cubeZoomOut).setOnClickListener(v -> {
             ExgNative.cubeZoom(-1);
             cube.nudgeZoom(-1);
         });
+        // Steps cube zoom in by 0.20, clamped to 0.70-2.80, saves it, and nudges the camera in by the same 0.20.
         findViewById(R.id.cubeZoomIn).setOnClickListener(v -> {
             ExgNative.cubeZoom(1);
             cube.nudgeZoom(1);
         });
+        // Resets the cube to the front pose with zoom 1, saves that pose, and resets the camera to match.
         findViewById(R.id.cubeFront).setOnClickListener(v -> {
             ExgNative.cubeFront();
             cube.resetCam();
         });
+        // Toggles free spin and redraws the float button.
         cubeFloat.setOnClickListener(v -> {
             ExgNative.toggleCubeFloat();
             refreshCubeChrome();
         });
+        // Adds a library entry, marks the editor text stale, and redraws the algo list and the chrome.
         algoAdd.setOnClickListener(v -> {
             ExgNative.alibAdd();
             algoSrcLoaded = false;
             refreshAlgos();
             refreshChrome();
         });
+        // Deletes the selected library entry, marks the editor text stale, and redraws the list and the chrome.
         algoDel.setOnClickListener(v -> {
             ExgNative.alibDel(ExgNative.alibSel());
             algoSrcLoaded = false;
             refreshAlgos();
             refreshChrome();
         });
+        // Restores the selected default source, marks the editor text stale, and redraws the list and the chrome.
         algoReset.setOnClickListener(v -> {
             ExgNative.alibReset(ExgNative.alibSel());
             algoSrcLoaded = false;
             refreshAlgos();
             refreshChrome();
         });
+        // Shows an error and returns when the selected algo is a default. Otherwise asks for a new name.
         algoRename.setOnClickListener(v -> {
             int i = ExgNative.alibSel();
             if (ExgNative.alibDef(i)) {
@@ -432,17 +461,20 @@ public class ExgActivity extends Activity {
                 algoErr.setText("default names stay");
                 return;
             }
+            // Stores the typed name on the selected algo and redraws the list.
             askName("Algo name", ExgNative.alibName(i), s -> {
                 ExgNative.alibSetName(i, s);
                 refreshAlgos();
             });
         });
+        // Toggles the syntax panel and tints the help button for the open or closed state.
         algoHelpBtn.setOnClickListener(v -> {
             algoHelpOn = !algoHelpOn;
             algoHelpBox.setVisibility(algoHelpOn ? View.VISIBLE : View.GONE);
             algoHelpBtn.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
                     algoHelpOn ? 0xFF3A3020 : 0xFF2A3038));
         });
+        // Checks the source and returns without saving when that report is non-empty. Saves only when setting the source also reports no error, then redraws the list and the chrome.
         algoApply.setOnClickListener(v -> {
             String src = algoSrc.getText() != null ? algoSrc.getText().toString() : "";
             String err = ExgNative.alibCheck(src);
@@ -466,6 +498,7 @@ public class ExgActivity extends Activity {
             refreshAlgos();
             refreshChrome();
         });
+        // Shows an error and returns when no cube exists. Otherwise applies the selected algo to every cell of the selected cube.
         algoUseCube.setOnClickListener(v -> {
             if (ExgNative.madeN() < 1) {
                 algoErr.setVisibility(View.VISIBLE);
@@ -482,26 +515,34 @@ public class ExgActivity extends Activity {
         });
         for (int qi = 0; qi < 8; qi++) {
             final int q = qi;
+            // Opens the per-cell algo list for this quarter, 0-7.
             cubeQ[qi].setOnClickListener(v -> pickQuarterAlgo(q));
+            // Opens the jack list for this quarter and consumes the long press.
             cubeQ[qi].setOnLongClickListener(v -> {
                 pickQuarterCh(q);
                 return true;
             });
         }
+        // Starts the next calibration phase and redraws the chrome. Native code returns without starting when the board is down, the stream is cold, or a timed phase is already running.
         findViewById(R.id.calibrate).setOnClickListener(v -> {
             ExgNative.calStart();
             refreshChrome();
         });
+        // Cycles the DC cleaner, saves that switch, and redraws the chrome. The stored plates are left as they are.
         clean.setOnClickListener(v -> {
             ExgNative.toggleClean();
             refreshChrome();
         });
+        // Asks for the name used by Record and by Take.
         learnName.setOnClickListener(v -> askName("Learn / ATOM name",
+                // Puts the typed name on the button and in native state.
                 nameOrEmpty(learnName), s -> {
                     setLearnName(s);
                     ExgNative.setName(s);
                 }));
+        // Asks for a profile name to save the current settings under.
         findViewById(R.id.profNew).setOnClickListener(v -> askName("Save current settings as",
+                // Returns without writing when the name is empty. Otherwise saves the current settings as that profile ini and redraws the chips and the chrome.
                 ExgNative.getProfile(), s -> {
                     if (s.length() == 0) {
                         return;
@@ -511,16 +552,19 @@ public class ExgActivity extends Activity {
                     refreshProfiles();
                     refreshChrome();
                 }));
+        // Stores the learn-name field and arms a pose capture of up to 4 seconds, or cancels one already running. An empty name or a down board arms nothing, and the pose chips are forced to rebuild.
         record.setOnClickListener(v -> {
             ExgNative.setName(nameOrEmpty(learnName));
             ExgNative.record();
             lastLearnN = -1;
             refreshChrome();
         });
+        // Toggles live pattern ID and redraws the chrome.
         match.setOnClickListener(v -> {
             ExgNative.toggleMatch();
             refreshChrome();
         });
+        // Stops an open CSV and asks where to copy it, or returns with a status line when the board is not connected. Otherwise starts a timestamped file under the app files dir, and sets the status if that file cannot be created.
         csv.setOnClickListener(v -> {
             if (ExgNative.csvOn()) {
                 ExgNative.toggleCsv();
@@ -546,10 +590,12 @@ public class ExgActivity extends Activity {
             }
             refreshChrome();
         });
+        // Holds or releases the plot and redraws the chrome. The board keeps running.
         pause.setOnClickListener(v -> {
             ExgNative.togglePause();
             refreshChrome();
         });
+        // Stops an open take and, when it reports at least 1 second, asks for a name. Otherwise starts a take.
         atom.setOnClickListener(v -> {
             if (ExgNative.atomOn()) {
                 int n = ExgNative.atomStop();
@@ -562,6 +608,7 @@ public class ExgActivity extends Activity {
                 refreshChrome();
             }
         });
+        // Opens a document picker to write the current profile as a .ini file. The copy happens when the picker returns.
         findViewById(R.id.profExport).setOnClickListener(v -> {
             String name = ExgNative.getProfile();
             if (name.length() == 0) {
@@ -573,21 +620,26 @@ public class ExgActivity extends Activity {
             it.putExtra(Intent.EXTRA_TITLE, name + ".ini");
             startActivityForResult(it, REQ_EXPORT);
         });
+        // Opens a document picker to read a profile file. The import happens when the picker returns.
         findViewById(R.id.profImport).setOnClickListener(v -> {
             Intent it = new Intent(Intent.ACTION_OPEN_DOCUMENT);
             it.addCategory(Intent.CATEGORY_OPENABLE);
             it.setType("*/*");
             startActivityForResult(it, REQ_IMPORT);
         });
+        // Opens the notch list: off, 50 Hz, 60 Hz, or AUTO.
         notch.setOnClickListener(v -> pick("Notch",
                 new String[] {"off", "50 Hz", "60 Hz", "AUTO"},
+                // Stores 0, 50, 60, or -1 (AUTO) from the chosen row and redraws the chrome.
                 notchIndex(), i -> {
                     int[] hz = {0, 50, 60, -1};
                     ExgNative.setNotch(hz[i]);
                     refreshChrome();
                 }));
+        // Opens the high-pass list: off, 1 Hz, 2 Hz, 5 Hz, or 20 Hz.
         hp.setOnClickListener(v -> pick("High-pass",
                 new String[] {"off", "1 Hz", "2 Hz", "5 Hz", "20 Hz"},
+                // Stores 0, 1, 2, 5, or 20 hertz from the chosen row and redraws the chrome.
                 hpIndex(), i -> {
                     int[] hz = {0, 1, 2, 5, 20};
                     ExgNative.setHp(hz[i]);
@@ -596,6 +648,7 @@ public class ExgActivity extends Activity {
         ownDrag(scaleBar);
         scaleBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override
+            // Returns when the change is not from the user. Stores the log-scaled full-scale limit in microvolts and updates the label only.
             public void onProgressChanged(SeekBar s, int p, boolean fromUser) {
                 if (!fromUser) {
                     return;
@@ -606,10 +659,12 @@ public class ExgActivity extends Activity {
             }
 
             @Override
+            // Does nothing when the drag starts. The microvolt limit is applied as the bar moves.
             public void onStartTrackingTouch(SeekBar s) {
             }
 
             @Override
+            // Redraws the chrome when the finger lifts. The microvolt limit was already stored during the drag.
             public void onStopTrackingTouch(SeekBar s) {
                 refreshChrome();
             }
@@ -617,6 +672,7 @@ public class ExgActivity extends Activity {
         ownDrag(winBar);
         winBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override
+            // Returns when the change is not from the user. Progress 0 is a 1 second window; the length is stored in seconds and the label is updated.
             public void onProgressChanged(SeekBar s, int p, boolean fromUser) {
                 if (!fromUser) {
                     return;
@@ -627,42 +683,53 @@ public class ExgActivity extends Activity {
             }
 
             @Override
+            // Does nothing when the drag starts. The window length is applied as the bar moves.
             public void onStartTrackingTouch(SeekBar s) {
             }
 
             @Override
+            // Redraws the chrome when the finger lifts. The window length was already stored during the drag.
             public void onStopTrackingTouch(SeekBar s) {
                 refreshChrome();
             }
         });
+        // Opens the band preset list: raw, line-kill, EEG, or EMG.
         band.setOnClickListener(v -> pick("Band preset",
                 new String[] {"raw", "line-kill", "EEG", "EMG"},
+                // Stores the band preset index and redraws the chrome.
                 ExgNative.band(), i -> {
                     ExgNative.setBand(i);
                     refreshChrome();
                 }));
+        // Toggles common-average reference and redraws the chrome. While NEG RAIL is on, the native call forces CAR off and saves instead of toggling.
         car.setOnClickListener(v -> {
             ExgNative.toggleCar();
             refreshChrome();
         });
+        // Toggles slow-drift removal on the plot and redraws the chrome.
         detrend.setOnClickListener(v -> {
             ExgNative.toggleDetrend();
             refreshChrome();
         });
+        // Toggles the rectified envelope and redraws the chrome.
         env.setOnClickListener(v -> {
             ExgNative.toggleEnvelope();
             refreshChrome();
         });
+        // Opens the low-pass list: off, 20 Hz, or 40 Hz.
         lp.setOnClickListener(v -> pick("Low-pass",
                 new String[] {"off", "20 Hz", "40 Hz"},
+                // Stores 0, 20, or 40 hertz from the chosen row and redraws the chrome.
                 lpIndex(), i -> {
                     ExgNative.setLp(new int[] {0, 20, 40}[i]);
                     refreshChrome();
                 }));
+        // Switches to the Algos tab.
         algo.setOnClickListener(v -> showTab(2));
         ownDrag(uiBar);
         uiBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override
+            // Returns when the change is not from the user. Progress 0 is 8 tenths (0.8x), which is stored and applied to the text immediately.
             public void onProgressChanged(SeekBar s, int p, boolean fromUser) {
                 if (!fromUser) {
                     return;
@@ -674,10 +741,12 @@ public class ExgActivity extends Activity {
             }
 
             @Override
+            // Does nothing when the drag starts. The UI factor is applied as the bar moves.
             public void onStartTrackingTouch(SeekBar s) {
             }
 
             @Override
+            // Redraws the chrome when the finger lifts.
             public void onStopTrackingTouch(SeekBar s) {
                 refreshChrome();
             }
@@ -685,6 +754,7 @@ public class ExgActivity extends Activity {
         ownDrag(cubeZoomBar);
         cubeZoomBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override
+            // Returns when the change is not from the user. Progress 0 is 0.70x, each step adds 0.10, and the value is saved and applied to the camera.
             public void onProgressChanged(SeekBar s, int p, boolean fromUser) {
                 if (!fromUser) {
                     return;
@@ -696,29 +766,38 @@ public class ExgActivity extends Activity {
             }
 
             @Override
+            // Does nothing when the drag starts. Zoom is applied as the bar moves.
             public void onStartTrackingTouch(SeekBar s) {
             }
 
             @Override
+            // Redraws the chrome when the finger lifts.
             public void onStopTrackingTouch(SeekBar s) {
                 refreshChrome();
             }
         });
+        // Opens the board-length list: Auto, 8-ch + IMU, or 8-ch EXG.
         board.setOnClickListener(v -> pick("Board",
                 new String[] {"Auto", "8-ch + IMU", "8-ch EXG"},
+                // Stores mode 2 for Auto, 1 for 8-ch + IMU, or 0 for 8-ch EXG, then redraws the chrome.
                 boardPickIndex(), i -> {
                     ExgNative.setBoardMode(i == 0 ? 2 : (i == 1 ? 1 : 0));
                     refreshChrome();
                 }));
+        // Opens the Knight rate list: 125 + IMU, 250 EEG, or 500 EEG.
         streamMode.setOnClickListener(v -> pick("Knight mode",
                 new String[] {"125 + IMU", "250 EEG", "500 EEG"},
+                // Queues that mode over USB and redraws the chrome. Native code returns without sending when the link is not a connected USB Knight or the firmware is behind.
                 ExgNative.fwMode(), i -> {
                     ExgNative.streamMode(i);
                     refreshChrome();
                 }));
+        // Opens the flash page. An upload does not start from this tap.
         flashOpen.setOnClickListener(v -> startActivity(new Intent(this, FlashActivity.class)));
+        // Opens the serial-debug page.
         debugOpen.setOnClickListener(v -> startActivity(new Intent(this, DebugActivity.class)));
 
+        // Toggles network share. Turning it on requests notification permission when needed, then starts or stops the foreground service to match share or connect.
         apiOn.setOnClickListener(v -> {
             boolean on = !ExgNative.apiOn();
             ExgNative.setApiOn(on);
@@ -728,36 +807,54 @@ public class ExgActivity extends Activity {
             StreamService.ensure(this, ExgNative.apiOn() || ExgNative.connected());
             refreshChrome();
         });
+        // Toggles listening on the LAN address versus this device only, then redraws the chrome.
         apiBind.setOnClickListener(v -> {
             ExgNative.setApiLan(!ExgNative.apiLan());
             refreshChrome();
         });
-        apiHz.setOnClickListener(v -> askPort("Share rate 1–500. 125, 200, 250, and 500 follow the board.", ExgNative.apiHz(), p -> {
+        // Asks for the share rate in hertz.
+        apiHz.setOnClickListener(v -> askPort("Share rate 1–500. 125, 200, 250, and 500 follow the board.", ExgNative.apiHz(),
+                // Clamps the value to 1-500 Hz and redraws the chrome. An empty field arrives as 0 and is raised to 1.
+                p -> {
             ExgNative.setApiHz(p < 1 ? 1 : (p > 500 ? 500 : p));
             refreshChrome();
         }));
-        apiHttp.setOnClickListener(v -> askPort("Settings port (shared after Allow). 0 = off", ExgNative.apiHttp(), p -> {
+        // Asks for the settings port.
+        apiHttp.setOnClickListener(v -> askPort("Settings port (shared after Allow). 0 = off", ExgNative.apiHttp(),
+                // Stores the settings port, including 0 for off, and redraws the chrome.
+                p -> {
             ExgNative.setApiHttp(p);
             refreshChrome();
         }));
-        apiUdp.setOnClickListener(v -> askPort("EXG port — live traces. Default is settings+1. 0 = off", ExgNative.apiUdp(), p -> {
+        // Asks for the live EXG port.
+        apiUdp.setOnClickListener(v -> askPort("EXG port — live traces. Default is settings+1. 0 = off", ExgNative.apiUdp(),
+                // Stores the EXG port, including 0 for off, and redraws the chrome.
+                p -> {
             ExgNative.setApiUdp(p);
             refreshChrome();
         }));
-        apiTcp.setOnClickListener(v -> askPort("Spare port — not needed to follow. 0 = off", ExgNative.apiTcp(), p -> {
+        // Asks for the spare port.
+        apiTcp.setOnClickListener(v -> askPort("Spare port — not needed to follow. 0 = off", ExgNative.apiTcp(),
+                // Stores the spare port, including 0 for off, and redraws the chrome.
+                p -> {
             ExgNative.setApiTcp(p);
             refreshChrome();
         }));
+        // Asks for a lock word.
         apiToken.setOnClickListener(v -> askName("Lock word (empty = off)",
+                // Stores the lock word, including empty to turn the lock off, and redraws the chrome.
                 ExgNative.apiToken(), s -> {
                     ExgNative.setApiToken(s);
                     refreshChrome();
                 }));
+        // Asks for an extra EXG destination as name:port.
         apiPush.setOnClickListener(v -> askName("Extra EXG send  name:port  (empty = off)",
+                // Stores the extra destination, including empty to turn it off, and redraws the chrome.
                 ExgNative.apiPush(), s -> {
                     ExgNative.setApiPush(s);
                     refreshChrome();
                 }));
+        // On LAN, asks for a host. On USB, opens the Knight port list.
         port.setOnClickListener(v -> {
             if (ExgNative.linkPath() == 1) {
                 askDest();
@@ -776,6 +873,7 @@ public class ExgActivity extends Activity {
         refreshChrome();
         h.post(tick);
         takeFollowIntent(getIntent());
+        // Runs 400 ms after create. Returns without connecting when a board is already up or the path is not USB; otherwise opens the USB link and redraws.
         h.postDelayed(() -> {
             if (!ExgNative.connected()) {
                 if (ExgNative.linkPath() != 0) {
@@ -788,6 +886,7 @@ public class ExgActivity extends Activity {
     }
 
     @Override
+    // Sets the resumed flag so the tick may offer a firmware prompt, and keeps the foreground service aligned with share or connect. A RuntimeException from the service is ignored.
     protected void onResume() {
         super.onResume();
         resumed = true;
@@ -798,12 +897,14 @@ public class ExgActivity extends Activity {
     }
 
     @Override
+    // Stores the new intent and follows a LAN destination when that intent has one.
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);
         takeFollowIntent(intent);
     }
 
+    // Returns when the intent is missing. A non-empty followdest that does not start with bt: is stored as the LAN target and connect starts.
     private void takeFollowIntent(Intent it) {
         if (it == null) {
             return;
@@ -816,6 +917,7 @@ public class ExgActivity extends Activity {
         }
     }
 
+    // Returns if a connect is already in flight or the board is up. Shows a 65 second wait, starts the share service, and runs native connect on a background thread.
     private void connectLan() {
         if (connecting || ExgNative.connected()) {
             return;
@@ -825,8 +927,10 @@ public class ExgActivity extends Activity {
         holdLineUntil = android.os.SystemClock.uptimeMillis() + 65000;
         refreshChrome();
         StreamService.ensure(this, true);
+        // Calls native connect on this background thread, then posts the finish step back to the main looper.
         new Thread(() -> {
             ExgNative.connect();
+            // Drops the link if the user cancelled while connect was still running and it came up anyway. Clears the wait and aligns the share service with share or connect.
             h.post(() -> {
                 if (!connecting && ExgNative.connected()) {
                     ExgNative.disconnect();
@@ -840,11 +944,13 @@ public class ExgActivity extends Activity {
         }, "exg-lan").start();
     }
 
+    // Asks for a LAN host or host:port. A stored bt: value is cleared from the field before the dialog opens.
     private void askDest() {
         String cur = ExgNative.linkDest();
         if (cur != null && cur.startsWith("bt:")) {
             cur = "";
         }
+        // Returns without connecting when the text is empty. Otherwise stores the host, selects LAN, and connects.
         askName("EXG on LAN", cur == null ? "" : cur, "host or host:8765", s -> {
             if (s.length() < 1) {
                 return;
@@ -856,12 +962,14 @@ public class ExgActivity extends Activity {
     }
 
     @Override
+    // Clears the resumed flag so the tick stops offering the firmware prompt.
     protected void onPause() {
         resumed = false;
         super.onPause();
     }
 
     @Override
+    // Stops the 33 ms tick. Shuts the native core down and closes USB only when sharing is off and the board is not connected.
     protected void onDestroy() {
         running = false;
         h.removeCallbacks(tick);
@@ -872,11 +980,13 @@ public class ExgActivity extends Activity {
         super.onDestroy();
     }
 
+    // Writes the line into the status view and returns true so the long press is consumed.
     private boolean hold(String line) {
         status.setText(line);
         return true;
     }
 
+    // Binds a long-press status line on each control. Those presses do not change settings.
     private void wireHints() {
         hint(port, "Knight port. On USB this is the serial device. On LAN this is host:port.");
         hint(link, "USB talks to a cable. LAN talks to another exg-c that is sharing.");
@@ -901,7 +1011,8 @@ public class ExgActivity extends Activity {
         hint(lp, "Low-pass. Removes what is faster than this frequency.");
         hint(algo, "Opens the Algos tab. CubalC decides which cube cells light.");
         hint(board, "Auto locks a 21-byte EEG frame or a 57-byte IMU frame. The other two force one length.");
-        hint(streamMode, "Sends exgmode over USB. The Knight restarts into that rate. Connect first. Firmware 3 is required once.");
+        hint(streamMode, "Sends exgmode over USB. The Knight restarts into that rate. Connect first. Firmware "
+                + ExgNative.fwNeed() + " is required once.");
         hint(flashOpen, "One knight.hex. Electrodes off. Two taps. The banner stays on FLASHED or FAILED.");
         hint(debugOpen, "Serial lines: EXG-FW, EXG-MODE, EXG-SWITCH, and host commands. Sample bytes stay off this page.");
         hint(negRail, "NEG RAIL turns bias off on every channel. Each sample is the + electrode minus the − electrode. bias RLD restores per-channel bias and reads each channel as one site.");
@@ -935,13 +1046,16 @@ public class ExgActivity extends Activity {
         hint(findViewById(R.id.profImport), "Open a profile file.");
     }
 
+    // Returns when the view is null. A long press then shows the line in the status.
     private void hint(View v, String line) {
         if (v == null) {
             return;
         }
+        // Shows the hint in the status and consumes the long press.
         v.setOnLongClickListener(view -> hold(line));
     }
 
+    // Asks before putting the eight default pairs back, and states whether NEG RAIL stays on. Cancel does nothing.
     private void confirmRestore() {
         boolean rail = ExgNative.negRail();
         String keep = rail
@@ -951,6 +1065,7 @@ public class ExgActivity extends Activity {
                 .setTitle("Restore default pairs")
                 .setMessage("Puts back FC3–CP3, FC1–CP1, FCz–CPz, FC2–CP2, FC4–CP4, PO3–O1, POz–Oz, and PO4–O2.\n\n"
                         + keep)
+                // Writes the default pairs, redraws the rows and the chrome, and shows the native status line. Does not change NEG RAIL.
                 .setPositiveButton("Restore", (d, w) -> {
                     ExgNative.montageDefault();
                     refreshChannels();
@@ -961,14 +1076,17 @@ public class ExgActivity extends Activity {
                 .show();
     }
 
+    // Returns a gold HTML heading with a line break before and after it.
     private static String helpSec(String title) {
         return "<br/><font color=\"#E7C27A\"><b>" + title + "</b></font><br/>";
     }
 
+    // Returns one HTML help line with the name in bold, an em dash, and the body.
     private static String helpRow(String name, String body) {
         return "<b>" + name + "</b> — " + body + "<br/>";
     }
 
+    // Builds the Help tab as HTML and returns it as compact styled text.
     private static CharSequence helpHtml() {
         String html = helpSec("CAR, rail, restore")
                 + helpRow("CAR", "Common average reference. Subtracts the mean of the active channels. That mean is a reference while each channel is one site against bias (bias RLD). In NEG RAIL each sample is already the + electrode minus the − electrode, so the mean of those pairs is left alone. The button then reads CAR off (rail) and stays off. EEG and EMG presets turn CAR on only while NEG RAIL is off.")
@@ -1035,6 +1153,7 @@ public class ExgActivity extends Activity {
         return Html.fromHtml(html, Html.FROM_HTML_MODE_COMPACT);
     }
 
+    // Shows one pane and hides the other five: 0 main, 1 cube, 2 algos, 3 takes, 4 settings, 5 help. Cube, algos, takes, and settings reload when opened.
     private void showTab(int t) {
         tab = t;
         mainPane.setVisibility(t == 0 ? View.VISIBLE : View.GONE);
@@ -1068,6 +1187,7 @@ public class ExgActivity extends Activity {
         }
     }
 
+    // Returns one library name per index. A negative count from native code becomes a zero-length array.
     private String[] algoNames() {
         int an = ExgNative.alibN();
         String[] names = new String[Math.max(0, an)];
@@ -1077,6 +1197,7 @@ public class ExgActivity extends Activity {
         return names;
     }
 
+    // Returns when there is no cube or the library is empty. Opens a list that sets one algo on all eight cells of the selected cube.
     private void pickCubeAlgo() {
         if (ExgNative.madeN() < 1) {
             return;
@@ -1090,6 +1211,7 @@ public class ExgActivity extends Activity {
         if (cur < 0) {
             cur = ExgNative.alibSel();
         }
+        // Stores the chosen algo on all eight cells and redraws the cube row and the chrome.
         pick("cube algo — all 8 bits", names, cur, i -> {
             ExgNative.madeSetAlgoAll(sel, i);
             refreshCubeChrome();
@@ -1097,6 +1219,7 @@ public class ExgActivity extends Activity {
         });
     }
 
+    // Returns when there is no cube or the library is empty. Opens the algo list for cell q (0-7); the first row means follow the cube rule.
     private void pickQuarterAlgo(int q) {
         int n = ExgNative.madeN();
         if (n < 1) {
@@ -1115,6 +1238,7 @@ public class ExgActivity extends Activity {
         System.arraycopy(lib, 0, names, 1, lib.length);
         int own = ExgNative.madeAlgoOwn(sel, q);
         int cur = own < 0 ? 0 : own + 1;
+        // Stores -1 to follow the cube, or a library index, on this cell, then redraws the cube row and the chrome.
         pick("channel " + (q + 1) + " algo", names, cur, i -> {
             ExgNative.madeSetAlgo(sel, q, i == 0 ? -1 : i - 1);
             refreshCubeChrome();
@@ -1122,6 +1246,7 @@ public class ExgActivity extends Activity {
         });
     }
 
+    // Returns when there is no cube. Opens the jack list for cell q (0-7): empty, or ch1-ch8 with the electrode name.
     private void pickQuarterCh(int q) {
         int n = ExgNative.madeN();
         if (n < 1) {
@@ -1135,6 +1260,7 @@ public class ExgActivity extends Activity {
         for (int c = 1; c <= 8; c++) {
             names[c] = "ch" + c + "  " + ExgNative.elecName(c - 1);
         }
+        // Stores the jack index (0 is empty, 1-8 are channels) on this cell and redraws the cube row and the chrome.
         pick("bit " + (q + 1) + " channel", names, cur, i -> {
             ExgNative.madeSetCh(sel, q, i);
             refreshCubeChrome();
@@ -1142,6 +1268,7 @@ public class ExgActivity extends Activity {
         });
     }
 
+    // Redraws float, add, delete, color, and one button per cube. Add is disabled at the native maximum, and a tap selects that cube and opens its algo list.
     private void refreshCubeChrome() {
         boolean fl = ExgNative.cubeFloat();
         cubeFloat.setText(fl ? "float on" : "float off");
@@ -1164,6 +1291,7 @@ public class ExgActivity extends Activity {
             b.setTextColor(0xFF000000 | rgb);
             b.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
                     i == sel ? 0xFF5A1020 : 0xFF2A3038));
+            // Selects this cube, redraws the row, and opens the all-cells algo list.
             b.setOnClickListener(v -> {
                 ExgNative.madeSetSel(ix);
                 refreshCubeChrome();
@@ -1177,6 +1305,7 @@ public class ExgActivity extends Activity {
         applyUiScale();
     }
 
+    // Returns when the algo list is not bound. Rebuilds the name buttons, loads the selected source once per selection, and enables delete only past eight entries when the selection is not a default.
     private void refreshAlgos() {
         if (algoList == null) {
             return;
@@ -1190,6 +1319,7 @@ public class ExgActivity extends Activity {
             b.setText(ExgNative.alibName(i));
             b.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
                     i == sel ? 0xFF5A1020 : 0xFF2A3038));
+            // Selects this algo, hides the error line, marks the editor text stale so the source reloads, and redraws.
             b.setOnClickListener(v -> {
                 ExgNative.alibSetSel(ix);
                 algoSrcLoaded = false;
@@ -1213,6 +1343,7 @@ public class ExgActivity extends Activity {
         applyUiScale();
     }
 
+    // Returns when the cell buttons or the rule line are not bound. Labels cells 1-8 with jack and algo, and says whether the cube rule is shared or mixed.
     private void refreshCubeBits() {
         if (cubeQ[0] == null || cubeRule == null) {
             return;
@@ -1256,6 +1387,7 @@ public class ExgActivity extends Activity {
         }
     }
 
+    // Paints connect, filters, share, record, calibration, and IMU from native state. Keeps a LAN wait line only while disconnected and inside 65 seconds, and appends samples per second plus drop count when connected and the rate is above 1.
     private void refreshChrome() {
         boolean on = ExgNative.connected();
         int path = ExgNative.linkPath();
@@ -1474,6 +1606,7 @@ public class ExgActivity extends Activity {
         final View root = ((ViewGroup) content).getChildAt(0);
         if (Build.VERSION.SDK_INT >= 30) {
             getWindow().setDecorFitsSystemWindows(false);
+            // Pads the root by the system bars and the display cutout, in pixels, and consumes the insets.
             root.setOnApplyWindowInsetsListener((v, insets) -> {
                 int types = WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout();
                 android.graphics.Insets b = insets.getInsets(types);
@@ -1481,6 +1614,7 @@ public class ExgActivity extends Activity {
                 return WindowInsets.CONSUMED;
             });
         } else {
+            // Pads the root by the system-window insets, in pixels, and consumes those insets.
             root.setOnApplyWindowInsetsListener((v, insets) -> {
                 v.setPadding(insets.getSystemWindowInsetLeft(), insets.getSystemWindowInsetTop(),
                         insets.getSystemWindowInsetRight(), insets.getSystemWindowInsetBottom());
@@ -1490,10 +1624,12 @@ public class ExgActivity extends Activity {
         root.requestApplyInsets();
     }
 
+    // Converts density-independent pixels to device pixels, rounded to the nearest pixel.
     private int dp(int d) {
         return Math.round(d * getResources().getDisplayMetrics().density);
     }
 
+    // Reads the native UI factor in tenths (10 is 1x) and scales activity text plus the trace, FFT, and cube labels.
     private void applyUiScale() {
         float f = ExgNative.uiScale() / 10f;
         View root = findViewById(android.R.id.content);
@@ -1505,6 +1641,7 @@ public class ExgActivity extends Activity {
         cube.setLabelScale(f);
     }
 
+    // Walks every descendant and sets text size to the cached base in SP times f. Button minimum height scales with f and never goes below 28 dp; a density below 0.75 is treated as 1 for that height.
     private void scaleTree(View v, float f) {
         if (v instanceof ViewGroup) {
             ViewGroup vg = (ViewGroup) v;
@@ -1543,6 +1680,7 @@ public class ExgActivity extends Activity {
     }
 
     @Override
+    // Returns when the picker was cancelled or returned no URI. Copies a finished CSV or an exported profile ini out, or copies an import in and reloads channels; an empty CSV or a failed native call is reported on the status line and stops there.
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
         if (resultCode != RESULT_OK || data == null || data.getData() == null) {
@@ -1588,6 +1726,7 @@ public class ExgActivity extends Activity {
         }
     }
 
+    // Copies the file to the document URI in 4096-byte chunks. Throws if the resolver cannot open an output stream.
     private void copyFileToUri(File src, Uri uri) throws Exception {
         try (InputStream in = new FileInputStream(src);
                 OutputStream out = getContentResolver().openOutputStream(uri)) {
@@ -1602,6 +1741,7 @@ public class ExgActivity extends Activity {
         }
     }
 
+    // Copies the document URI onto the file in 4096-byte chunks. Throws if the resolver cannot open an input stream.
     private void copyUriToFile(Uri uri, File dst) throws Exception {
         try (InputStream in = getContentResolver().openInputStream(uri);
                 OutputStream out = new FileOutputStream(dst)) {
@@ -1616,6 +1756,7 @@ public class ExgActivity extends Activity {
         }
     }
 
+    // Rebuilds the profile chips from native state. A tap loads that ini, a long press can rename or delete it, and an empty list shows a hint and returns.
     private void refreshProfiles() {
         String[] ps = ExgNative.profiles();
         String cur = ExgNative.getProfile();
@@ -1638,6 +1779,7 @@ public class ExgActivity extends Activity {
             b.setText(on ? (name + "   • now") : name);
             b.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
                     on ? 0xFF2E8A58 : 0xFF2A3038));
+            // Loads this profile ini and redraws channels, chips, and the chrome.
             b.setOnClickListener(v -> {
                 ExgNative.setProfile(name);
                 ExgNative.profLoad();
@@ -1645,11 +1787,14 @@ public class ExgActivity extends Activity {
                 refreshProfiles();
                 refreshChrome();
             });
+            // Opens Rename and Delete for this profile and consumes the long press.
             b.setOnLongClickListener(v -> {
                 new android.app.AlertDialog.Builder(this)
                         .setTitle(name)
+                        // The first row asks for a new ini name, and the other row deletes this profile. Both paths redraw the chips.
                         .setItems(new CharSequence[] {"Rename", "Delete"}, (d, which) -> {
                             if (which == 0) {
+                                // Returns without renaming when the new name is empty. Otherwise renames the profile ini and redraws the chips and the chrome.
                                 askName("Rename profile", name, s -> {
                                     if (s.length() == 0) {
                                         return;
@@ -1674,6 +1819,7 @@ public class ExgActivity extends Activity {
         applyUiScale();
     }
 
+    // Builds the eight electrode rows: plus site, color, acquire, bias or minus site, and gain.
     private void buildChannels() {
         chGrid.removeAllViews();
         for (int c = 0; c < 8; c++) {
@@ -1682,16 +1828,20 @@ public class ExgActivity extends Activity {
             row.setOrientation(LinearLayout.HORIZONTAL);
             Button lab = new Button(this);
             lab.setText(ExgNative.elecName(c));
+            // Opens the plus-site list for this channel, index 0-7.
             lab.setOnClickListener(v -> pickSite(ch));
             Button colb = new Button(this);
             colb.setText("color");
+            // Opens the color picker for this channel.
             colb.setOnClickListener(v -> {
                 ColorPick.show(this, "ch" + (ch + 1) + " color",
+                        // Stores the color on this channel and redraws the electrode rows.
                         ExgNative.color(ch), rgb -> {
                             ExgNative.setColor(ch, rgb);
                             refreshChannels();
                         });
             });
+            // Explains the color control in the status line and consumes the long press.
             colb.setOnLongClickListener(v -> hold("Color of this channel on the plot and on the cube."));
             Button on = new Button(this);
             Button rld = new Button(this);
@@ -1700,12 +1850,15 @@ public class ExgActivity extends Activity {
                     LinearLayout.LayoutParams.WRAP_CONTENT, 1.3f);
             LinearLayout.LayoutParams lpBtn = new LinearLayout.LayoutParams(0,
                     LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+            // Toggles acquire for this channel and redraws the rows and the chrome.
             on.setOnClickListener(v -> {
                 ExgNative.setActive(ch, !ExgNative.active(ch));
                 refreshChannels();
                 refreshChrome();
             });
+            // Explains acquire on versus off and consumes the long press.
             on.setOnLongClickListener(v -> hold("ON acquires this channel. off drops it from the plot, CAR, and the cube."));
+            // While NEG RAIL is on, opens the minus-site picker and returns without toggling bias. Otherwise flips bias for this channel and redraws.
             rld.setOnClickListener(v -> {
                 if (ExgNative.negRail()) {
                     pickNegSite(ch);
@@ -1715,15 +1868,19 @@ public class ExgActivity extends Activity {
                 refreshChannels();
                 refreshChrome();
             });
+            // Explains the minus site while NEG RAIL is on, otherwise bias, and consumes the long press.
             rld.setOnLongClickListener(v -> hold(ExgNative.negRail()
                     ? "− site. With NEG RAIL this picks the back end of the pair. Bias stays off."
                     : "Bias for this channel. The bias drive is a separate contact from the pair."));
+            // Opens the gain list 1, 2, 3, 4, 6, 8, 12 for this channel.
             gn.setOnClickListener(v -> pick(ExgNative.elecName(ch) + " gain",
                     new String[] {"1", "2", "3", "4", "6", "8", "12"},
+                    // Stores that gain on the channel and redraws the rows.
                     gainIndex(ch), i -> {
                         ExgNative.setGain(ch, new int[] {1, 2, 3, 4, 6, 8, 12}[i]);
                         refreshChannels();
                     }));
+            // Explains amplifier gain and consumes the long press.
             gn.setOnLongClickListener(v -> hold("Amplifier gain for this channel. Higher gain makes a smaller signal fill the plot."));
             row.addView(lab, lpLab);
             row.addView(colb, lpBtn);
@@ -1737,6 +1894,7 @@ public class ExgActivity extends Activity {
         applyUiScale();
     }
 
+    // Rewrites every electrode row from native state, including the plus-minus label while NEG RAIL is on, restyles the rail button, and redraws the cube.
     private void refreshChannels() {
         for (int i = 0; i < chGrid.getChildCount(); i++) {
             LinearLayout row = (LinearLayout) chGrid.getChildAt(i);
@@ -1775,6 +1933,7 @@ public class ExgActivity extends Activity {
                     shown = shown + "-" + nn;
                 }
             }
+            // Explains the channel-name button and consumes the long press.
             lab.setOnLongClickListener(v -> hold("Channel name. Tap to pick the + site. With NEG RAIL the label is + site minus − site."));
             lab.setText((ch + 1) + "  " + shown);
             int col = ExgNative.color(ch) | 0xFF000000;
@@ -1793,6 +1952,7 @@ public class ExgActivity extends Activity {
         refreshCubeChrome();
     }
 
+    // Rebuilds the ID chips on Main. With no takes, shows a hint and returns; otherwise a tap picks a take and a long press deletes it.
     private void rebuildLearnChips() {
         learnChips.removeAllViews();
         int n = ExgNative.atomCount();
@@ -1808,11 +1968,13 @@ public class ExgActivity extends Activity {
         for (int i = 0; i < n; i++) {
             final int idx = i;
             Button b = new Button(this);
+            // Picks this take for compare and forces the chips to rebuild on the next chrome pass.
             b.setOnClickListener(v -> {
                 ExgNative.atomPick(idx);
                 lastAtomN = -1;
                 refreshChrome();
             });
+            // Deletes this take, forces the chips to rebuild, and consumes the long press.
             b.setOnLongClickListener(v -> {
                 ExgNative.atomDel(idx);
                 lastAtomN = -1;
@@ -1825,6 +1987,7 @@ public class ExgActivity extends Activity {
         applyUiScale();
     }
 
+    // Returns when there are no takes or the chip count does not match. A percent is shown only for the best chip at 70 percent or above while ID is on.
     private void refreshLearnChips() {
         int n = ExgNative.atomCount();
         if (n < 1 || learnChips.getChildCount() != n) {
@@ -1851,6 +2014,7 @@ public class ExgActivity extends Activity {
         }
     }
 
+    // Returns a 16 sp label in the given color, padded 8 dp on the left, top, and right and 4 dp on the bottom.
     private TextView savedLabel(String s, int col) {
         TextView t = new TextView(this);
         t.setText(s);
@@ -1860,6 +2024,7 @@ public class ExgActivity extends Activity {
         return t;
     }
 
+    // Rebuilds the Takes list, with each take's length in seconds, an A or B tag, and Delete beside it. Record poses are listed under that when any exist.
     private void rebuildSavedList() {
         poseList.removeAllViews();
         int na = ExgNative.atomCount();
@@ -1892,6 +2057,7 @@ public class ExgActivity extends Activity {
             }
             lab.setText(name + "   " + sec + " s" + tag);
             lab.setBackgroundTintList(android.content.res.ColorStateList.valueOf(bg));
+            // Picks this take as the compare target and forces the chrome to refresh the list.
             lab.setOnClickListener(v -> {
                 ExgNative.atomPick(idx);
                 lastAtomN = -1;
@@ -1899,6 +2065,7 @@ public class ExgActivity extends Activity {
             });
             Button del = new Button(this);
             del.setText("Delete");
+            // Deletes this take and forces the takes list to rebuild.
             del.setOnClickListener(v -> {
                 ExgNative.atomDel(idx);
                 lastAtomN = -1;
@@ -1922,12 +2089,14 @@ public class ExgActivity extends Activity {
                         LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
                 lab.setText(ExgNative.learnName(idx));
                 lab.setBackgroundTintList(android.content.res.ColorStateList.valueOf(0xFF2A3038));
+                // Selects this recorded pose and redraws the chrome.
                 lab.setOnClickListener(v -> {
                     ExgNative.learnSelect(idx);
                     refreshChrome();
                 });
                 Button del = new Button(this);
                 del.setText("Delete");
+                // Deletes this recorded pose and forces the takes list to rebuild.
                 del.setOnClickListener(v -> {
                     ExgNative.learnDel(idx);
                     lastLearnN = -1;
@@ -1943,6 +2112,7 @@ public class ExgActivity extends Activity {
 
     private static final String LEARN_HINT = "name (tap)";
 
+    // Returns the trimmed label, or an empty string when it is blank or still the name hint.
     private String nameOrEmpty(Button b) {
         CharSequence t = b.getText();
         String s = t == null ? "" : t.toString().trim();
@@ -1952,11 +2122,14 @@ public class ExgActivity extends Activity {
         return s;
     }
 
+    // Shows the hint name (tap) when the string is null or empty. Otherwise shows the name on the button.
     private void setLearnName(String s) {
         learnName.setText(s == null || s.length() == 0 ? LEARN_HINT : s);
     }
 
+    // Opens a name dialog for a take that lasted sec seconds. Cancel is wired to discard the recording.
     private void nameTake(int sec) {
+        // Discards the take and returns when the name is empty. Otherwise stores the name and saves the take.
         askName("Name this take (" + sec + " s)", "", s -> {
             if (s.length() == 0) {
                 ExgNative.atomDiscard();
@@ -1967,6 +2140,7 @@ public class ExgActivity extends Activity {
             ExgNative.atomSave();
             lastAtomN = -1;
             refreshChrome();
+        // Discards the unsaved take and redraws the chrome.
         }, () -> {
             ExgNative.atomDiscard();
             refreshChrome();
@@ -1978,16 +2152,19 @@ public class ExgActivity extends Activity {
         askName(title, current, "letters, digits, - _", on, null);
     }
 
+    // Forwards to the full dialog with this hint and no cancel action.
     private void askName(String title, String current, String hint,
             java.util.function.Consumer<String> on) {
         askName(title, current, hint, on, null);
     }
 
+    // Forwards to the full dialog with the default hint and the given cancel action.
     private void askName(String title, String current, java.util.function.Consumer<String> on,
             Runnable cancel) {
         askName(title, current, "letters, digits, - _", on, cancel);
     }
 
+    // Shows a text dialog with suggestions off and the keyboard kept out of extract mode. OK passes trimmed text; Cancel and dismiss run the cancel action when it is not null.
     private void askName(String title, String current, String hint,
             java.util.function.Consumer<String> on, Runnable cancel) {
         final EditText e = new EditText(this);
@@ -2003,13 +2180,16 @@ public class ExgActivity extends Activity {
         AlertDialog d = new AlertDialog.Builder(this)
                 .setTitle(title)
                 .setView(e)
+                // Passes the trimmed field text to the caller.
                 .setPositiveButton("OK", (dlg, w) -> on.accept(e.getText().toString().trim()))
+                // Runs the cancel action when one was given. Does nothing extra when it is null.
                 .setNegativeButton("Cancel", (dlg, w) -> {
                     if (cancel != null) {
                         cancel.run();
                     }
                 })
                 .create();
+        // Runs the cancel action when the dialog is dismissed without OK. Does nothing when no cancel action was given.
         d.setOnCancelListener(dlg -> {
             if (cancel != null) {
                 cancel.run();
@@ -2023,6 +2203,7 @@ public class ExgActivity extends Activity {
         e.requestFocus();
     }
 
+    // Returns when there are no named sites. Opens the minus-electrode list for channel ch (0-7), with NONE first.
     private void pickNegSite(int ch) {
         int n = ExgNative.siteN();
         if (n < 1) {
@@ -2038,6 +2219,7 @@ public class ExgActivity extends Activity {
                 cur = i + 1;
             }
         }
+        // Stores -1 for NONE, or the chosen site index, as this channel's minus electrode, then redraws the rows and the chrome.
         pick("ch" + (ch + 1) + " − site", names, cur, i -> {
             ExgNative.setNegSite(ch, i == 0 ? -1 : i - 1);
             refreshChannels();
@@ -2045,6 +2227,7 @@ public class ExgActivity extends Activity {
         });
     }
 
+    // Returns when there are no named sites. Opens the plus-electrode list for channel ch (0-7), with NONE first.
     private void pickSite(int ch) {
         int n = ExgNative.siteN();
         if (n < 1) {
@@ -2060,6 +2243,7 @@ public class ExgActivity extends Activity {
                 cur = i + 1;
             }
         }
+        // Clears the plus site for NONE, or assigns the chosen site. This pick is not a minus electrode, and the rows and the chrome are redrawn.
         pick("ch" + (ch + 1) + " + site", names, cur, i -> {
             ExgNative.setNegPick(false);
             ExgNative.setElecSel(ch);
@@ -2069,12 +2253,14 @@ public class ExgActivity extends Activity {
         });
     }
 
+    // Shows a single-choice list, starting at the first row when the index is outside the list. Choosing a row runs the callback and closes the dialog; Cancel does nothing.
     private void pick(String title, String[] items, int selected, java.util.function.IntConsumer on) {
         if (selected < 0 || selected >= items.length) {
             selected = 0;
         }
         new AlertDialog.Builder(this)
                 .setTitle(title)
+                // Passes the chosen row index to the caller and dismisses the dialog.
                 .setSingleChoiceItems(items, selected, (d, which) -> {
                     on.accept(which);
                     d.dismiss();
@@ -2083,6 +2269,7 @@ public class ExgActivity extends Activity {
                 .show();
     }
 
+    // On API 33 and newer, requests POST_NOTIFICATIONS when it is not already granted. Older releases return without a request.
     private void ensureNotify() {
         if (Build.VERSION.SDK_INT >= 33 &&
                 checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
@@ -2091,6 +2278,7 @@ public class ExgActivity extends Activity {
         }
     }
 
+    // Returns when either peer list is not bound. Rebuilds follower buttons, skipping a blank name or a missing or bt: destination, and revoke buttons for allowed peers.
     private void fillPeers() {
         if (followList == null || allowList == null) {
             return;
@@ -2109,11 +2297,13 @@ public class ExgActivity extends Activity {
             }
             Button b = new Button(this);
             b.setText(nm.replace('_', ' '));
+            // Uses this follower as the LAN destination and connects.
             b.setOnClickListener(v -> {
                 ExgNative.followUse(ix);
                 ExgNative.setLinkPath(1);
                 connectLan();
             });
+            // Deletes this follower, redraws the chrome, and consumes the long press.
             b.setOnLongClickListener(v -> {
                 ExgNative.followDel(ix);
                 refreshChrome();
@@ -2131,6 +2321,7 @@ public class ExgActivity extends Activity {
             }
             Button b = new Button(this);
             b.setText("revoke  " + nm.replace('_', ' '));
+            // Revokes this peer and redraws the chrome.
             b.setOnClickListener(v -> {
                 ExgNative.allowDel(ix);
                 refreshChrome();
@@ -2139,6 +2330,7 @@ public class ExgActivity extends Activity {
         }
     }
 
+    // On a non-USB path, asks for a LAN host and returns. With no serial ports, shows a message and returns; otherwise opens the USB port list.
     private void pickPort() {
         if (ExgNative.linkPath() != 0) {
             askDest();
@@ -2154,12 +2346,14 @@ public class ExgActivity extends Activity {
                     .show();
             return;
         }
+        // Stores that USB port index and redraws the chrome. Does not open the port.
         pick("Knight USB", items, 0, i -> {
             ExgNative.setPortI(i);
             refreshChrome();
         });
     }
 
+    // Maps the notch to a picker row: off is 0, 50 Hz is 1, 60 Hz is 2, and a negative value (AUTO) is 3.
     private int notchIndex() {
         int n = ExgNative.notch();
         if (n < 0) {
@@ -2174,6 +2368,7 @@ public class ExgActivity extends Activity {
         return 0;
     }
 
+    // Maps the high-pass in hertz to a picker row: 1, 2, 5, and 20 are rows 1-4. Any other value, including off, is row 0.
     private int hpIndex() {
         int h = ExgNative.hp();
         if (h == 1) {
@@ -2191,6 +2386,7 @@ public class ExgActivity extends Activity {
         return 0;
     }
 
+    // Maps the low-pass in hertz to a picker row: 20 Hz is 1, 40 Hz is 2, and any other value is off (0).
     private int lpIndex() {
         int l = ExgNative.lp();
         if (l == 20) {
@@ -2202,13 +2398,16 @@ public class ExgActivity extends Activity {
         return 0;
     }
 
+    // Installs a touch listener that keeps a parent scroller from stealing the drag.
     private void ownDrag(View v) {
+        // Tells the parent not to intercept this gesture. Returns false so the seek bar still tracks the finger.
         v.setOnTouchListener((view, ev) -> {
             view.getParent().requestDisallowInterceptTouchEvent(true);
             return false;
         });
     }
 
+    // Maps seek progress onto a log scale from 20 to 8000 microvolts. Progress outside 0-100 is clamped before the conversion.
     private static int uvFromProg(int p) {
         if (p < 0) {
             p = 0;
@@ -2227,6 +2426,7 @@ public class ExgActivity extends Activity {
         return uv;
     }
 
+    // Maps a full-scale limit in microvolts back to seek progress 0-100. Values outside 20-8000 microvolts are clamped first.
     private static int uvToProg(int uv) {
         if (uv < 20) {
             uv = 20;
@@ -2245,6 +2445,7 @@ public class ExgActivity extends Activity {
         return p;
     }
 
+    // Formats a plus-or-minus full-scale limit. At or above 1000 microvolts and on a 100-microvolt step it uses millivolts; otherwise it stays in microvolts.
     private static String uvText(int uv) {
         if (uv >= 1000 && uv % 100 == 0) {
             if (uv % 1000 == 0) {
@@ -2255,14 +2456,17 @@ public class ExgActivity extends Activity {
         return "±" + uv + " µV";
     }
 
+    // Formats the UI scale as a one-decimal multiplier. The argument is tenths, so 10 is 1.0x.
     private static String uiText(int tenths) {
         return String.format(java.util.Locale.US, "UI %.1f×", tenths / 10.0);
     }
 
+    // Formats cube zoom as a one-decimal multiplier.
     private static String zoomText(float z) {
         return String.format(java.util.Locale.US, "zoom %.1f×", z);
     }
 
+    // Copies native scale (microvolts), window (seconds, clamped to 1-8), UI scale (tenths, clamped to 8-22), and cube zoom (clamped to 0.70-2.80) onto the labels and the cube. A seek bar that is pressed is left where the finger put it.
     private void syncBars() {
         int uv = ExgNative.scaleUv();
         if (uv < 20) {
@@ -2318,6 +2522,7 @@ public class ExgActivity extends Activity {
         }
     }
 
+    // Maps the native board mode to a picker row: mode 2 is Auto, mode 1 is 8-ch + IMU, and any other mode is 8-ch EXG.
     private static int boardPickIndex() {
         int mode = ExgNative.boardMode();
         if (mode == 2) {
@@ -2329,6 +2534,7 @@ public class ExgActivity extends Activity {
         return 2;
     }
 
+    // Copies assets/knight.hex into exg-c/firmware via a temp file and rename. Returns without installing if the files directory or the asset is missing, the folder cannot be created, or the existing file cannot be deleted.
     private void installKnightHex(File files) {
         if (files == null) {
             return;
@@ -2374,6 +2580,7 @@ public class ExgActivity extends Activity {
         }
     }
 
+    // Returns when this process already asked, or the Knight firmware is not behind. Otherwise shows the prompt once.
     private void maybeFirmwarePrompt() {
         if (fwAsked || !ExgNative.fwBehind()) {
             return;
@@ -2383,12 +2590,14 @@ public class ExgActivity extends Activity {
                 .setTitle("Knight firmware")
                 .setMessage("This connected Knight is not on firmware " + ExgNative.fwNeed()
                         + ". Electrodes off, then Upload.")
+                // Opens the flash page.
                 .setPositiveButton("Open flasher", (d, w) ->
                         startActivity(new Intent(this, FlashActivity.class)))
                 .setNegativeButton("Later", null)
                 .show();
     }
 
+    // Shows a number field, empty when the current value is 0, and keeps the keyboard in the activity. Cancel closes the dialog with no callback.
     private void askPort(String title, int current, java.util.function.IntConsumer on) {
         final EditText e = new EditText(this);
         e.setText(current == 0 ? "" : String.valueOf(current));
@@ -2402,6 +2611,7 @@ public class ExgActivity extends Activity {
         AlertDialog d = new AlertDialog.Builder(this)
                 .setTitle(title)
                 .setView(e)
+                // Accepts 0 and returns when the field is empty. A number from 0 through 65535 is passed on; any other text is ignored.
                 .setPositiveButton("OK", (dlg, w) -> {
                     String s = e.getText().toString().trim();
                     if (s.length() == 0) {
@@ -2426,6 +2636,7 @@ public class ExgActivity extends Activity {
         e.requestFocus();
     }
 
+    // Returns the picker row for this channel's gain, using steps 1, 2, 3, 4, 6, 8, and 12. An unknown gain returns 6, the 12x row.
     private int gainIndex(int ch) {
         int g = ExgNative.gain(ch);
         int[] gs = {1, 2, 3, 4, 6, 8, 12};

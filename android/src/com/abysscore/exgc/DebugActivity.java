@@ -15,6 +15,7 @@ public final class DebugActivity extends Activity {
     private TextView log;
     private boolean alive;
     private final Runnable poll = new Runnable() {
+        /** Ticks the host every 250 ms and returns at once when the page is paused. The head line is design SPS, plus "warming" while cold and the measured SPS; an empty log shows "no serial text yet". */
         @Override
         public void run() {
             if (!alive) {
@@ -30,6 +31,7 @@ public final class DebugActivity extends Activity {
         }
     };
 
+    /** Builds the dark page: rate line, the note that sample bytes are not printed, and a selectable log. */
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -61,6 +63,7 @@ public final class DebugActivity extends Activity {
         setContentView(root);
     }
 
+    /** Marks the page alive and posts the first poll. */
     @Override
     protected void onResume() {
         super.onResume();
@@ -68,6 +71,7 @@ public final class DebugActivity extends Activity {
         h.post(poll);
     }
 
+    /** Stops further polls, then pauses. */
     @Override
     protected void onPause() {
         alive = false;

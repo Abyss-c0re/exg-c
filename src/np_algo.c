@@ -7,6 +7,11 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* Fold bits, plus the small dialect in this file.
+ * Statements are ON/OFF, LET, IF, FOR seconds, and UNTIL. */
+
+/* Names for ids 0..7: detect, sign, mean, energy, delta, fold, proton, compare.
+ * An id outside that range returns "detect". */
 const char *np_algo_name(int id)
 {
     static const char *n[NP_ALGO_N] = {"detect", "sign", "mean", "energy",
@@ -17,6 +22,7 @@ const char *np_algo_name(int id)
     return n[id];
 }
 
+/* One-line rule for ids 0..7. Compare's line says ch1 < ch5. Any other id returns the detect rule. */
 const char *np_algo_rule(int id)
 {
     switch (id) {
@@ -41,6 +47,7 @@ const char *np_algo_rule(int id)
     }
 }
 
+/* Mean of absolute values. n below 1 returns 0. */
 static float mean_abs(const float *x, int n)
 {
     int i;
@@ -54,6 +61,8 @@ static float mean_abs(const float *x, int n)
     return (float)(s / n);
 }
 
+/* DETECT copies detect_bit. Id 7 returns 0. A null window or n below 2 returns 0 for every other id.
+ * Sign is last>0, mean is |last|>0.85·mean|x|, energy is rms>1.05·mean|x|, delta is |step|>1.10·mean|dx|, fold is more than n/2 samples above 0, proton is +energy over half when energy>1e-12, and any other id returns detect_bit. */
 int np_algo_bit(int id, const float *x, int n, int detect_bit)
 {
     float last, ma, rms, md;
@@ -110,6 +119,7 @@ int np_algo_bit(int id, const float *x, int n, int detect_bit)
     return detect_bit ? 1 : 0;
 }
 
+/* Source line for ids 0..7. An id outside that range returns the compare line: if ch2 < ch5 then ch3 ON else ch3 OFF. */
 const char *np_algo_def_src(int id)
 {
     static const char *s[NP_ALGO_N] = {
@@ -211,6 +221,7 @@ static struct {
     uint8_t until_on[NP_HOLD_N];
 } g_hs;
 
+/* Clock for FOR, in milliseconds. 0 leaves FOR with no replay. */
 void np_algo_set_now(uint64_t now_ms)
 {
     g_now_ms = now_ms;
@@ -226,6 +237,7 @@ struct np_lex {
     float num;
 };
 
+/* Case-insensitive match. Both strings must end together. */
 static int kw_eq(const char *a, const char *b)
 {
     while (*a && *b) {
@@ -238,6 +250,7 @@ static int kw_eq(const char *a, const char *b)
     return *a == 0 && *b == 0;
 }
 
+/* Skip spaces, tabs, CR, and newlines (counting lines). A # or // comment runs to the end of the line. */
 static void lex_skip(struct np_lex *L)
 {
     for (;;) {
@@ -259,6 +272,7 @@ static void lex_skip(struct np_lex *L)
     }
 }
 
+/* Next token. ON and OFF become the numbers 1 and 0. AND, OR, and NOT are operators. A name longer than 31 characters is cut. */
 static void lex_next(struct np_lex *L)
 {
     const char *p;
@@ -336,6 +350,7 @@ static void lex_next(struct np_lex *L)
     L->kind = TK_OP;
 }
 
+/* Append one op. The program holds 96. Past that, returns -1. err must be non-null. */
 static int emit(struct np_prog *P, unsigned char op, float f, int i, char *err,
                 int errn, int line)
 {
@@ -350,6 +365,7 @@ static int emit(struct np_prog *P, unsigned char op, float f, int i, char *err,
     return 0;
 }
 
+/* Slot of a name, case-insensitive. create adds one, up to 8, cut to 11 characters. A missing name with create clear returns -1. */
 static int find_var(struct np_prog *P, const char *name, int create)
 {
     int i;
@@ -365,6 +381,7 @@ static int find_var(struct np_prog *P, const char *name, int create)
     return P->nv++;
 }
 
+/* Index 0..7 from a prefixed name whose suffix is 1..8, such as ch3. The prefix compare is case-insensitive. Anything else returns -1. */
 static int name_ix(const char *tok, const char *pre)
 {
     int n = 0, i = 0;
@@ -387,6 +404,7 @@ static int name_ix(const char *tok, const char *pre)
     return n - 1;
 }
 
+/* 1 for a builtin name, including ch, last, mean, rms, n, prev, dxmean, above, pos, signal, and the same words with a 1..8 suffix. */
 static int reserved(const char *name)
 {
     return kw_eq(name, "ch") || kw_eq(name, "last") || kw_eq(name, "mean") ||
@@ -409,6 +427,8 @@ static int reserved(const char *name)
 
 static int parse_expr(struct np_lex *L, struct np_prog *P, char *err, int errn);
 
+/* A value: number, ON/OFF, name, chN and the other channel builtins (index 1..8 means slot 0..7), unary minus, NOT or !, abs/sqrt/min/max/pow, or parentheses.
+ * An unknown name is an error. err must be non-null. */
 static int parse_unary(struct np_lex *L, struct np_prog *P, char *err, int errn)
 {
     if ((L->kind == TK_OP && L->tok[0] == '-' && L->tok[1] == 0)) {
@@ -619,6 +639,7 @@ static int parse_unary(struct np_lex *L, struct np_prog *P, char *err, int errn)
     return -1;
 }
 
+/* * / and % , tighter than + -. Returns -1 on a bad term. */
 static int parse_mul(struct np_lex *L, struct np_prog *P, char *err, int errn)
 {
     if (parse_unary(L, P, err, errn) != 0) {
@@ -640,6 +661,7 @@ static int parse_mul(struct np_lex *L, struct np_prog *P, char *err, int errn)
     return 0;
 }
 
+/* + and - over multiply terms. */
 static int parse_add(struct np_lex *L, struct np_prog *P, char *err, int errn)
 {
     if (parse_mul(L, P, err, errn) != 0) {
@@ -660,6 +682,7 @@ static int parse_add(struct np_lex *L, struct np_prog *P, char *err, int errn)
     return 0;
 }
 
+/* Comparisons < > <= >= == != over sums. They chain left to right. */
 static int parse_cmp(struct np_lex *L, struct np_prog *P, char *err, int errn)
 {
     unsigned char op;
@@ -694,6 +717,7 @@ static int parse_cmp(struct np_lex *L, struct np_prog *P, char *err, int errn)
     return 0;
 }
 
+/* AND, or &&, over comparisons. */
 static int parse_and(struct np_lex *L, struct np_prog *P, char *err, int errn)
 {
     if (parse_cmp(L, P, err, errn) != 0) {
@@ -711,6 +735,7 @@ static int parse_and(struct np_lex *L, struct np_prog *P, char *err, int errn)
     return 0;
 }
 
+/* OR, or ||, over AND. This is the top of an expression. */
 static int parse_expr(struct np_lex *L, struct np_prog *P, char *err, int errn)
 {
     if (parse_and(L, P, err, errn) != 0) {
@@ -731,6 +756,7 @@ static int parse_expr(struct np_lex *L, struct np_prog *P, char *err, int errn)
 static int parse_stmt(struct np_lex *L, struct np_prog *P, char *err, int errn);
 static int parse_block(struct np_lex *L, struct np_prog *P, char *err, int errn);
 
+/* FOR <seconds> THEN body END, up to 8. THEN and END may be omitted. The seconds expression is evaluated when the FOR op runs. */
 static int parse_for(struct np_lex *L, struct np_prog *P, char *err, int errn)
 {
     int slot, b0;
@@ -761,6 +787,7 @@ static int parse_for(struct np_lex *L, struct np_prog *P, char *err, int errn)
     return 0;
 }
 
+/* UNTIL <cond> THEN body END, up to 8. The body is the path taken while the condition is 0. THEN and END may be omitted. */
 static int parse_until(struct np_lex *L, struct np_prog *P, char *err, int errn)
 {
     int slot, c0, jz, b0;
@@ -802,6 +829,7 @@ static int parse_until(struct np_lex *L, struct np_prog *P, char *err, int errn)
     return 0;
 }
 
+/* Read ON, OFF, or any number into *v. An optional IS or = is skipped. Anything else returns -1. */
 static int parse_onoff(struct np_lex *L, float *v, char *err, int errn)
 {
     if (L->kind == TK_ID && kw_eq(L->tok, "is")) {
@@ -819,6 +847,7 @@ static int parse_onoff(struct np_lex *L, float *v, char *err, int errn)
     return 0;
 }
 
+/* Push ON/OFF and store it. ch below 0 writes the self bit. ch 0..7 writes that channel. */
 static int parse_set_ch(struct np_lex *L, struct np_prog *P, int ch, char *err,
                         int errn)
 {
@@ -835,12 +864,14 @@ static int parse_set_ch(struct np_lex *L, struct np_prog *P, int ch, char *err,
     return emit(P, OP_BITN, 0, ch, err, errn, L->line);
 }
 
+/* Statements until ELSE, ELIF, END, or the end of the text. */
 static int parse_then_body(struct np_lex *L, struct np_prog *P, char *err,
                            int errn)
 {
     return parse_block(L, P, err, errn);
 }
 
+/* 1 at end of text, or on ELSE, ELIF, or END. */
 static int at_if_end(const struct np_lex *L)
 {
     return L->kind == TK_EOF ||
@@ -848,6 +879,7 @@ static int at_if_end(const struct np_lex *L)
                                  kw_eq(L->tok, "end")));
 }
 
+/* Statements until an if-ender. A bad statement returns -1. */
 static int parse_block(struct np_lex *L, struct np_prog *P, char *err, int errn)
 {
     while (!at_if_end(L)) {
@@ -858,6 +890,7 @@ static int parse_block(struct np_lex *L, struct np_prog *P, char *err, int errn)
     return 0;
 }
 
+/* IF <expr> THEN body, then optional ELIF, ELSE, or ELSE IF, then optional END. THEN is required. A false condition jumps over the body. */
 static int parse_if(struct np_lex *L, struct np_prog *P, char *err, int errn)
 {
     int jz, jmp, endpc;
@@ -910,6 +943,8 @@ static int parse_if(struct np_lex *L, struct np_prog *P, char *err, int errn)
     return 0;
 }
 
+/* One statement: IF, FOR, UNTIL, a bare ON/OFF (self bit), chN ON/OFF, OUT [sensor] name [ON/OFF], or LET name = expr (a comma works as =).
+ * err must be non-null. */
 static int parse_stmt(struct np_lex *L, struct np_prog *P, char *err, int errn)
 {
     int ix;
@@ -998,6 +1033,7 @@ static int parse_stmt(struct np_lex *L, struct np_prog *P, char *err, int errn)
     return -1;
 }
 
+/* Parse and discard the program. Returns 0 when the text is legal, -1 otherwise. err must be non-null. Empty text returns -1. */
 int np_algo_compile(const char *src, char *err, int errn)
 {
     struct np_lex L;
@@ -1029,6 +1065,7 @@ int np_algo_compile(const char *src, char *err, int errn)
     return 0;
 }
 
+/* Parse into P and keep it. Returns 0 or -1. err must be non-null. Empty text returns -1. */
 static int compile_full(const char *src, struct np_prog *P, char *err, int errn)
 {
     struct np_lex L;
@@ -1049,6 +1086,7 @@ static int compile_full(const char *src, struct np_prog *P, char *err, int errn)
     return emit(P, OP_HALT, 0, 0, err, errn, L.line);
 }
 
+/* v[i] for i in 0..7. Any other index returns 0. */
 static float bank_at(const float *v, int i)
 {
     if (i < 0 || i > 7) {
@@ -1070,6 +1108,7 @@ struct eval_run {
     int self;
 };
 
+/* Remember src. A different source clears FOR deadlines and UNTIL latches. A null src is stored as empty. */
 static void hold_bind(const char *src)
 {
     if (!src) {
@@ -1081,6 +1120,8 @@ static void hold_bind(const char *src)
     }
 }
 
+/* Run ops from pc0 up to pc1. A full stack (16), an empty stack, or an unknown op returns 0.
+ * Divide or modulo by 0 yields 0. sqrt of a negative yields 0. FOR stores a deadline in ms from the clock. */
 static int eval_ops(const struct np_prog *P, struct eval_run *E, int pc0, int pc1)
 {
     int pc = pc0;
@@ -1423,6 +1464,8 @@ static int eval_ops(const struct np_prog *P, struct eval_run *E, int pc0, int pc
     return E->out->self_bit ? 1 : 0;
 }
 
+/* Run the program against the bank and write out. A null out uses a private result.
+ * A missed FOR whose deadline is still ahead re-runs its body. A missed UNTIL re-checks its condition: nonzero clears the latch, zero re-runs the body. */
 static int eval_prog(const struct np_prog *P, const struct np_algo_bank *bank,
                      struct np_algo_out *out)
 {
@@ -1490,6 +1533,8 @@ static struct {
     int ok;
 } g_acache[NP_ALGO_CACHE];
 
+/* Compiled program for src, from a cache of 16. A full cache replaces slot 0. Empty src uses the default ch2 < ch5 line.
+ * A compile error returns NULL. */
 static const struct np_prog *prog_cached(const char *src)
 {
     int i, empty = -1;
@@ -1515,6 +1560,7 @@ static const struct np_prog *prog_cached(const char *src)
     return &g_acache[i].P;
 }
 
+/* Zero the bank and set self to -1. A null pointer returns. */
 void np_algo_bank_clear(struct np_algo_bank *b)
 {
     if (!b) {
@@ -1524,11 +1570,14 @@ void np_algo_bank_clear(struct np_algo_bank *b)
     b->self = -1;
 }
 
+/* Store channel ch from x[0..n), with signal 0. */
 void np_algo_bank_set(struct np_algo_bank *b, int ch, const float *x, int n)
 {
     np_algo_bank_set_ex(b, ch, x, n, 0);
 }
 
+/* mean is mean |x|, above is the fraction above 0, pos is positive energy over total energy, prev is sample n-2 or the only sample when n is 1.
+ * n below 1 zeros those stats and still stores nn and signal (1 or 0). ch outside 0..7 returns. */
 void np_algo_bank_set_ex(struct np_algo_bank *b, int ch, const float *x, int n,
                          int signal)
 {
@@ -1568,6 +1617,8 @@ void np_algo_bank_set_ex(struct np_algo_bank *b, int ch, const float *x, int n,
     b->pos[ch] = e > 1e-12 ? (float)(ep / e) : 0.f;
 }
 
+/* Evaluate src into o. Returns 0 when o is null or the source fails to compile, and a non-null o is zeroed in that failure.
+ * Otherwise returns the self bit. */
 int np_algo_custom_out(const char *src, const struct np_algo_bank *b,
                        struct np_algo_out *o)
 {
@@ -1584,6 +1635,7 @@ int np_algo_custom_out(const char *src, const struct np_algo_bank *b,
     return eval_prog(P, b, o);
 }
 
+/* Self channel's written bit when that channel was assigned, otherwise the self bit. */
 int np_algo_custom_bank(const char *src, const struct np_algo_bank *b)
 {
     struct np_algo_out o;
@@ -1596,6 +1648,7 @@ int np_algo_custom_bank(const char *src, const struct np_algo_bank *b)
     return o.self_bit ? 1 : 0;
 }
 
+/* Run src with channel 0 of x as self. signal stays 0. */
 int np_algo_custom(const char *src, const float *x, int n)
 {
     struct np_algo_bank b;

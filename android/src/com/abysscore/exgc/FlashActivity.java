@@ -18,6 +18,7 @@ public final class FlashActivity extends Activity {
     private TextView log;
     private boolean alive;
     private final Runnable poll = new Runnable() {
+        /** Polls native flash state every 250 ms and returns at once when the page is paused. The headline, banner, and log are refreshed from the host. */
         @Override
         public void run() {
             if (!alive) {
@@ -31,6 +32,7 @@ public final class FlashActivity extends Activity {
         }
     };
 
+    /** Builds the dark upload page: firmware line, banner, Upload button, the note, and a selectable log. */
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -68,6 +70,7 @@ public final class FlashActivity extends Activity {
         setContentView(root);
     }
 
+    /** Marks the page alive and posts the first poll. */
     @Override
     protected void onResume() {
         super.onResume();
@@ -75,6 +78,7 @@ public final class FlashActivity extends Activity {
         h.post(poll);
     }
 
+    /** Stops further polls, then pauses. */
     @Override
     protected void onPause() {
         alive = false;
@@ -82,11 +86,13 @@ public final class FlashActivity extends Activity {
         super.onPause();
     }
 
+    /** Firmware line: version on the board, version this build expects, and the version seen this boot. */
     private String headline() {
         return "fw " + ExgNative.fwHave() + " / " + ExgNative.fwNeed()
                 + "   seen " + ExgNative.fwSeen();
     }
 
+    /** A null state is treated as empty. The tag before the newline picks FLASHED, FAILED, FLASHING, TAP AGAIN, or READY; a second line replaces that word. */
     private void applyBanner(String state) {
         String text = state == null ? "" : state;
         int nl = text.indexOf('\n');
@@ -110,6 +116,7 @@ public final class FlashActivity extends Activity {
         }
     }
 
+    /** A new horizontal row, centered vertically. Nothing is added to the page here. */
     private LinearLayout row() {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
@@ -117,6 +124,7 @@ public final class FlashActivity extends Activity {
         return row;
     }
 
+    /** A full-weight button with that label, light text, and no automatic caps. */
     private Button button(String name) {
         Button b = new Button(this);
         b.setText(name);
@@ -128,6 +136,7 @@ public final class FlashActivity extends Activity {
         return b;
     }
 
+    /** A text view in color, size sp, with 8 px of vertical padding. */
     private TextView label(int color, int sp) {
         TextView t = new TextView(this);
         t.setTextColor(color);

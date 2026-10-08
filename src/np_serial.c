@@ -12,6 +12,11 @@
 #include <termios.h>
 #include <unistd.h>
 
+/* POSIX tty. Open is raw 8N1 at 115200.
+ * Hangup is left off so close does not reset the Nano. */
+
+/* Open path non-blocking, raw 8N1 at 115200, no parity and no RTS/CTS.
+ * HUPCL is cleared so close does not drop DTR. Returns the fd, or -1, and flushes both directions. */
 int np_serial_open(const char *path)
 {
     int fd;
@@ -44,6 +49,8 @@ int np_serial_open(const char *path)
     return fd;
 }
 
+/* Drop DTR and RTS for 250 ms, then raise them and wait 50 ms.
+ * That discharges the Nano RESET capacitor. */
 void np_serial_pulse_dtr(int fd)
 {
     int bits = TIOCM_DTR | TIOCM_RTS;
@@ -54,6 +61,8 @@ void np_serial_pulse_dtr(int fd)
     usleep(50000);
 }
 
+/* Switch the open tty to 57600 or 115200.
+ * Any other baud, a bad fd, or a termios failure returns -1. */
 int np_serial_set_baud(int fd, int baud)
 {
     struct termios tio;
@@ -77,6 +86,7 @@ int np_serial_set_baud(int fd, int baud)
     return tcsetattr(fd, TCSANOW, &tio) == 0 ? 0 : -1;
 }
 
+/* Close fd. fd below 0 is ignored. */
 void np_serial_close(int fd)
 {
     if (fd >= 0) {
@@ -84,6 +94,7 @@ void np_serial_close(int fd)
     }
 }
 
+/* Write all n bytes, or return -1. EINTR is retried. EAGAIN waits up to 200 ms for POLLOUT. */
 int np_serial_write(int fd, const void *buf, int n)
 {
     const unsigned char *p = buf;
@@ -108,6 +119,7 @@ int np_serial_write(int fd, const void *buf, int n)
     return off;
 }
 
+/* One read. EAGAIN, EWOULDBLOCK, and EINTR return 0. Other errors return -1. */
 int np_serial_read(int fd, void *buf, int n)
 {
     ssize_t r = read(fd, buf, (size_t)n);
@@ -120,27 +132,33 @@ int np_serial_read(int fd, void *buf, int n)
     return (int)r;
 }
 
+/* timeout_ms is ignored. This is one non-blocking read. */
 int np_serial_read_wait(int fd, void *buf, int n, int timeout_ms)
 {
     (void)timeout_ms;
     return np_serial_read(fd, buf, n);
 }
 
+/* Read one byte. The return is 1, 0, or -1, same as a one-byte read. */
 int np_serial_read_byte(int fd, unsigned char *b)
 {
     return np_serial_read(fd, b, 1);
 }
 
+/* Flush both directions on fd. */
 void np_serial_flush(int fd)
 {
     tcflush(fd, TCIOFLUSH);
 }
 
+/* 1 when the name starts with ttyUSB or ttyACM. */
 static int is_tty_name(const char *n)
 {
     return strncmp(n, "ttyUSB", 6) == 0 || strncmp(n, "ttyACM", 6) == 0;
 }
 
+/* Scan /dev for ttyUSB* and ttyACM*, in readdir order, up to max.
+ * Returns 0 when /dev will not open. */
 int np_list_ports(char out[][NP_MAX_PATH], int max)
 {
     DIR *d;

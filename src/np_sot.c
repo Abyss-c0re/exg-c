@@ -7,6 +7,9 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+/* Networkless cells.bin. First byte is 8, then 512 digits.
+ * A named OUT paints one cell. */
+
 #ifdef __ANDROID__
 #define NP_SOT_DIR_DEF "/data/local/tmp/cubebrain_viz"
 #else
@@ -20,6 +23,7 @@ static char g_name[NP_SOT_NAMES][NP_SOT_NAME];
 static uint8_t g_on[NP_SOT_NAMES];
 static int g_nn;
 
+/* Case-insensitive match. Both strings must end together. */
 static int name_eq(const char *a, const char *b)
 {
     while (*a && *b) {
@@ -32,6 +36,7 @@ static int name_eq(const char *a, const char *b)
     return *a == 0 && *b == 0;
 }
 
+/* FNV-1a of the lowercased name, modulo 512. */
 static unsigned name_cell(const char *n)
 {
     unsigned h = 2166136261u;
@@ -42,6 +47,7 @@ static unsigned name_cell(const char *n)
     return h % (unsigned)NP_SOT_CELLS;
 }
 
+/* mkdir each parent, mode 0755. Failures are ignored. */
 static void ensure_dir(const char *d)
 {
     char tmp[256], *p;
@@ -56,6 +62,8 @@ static void ensure_dir(const char *d)
     mkdir(tmp, 0755);
 }
 
+/* Cached directory for cells.bin. CUBEBRAIN_VIZ_CELLS wins as the parent of that path.
+ * Else NP_SOT_DIR, CUBEBRAIN_VIZ_DIR, CUBE_SOT_DIR, or CUBALC_SOT_DIR, then the platform default. */
 const char *np_sot_dir(void)
 {
     const char *env;
@@ -103,6 +111,7 @@ const char *np_sot_dir(void)
     return g_dir;
 }
 
+/* Path of cells.bin under that directory. Cached after the first call. */
 const char *np_sot_path(void)
 {
     if (!g_path[0]) {
@@ -111,6 +120,7 @@ const char *np_sot_path(void)
     return g_path;
 }
 
+/* Drop every named overlay. The file on disk is left as it was. */
 void np_sot_clear(void)
 {
     memset(g_name, 0, sizeof(g_name));
@@ -118,6 +128,8 @@ void np_sot_clear(void)
     g_nn = 0;
 }
 
+/* Remember a name as on or off. Match is case-insensitive. An empty name returns.
+ * A new name past 16 entries is dropped. The stored name is cut to 15 characters. */
 void np_sot_set(const char *name, int on)
 {
     int i;
@@ -138,6 +150,7 @@ void np_sot_set(const char *name, int on)
     g_nn++;
 }
 
+/* Paint each named cell: digit 5 if on, else 0. Other cells stay as they are. A null array returns. */
 void np_sot_apply(uint8_t cells[NP_SOT_CELLS])
 {
     int i;
@@ -150,6 +163,8 @@ void np_sot_apply(uint8_t cells[NP_SOT_CELLS])
     }
 }
 
+/* Write one byte 8, then 512 cell bytes, through a .tmp rename. Also rewrites nodes.tsv.
+ * Returns -1 when the temp file cannot be written or renamed. A nodes.tsv failure still returns 0. */
 int np_sot_write(const uint8_t cells[NP_SOT_CELLS])
 {
     char tmp[300], nodes[300];
@@ -187,6 +202,8 @@ int np_sot_write(const uint8_t cells[NP_SOT_CELLS])
     return 0;
 }
 
+/* '1' becomes digit 1 and any other character becomes 0. A short string leaves the tail at 0.
+ * Named cells are then painted 5 or 0 on top. */
 int np_sot_write_bits01(const char *bits512)
 {
     uint8_t cells[NP_SOT_CELLS];
@@ -201,6 +218,8 @@ int np_sot_write_bits01(const char *bits512)
     return np_sot_write(cells);
 }
 
+/* On Linux, cells 0..7 are loadavg steps of 0.25 (digit 5) and cells 8..15 are busy-percent steps of 12 (digit 4).
+ * The name cpu is on when busy percent is over 8. Other systems write zeros plus the named overlay. */
 int np_sot_write_cpu(void)
 {
     uint8_t cells[NP_SOT_CELLS];

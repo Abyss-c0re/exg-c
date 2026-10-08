@@ -119,35 +119,67 @@ typedef union SDL_Event {
     Uint8 pad[64];
 } SDL_Event;
 
+/* Entry points the engine actually calls. Linux links libSDL2.
+ * The Android UI links src/sdl_stub.c, which paints nothing.
+ * SDL_GetTicks is milliseconds since boot. SDL_Delay sleeps that many milliseconds. */
 int SDL_Init(Uint32 flags);
+/* Shuts the video subsystem down. The Android stub has nothing to free. */
 void SDL_Quit(void);
+/* Opens the desktop window. The Android stub returns a dummy pointer. */
 SDL_Window *SDL_CreateWindow(const char *title, int x, int y, int w, int h, Uint32 flags);
+/* Closes the desktop window. The Android stub ignores w. */
 void SDL_DestroyWindow(SDL_Window *w);
+/* Desktop renderer. The Android stub returns a dummy pointer and paints nothing. */
 SDL_Renderer *SDL_CreateRenderer(SDL_Window *w, int index, Uint32 flags);
+/* Frees the desktop renderer. The Android stub ignores r. */
 void SDL_DestroyRenderer(SDL_Renderer *r);
+/* Draw color, 0–255 per channel. The Android stub succeeds and paints nothing. */
 int SDL_SetRenderDrawColor(SDL_Renderer *r, Uint8 R, Uint8 G, Uint8 B, Uint8 A);
+/* Clears the desktop frame. The Android stub succeeds and paints nothing. */
 int SDL_RenderClear(SDL_Renderer *r);
+/* Filled rectangle in pixels. The Android stub succeeds and paints nothing. */
 int SDL_RenderFillRect(SDL_Renderer *r, const SDL_Rect *rect);
+/* Line in pixels. The Android stub succeeds and paints nothing. */
 int SDL_RenderDrawLine(SDL_Renderer *r, int x1, int y1, int x2, int y2);
+/* One pixel. The Android stub succeeds and paints nothing. */
 int SDL_RenderDrawPoint(SDL_Renderer *r, int x, int y);
+/* Shows the desktop frame. The Android stub does not present. */
 void SDL_RenderPresent(SDL_Renderer *r);
+/* Next input event. 0 when the queue is empty. The Android stub always returns 0. */
 int SDL_PollEvent(SDL_Event *e);
+/* Milliseconds since the clock started. Calibration and the ladder read this. */
 Uint32 SDL_GetTicks(void);
+/* Sleep. ms is milliseconds. A large value stalls the calling thread. */
 void SDL_Delay(Uint32 ms);
+/* Last SDL error string. The Android stub returns an empty string. */
 const char *SDL_GetError(void);
+/* SDL hint. The Android stub accepts it and returns 1. */
 int SDL_SetHint(const char *name, const char *value);
+/* Blend mode for later draws. The Android stub succeeds and paints nothing. */
 int SDL_SetRenderDrawBlendMode(SDL_Renderer *r, int mode);
+/* Window size in pixels. The Android stub reports 1280 by 720 and Java ignores it. */
 void SDL_GetWindowSize(SDL_Window *w, int *wi, int *he);
+/* Requests a window size in pixels. The Android stub ignores it. */
 void SDL_SetWindowSize(SDL_Window *w, int wi, int he);
+/* Window title. The Android stub ignores it. */
 void SDL_SetWindowTitle(SDL_Window *w, const char *title);
+/* Draw scale. The desktop UI uses 1. The Android stub succeeds and is unread. */
 int SDL_RenderSetScale(SDL_Renderer *r, float sx, float sy);
+/* Clip rectangle in pixels. NULL clears it. The Android stub does not clip. */
 int SDL_RenderSetClipRect(SDL_Renderer *r, const SDL_Rect *rect);
+/* Offscreen target, width and height in pixels. The Android stub returns NULL. */
 SDL_Texture *SDL_CreateTexture(SDL_Renderer *r, Uint32 format, int access, int w, int h);
+/* Draws into t, or the window when t is NULL. The Android stub always fails. */
 int SDL_SetRenderTarget(SDL_Renderer *r, SDL_Texture *t);
+/* Copies a texture. The Android stub succeeds and paints nothing. */
 int SDL_RenderCopy(SDL_Renderer *r, SDL_Texture *t, const SDL_Rect *src, const SDL_Rect *dst);
+/* Frees a texture. The Android stub never allocated one. */
 void SDL_DestroyTexture(SDL_Texture *t);
+/* Pointer position in pixels. The Android stub reports 0,0. Touch is Java. */
 Uint32 SDL_GetMouseState(int *x, int *y);
+/* Shows the text keyboard. The Android stub does nothing. */
 void SDL_StartTextInput(void);
+/* Hides the text keyboard. The Android stub does nothing. */
 void SDL_StopTextInput(void);
 
 #define SDL_BLENDMODE_BLEND 0x00000001

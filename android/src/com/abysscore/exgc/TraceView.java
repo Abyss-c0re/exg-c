@@ -30,16 +30,19 @@ public class TraceView extends View {
     private float den = 1f;
     private boolean frozen;
 
+    /** One-argument constructor. Background and paints are set before the first draw. */
     public TraceView(Context c) {
         super(c);
         init();
     }
 
+    /** XML constructor. Background and paints are set before the first draw. */
     public TraceView(Context c, AttributeSet a) {
         super(c, a);
         init();
     }
 
+    /** Dark background, stroke and grid paints, and default channel colors. Site labels start as ch1 through ch8. */
     private void init() {
         setBackgroundColor(0xFF101218);
         line.setStyle(Paint.Style.STROKE);
@@ -56,6 +59,7 @@ public class TraceView extends View {
         }
     }
 
+    /** Clamps f to 0.8..2.2, resizes the labels, and redraws. */
     public void setLabelScale(float f) {
         if (f < 0.8f) {
             f = 0.8f;
@@ -79,6 +83,7 @@ public class TraceView extends View {
         grid.setStrokeWidth(Math.max(1f, 0.6f * den));
     }
 
+    /** While paused, redraws the last samples if any channel already has more than one, and returns. Otherwise copies each active channel in µV, color, clip, and RMS, appending a minus name on NEG RAIL when it is non-empty and not NONE; an inactive channel is cleared. */
     public void pull() {
         frozen = ExgNative.paused();
         if (frozen) {
@@ -123,6 +128,7 @@ public class TraceView extends View {
         postInvalidateOnAnimation();
     }
 
+    /** Returns if either side is under 8 px, or after "no channels on" when none are active. Each active row is a mid-line grid, an RMS label in µV or mV, and the trace kept inside the row. */
     @Override
     protected void onDraw(Canvas c) {
         super.onDraw(c);

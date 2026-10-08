@@ -4,6 +4,10 @@
 #include <string.h>
 #include <time.h>
 
+/* Optiboot STK500v1. One GET_SYNC at 115200 after the line is quiet.
+ * Pages go out only after signature 1E 95 0F. */
+
+/* Copy msg into err when err is non-null and err_n is above 0. */
 static void err_set(char *err, int err_n, const char *msg)
 {
     if (err && err_n > 0) {
@@ -11,6 +15,7 @@ static void err_set(char *err, int err_n, const char *msg)
     }
 }
 
+/* 0..15 for one hex digit. Anything else returns -1. */
 static int hex_nibble(char c)
 {
     if (c >= '0' && c <= '9') {
@@ -25,6 +30,7 @@ static int hex_nibble(char c)
     return -1;
 }
 
+/* Two hex digits into *out. A short or non-hex pair returns -1. */
 static int hex_byte(const char *s, unsigned *out)
 {
     int hi, lo;
@@ -40,6 +46,8 @@ static int hex_byte(const char *s, unsigned *out)
     return 0;
 }
 
+/* Intel hex into dst, filled with 0xFF first. The linear address must stay 0, and a record past cap or NP_STK_APP_MAX returns -1.
+ * *out_len is one past the highest data byte. A missing EOF, or no data, returns -1. */
 int np_ihex_decode(const char *text, unsigned char *dst, int cap, int *out_len,
                    char *err, int err_n)
 {
@@ -164,6 +172,8 @@ int np_ihex_decode(const char *text, unsigned char *dst, int cap, int *out_len,
 #define STK_READ_PAGE 0x74
 #define STK_READ_SIGN 0x75
 
+/* Read n bytes, in slices of at most 40 ms. timeout_ms below 1 is treated as 1 ms.
+ * Returns the count received, which may be short, or -1 on a read error. */
 static int read_full(const struct np_stk_io *io, unsigned char *buf, int n, int timeout_ms)
 {
     int got = 0;
@@ -184,6 +194,7 @@ static int read_full(const struct np_stk_io *io, unsigned char *buf, int n, int 
     return got;
 }
 
+/* Wait up to 500 ms for INSYNC 0x14 then OK 0x10. Any other reply returns -1. */
 static int stk_ok(const struct np_stk_io *io, char *err, int err_n)
 {
     unsigned char b[2];
@@ -195,6 +206,7 @@ static int stk_ok(const struct np_stk_io *io, char *err, int err_n)
     return 0;
 }
 
+/* Write the whole command, then wait for INSYNC OK. A short write returns -1. */
 static int stk_cmd(const struct np_stk_io *io, const unsigned char *cmd, int n, char *err, int err_n)
 {
     if (!io->write || io->write(io->ctx, cmd, n) != n) {
@@ -208,6 +220,7 @@ static void stk_note(const struct np_stk_io *io, const char *msg);
 static int stk_drain(const struct np_stk_io *io);
 static void stk_hex(const unsigned char *b, int n, char *out, int out_n);
 
+/* Monotonic milliseconds, truncated to int. */
 static int mono_ms(void)
 {
     struct timespec ts;
@@ -416,6 +429,8 @@ static int stk_sync_window(const struct np_stk_io *io, int budget_ms, char *err,
     return -1;
 }
 
+/* Pulse DTR when the io provides it, then run one sync window on the open baud.
+ * A second pulse happens only when the error text is "board did not reset". Any other error returns at once. */
 static int stk_sync(const struct np_stk_io *io, char *err, int err_n)
 {
     int attempt;
@@ -461,11 +476,13 @@ static int stk_drain(const struct np_stk_io *io)
     return extra;
 }
 
+/* 1 when byte i is INSYNC 0x14 and byte i+4 is OK 0x10, and five bytes are in range. */
 static int stk_sig_at(const unsigned char *b, int n, int i)
 {
     return i >= 0 && i + 5 <= n && b[i] == STK_INSYNC && b[i + 4] == STK_OK;
 }
 
+/* Write up to 8 bytes as spaced hex. n at or below 0 stores "none". A null out or out_n below 2 returns. */
 static void stk_hex(const unsigned char *b, int n, char *out, int out_n)
 {
     int i, o = 0;
@@ -490,6 +507,8 @@ static void stk_hex(const unsigned char *b, int n, char *out, int out_n)
     }
 }
 
+/* Send READ_SIGN and accept only 1E 95 0F inside an INSYNC..OK frame. Any other three bytes refuse the chip.
+ * The wait is about 450 ms. A missing frame returns -1. */
 static int stk_signature(const struct np_stk_io *io, char *err, int err_n)
 {
     unsigned char cmd[2] = {STK_READ_SIGN, STK_CRC_EOP};
@@ -550,6 +569,7 @@ static int stk_signature(const struct np_stk_io *io, char *err, int err_n)
     return -1;
 }
 
+/* Forward msg through io->note when that hook is set. */
 static void stk_note(const struct np_stk_io *io, const char *msg)
 {
     if (io && io->note && msg) {
@@ -580,12 +600,15 @@ static int stk_eeprom_mode(const struct np_stk_io *io, unsigned char value, char
     return stk_cmd(io, cmd, 7, err, err_n);
 }
 
+/* Program flash and skip EEPROM. Same path as the extended call with eeprom_byte -1. */
 int np_stk_program(const struct np_stk_io *io, const unsigned char *image, int len,
                    char *err, int err_n)
 {
     return np_stk_program_ex(io, image, len, -1, err, err_n);
 }
 
+/* Sync, require signature 1E 95 0F, then write 128-byte flash pages at word address byte_offset/2, padded 0xFF, and read each page back.
+ * eeprom_byte below 0 skips EEPROM. A value above 2 is stored as 0. len may be 0 when only the EEPROM byte is requested. */
 int np_stk_program_ex(const struct np_stk_io *io, const unsigned char *image, int len,
                       int eeprom_byte, char *err, int err_n)
 {

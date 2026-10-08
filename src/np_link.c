@@ -13,6 +13,9 @@
 #include <time.h>
 #include <unistd.h>
 
+/* Client. Dest is host, host:http, or host:http/udp.
+ * Live samples are 68-byte EXG1. /cfg is the settings mirror. */
+
 #define LINK_Q 64
 #define CFG_MAX 1600
 
@@ -32,6 +35,7 @@ static uint64_t last_frame_ms;
 static np_link_sample_fn on_samp;
 static np_link_cfg_fn on_cfg;
 
+/* Monotonic time in milliseconds. */
 static uint64_t now_ms(void)
 {
     struct timespec t;
@@ -39,6 +43,8 @@ static uint64_t now_ms(void)
     return (uint64_t)t.tv_sec * 1000ull + (uint64_t)t.tv_nsec / 1000000ull;
 }
 
+/* Split host, host:http (udp is http+1), or host:http/udp. Defaults are 8765 and 8766.
+ * Ports must be 1..65535. Returns -1 on a bad dest or a short host buffer. */
 int np_link_parse_dest(const char *dest, char *host_out, int hostn, int *http, int *udp)
 {
     const char *slash, *col;
@@ -85,6 +91,7 @@ int np_link_parse_dest(const char *dest, char *host_out, int hostn, int *http, i
     return 0;
 }
 
+/* Copy the first IPv4 UDP address for name and port. Failure returns -1. */
 static int resolve(const char *name, int port, struct sockaddr_in *out)
 {
     struct addrinfo hints, *res = NULL;
@@ -103,6 +110,8 @@ static int resolve(const char *name, int port, struct sockaddr_in *out)
     return 0;
 }
 
+/* GET /cfg over HTTP/1.0 with a 400 ms timeout. A token goes out as X-EXG-Token.
+ * The body replaces the cached JSON. A failure leaves the previous copy in place. */
 static void cfg_get(void)
 {
     int fd, n, tot = 0;
@@ -159,6 +168,8 @@ static void cfg_get(void)
     pthread_mutex_unlock(&mu);
 }
 
+/* While running, send "SUB1" plus the token every 2 s, GET /cfg every 250 ms, and queue unpacked 68-byte frames.
+ * The queue holds 64. Overflow drops the oldest. */
 static void *link_thread(void *arg)
 {
     uint64_t last_sub = 0, last_cfg = 0;
@@ -205,6 +216,8 @@ static void *link_thread(void *arg)
     return NULL;
 }
 
+/* One HTTP/1.0 request with 1 s timeouts. The body after the header is copied to out when out is non-null.
+ * Returns -1 when resolve, connect, or send fails, or the header break is missing. */
 static int http_once(const char *hname, int port, const char *method, const char *path,
                     const char *body, char *out, int outn)
 {
@@ -270,6 +283,7 @@ static int http_once(const char *hname, int port, const char *method, const char
     return 0;
 }
 
+/* Read integer state, and a grant string when gn > 1, from a small JSON object. A null buffer returns 0. */
 static int pair_parse(const char *js, char *grant, int gn)
 {
     const char *p, *q;
@@ -308,6 +322,8 @@ static int pair_parse(const char *js, char *grant, int gn)
     return st;
 }
 
+/* POST {"name":...} then poll GET /pair up to 240 times, 250 ms apart, until state is 2.
+ * Characters outside letters, digits, and _.- are dropped, a space becomes _, an empty name becomes "exg", the udp port is unused, and gn < 2, a bad dest, a failed POST, or a state other than 2 returns -1. */
 int np_link_pair(const char *dest, const char *myname, char *grant, int gn)
 {
     char host[128], body[80], resp[CFG_MAX], gbuf[NP_API_TOKEN], safe[24];
@@ -355,6 +371,8 @@ int np_link_pair(const char *dest, const char *myname, char *grant, int gn)
     return 0;
 }
 
+/* Stop any running link, then open a UDP socket (TOS 0x10) and the reader thread.
+ * Returns -1 when dest, DNS, the socket, or the thread fails. */
 int np_link_start(const char *dest, const char *tok)
 {
     int udp = 8766, tos = 0x10, on = 1;
@@ -392,6 +410,7 @@ int np_link_start(const char *dest, const char *tok)
     return 0;
 }
 
+/* Join the reader when it is running, close the socket, and clear the queue. */
 void np_link_stop(void)
 {
     if (running) {
@@ -409,11 +428,13 @@ void np_link_stop(void)
     pthread_mutex_unlock(&mu);
 }
 
+/* 1 when the thread flag is set and the socket is open. */
 int np_link_on(void)
 {
     return running && sock >= 0;
 }
 
+/* 1 when a frame arrived within the last 1500 ms. */
 int np_link_alive(void)
 {
     uint64_t last;
@@ -423,12 +444,14 @@ int np_link_alive(void)
     return last && now_ms() - last < 1500ull;
 }
 
+/* Store the sample and cfg callbacks. Either may be null. They run later from poll, without the lock. */
 void np_link_set_hooks(np_link_sample_fn samp, np_link_cfg_fn cfg)
 {
     on_samp = samp;
     on_cfg = cfg;
 }
 
+/* Deliver up to 32 queued samples, then one fresh /cfg body if one arrived. Hooks run without the lock. */
 void np_link_poll(void)
 {
     struct np_api_sample batch[32];

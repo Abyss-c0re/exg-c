@@ -1,8 +1,8 @@
 # Android / Quest
 
-Same C host as `./np-exg`. Serial is USB Host. UI is Java. Native library is `libexg.so` from `src/np_core.c` — not the desktop SDL file.
+Same C host as `./np-exg`. Serial is USB Host. UI is Java. Native library is `libexg.so` from the `src/np_*.c` engine — not the desktop SDL file.
 
-App: **3.03**, package `com.abysscore.exgc`, min SDK 28, ABI `arm64-v8a`.
+App: **3.04**, package `com.abysscore.exgc`, min SDK 28, ABI `arm64-v8a`.
 Quest 3: `com.oculus.intent.category.2D` so it runs as a 2D panel.
 
 How the app behaves: [../docs/APP.md](../docs/APP.md).  
@@ -28,19 +28,21 @@ Or `make android`. Output is `android/exg-c.apk` (debug-signed).
 
 1. Plug the Knight (FTDI `0403:6001`) or CH340 / CP210x / CDC ACM.
 2. Grant USB. Open **exg-c**. Tap **Connect**.
-3. Warming is under 64% of the locked rate (80 sps at 125). ID / Record stay idle until then. **Flash** writes the one Knight image. DTR and RTS reset the board. Sync waits until the USB line is quiet, waits out the bootloader LED, then sends one command. A sketch that was already streaming is not a failed reset. If it never goes quiet, Upload resets once more. On the Titan that image was 22578 bytes and 177 pages. A ladder that is still sending can keep the line busy, so the first reset misses and the next Upload is the one that finishes. **Debug** shows boot text. Take the electrodes off before Upload. A finished upload does not ask again unless the board prints an older `EXG-FW`. Settings then sends `exgmode_N`. The button reads `125 + IMU`, `250 EEG`, or `500 EEG` from `EXG-MODE` and from the live rate.
-4. **Calibrate**: 5 s to set the kit down, desk plate, wear, sit still.
-5. Cut button: teal **DC on** is the still-plate offset. **CLEAN on** only if the window is ≥ 3 s and a noise plate exists.
-6. **ID** should say `still Nx`. Blink / clench change the class. That is EXG vs baseline, not a take.
-7. **Take rest**, then an action. ID names only a unique winner. **Record** poses are listed separately; they are not take chips.
+3. Warming is under 64% of the locked rate (80 sps at 125). ID and Record stay idle until then.
+4. **Flash** writes the one Knight image (firmware 4). Take the electrodes off first. DTR and RTS reset the board. After the line is quiet, and after the bootloader LED interval, the app sends one sync. If the sketch is still streaming, that attempt says the board did not reset. Tap Upload again. **Debug** shows the boot text. A finished upload does not ask again unless the board prints an older `EXG-FW`.
+5. Settings then sends `exgmode_N`. The button reads `125 + IMU`, `250 EEG`, or `500 EEG` from `EXG-MODE` and from the live rate. The channel ladder runs after that reboot. A later USB open that does not reset the board leaves the channels alone. The USB read thread runs at audio priority.
+6. **Calibrate**: 5 s to set the kit down, desk plate, wear, sit still.
+7. Cut button: teal **DC on** is the still-plate offset. **CLEAN on** only if the window is at least 3 s and a noise plate exists.
+8. **ID** should say `still Nx`. Blink and clench change the class. That is the live signal against the still plate, not a saved take.
+9. **Take rest**, then an action. ID names only a unique winner. **Record** poses are listed separately. They are not take chips.
 
 Do not hammer Disconnect / Connect. Each DTR pulse resets the Nano. CH340 opens at 115200 8N1 with DTR and RTS high. CP210x uses its own enable and modem bits. FTDI status bytes are removed on every USB packet.
 
 **API** is **off** until Settings → **API on**. A persistent notification stays up while the stream is on so Quest can close the 2D panel. The service is started with `startService` from a visible activity (`dataSync`). If API is off, the service stops.
 
-## Controls that used to lie
+## What the buttons mean
 
-| Chrome | Machine |
+| On screen | What it does |
 |--------|---------|
 | **DC on / DC off** | still-plate mean. Teal = on. |
 | **bias ON / bias off** | RLD. Connect applies add and remove. |
@@ -83,7 +85,7 @@ The package is not debuggable. `run-as` cannot read these files.
 
 | Path | Role |
 |------|------|
-| `CMakeLists.txt` | NDK: `np_core.c` + cook + `np_serial_android.c` + JNI. No `np_ui.c`. |
+| `CMakeLists.txt` | NDK: engine modules + `np_serial_android.c` + JNI. No `np_ui.c`. |
 | `src/com/abysscore/exgc/ExgActivity.java` | 2D UI |
 | `TraceView.java` / `FftView.java` / `CubeView.java` | plot / FFT / cube |
 | `StreamService.java` | FGS while API is on |

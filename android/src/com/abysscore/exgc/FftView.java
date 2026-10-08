@@ -21,16 +21,19 @@ public class FftView extends View {
     private float den = 1f;
     private boolean frozen;
 
+    /** One-argument constructor. Background and paints are set before the first draw. */
     public FftView(Context c) {
         super(c);
         init();
     }
 
+    /** XML constructor. Background and paints are set before the first draw. */
     public FftView(Context c, AttributeSet a) {
         super(c, a);
         init();
     }
 
+    /** Dark background and bar, marker, and caption paints. Text size follows density. */
     private void init() {
         setBackgroundColor(0xFF0A0C10);
         bar.setColor(0xFF46AADC);
@@ -39,6 +42,7 @@ public class FftView extends View {
         syncPaint();
     }
 
+    /** Clamps f to 0.8..2.2, then resizes the caption and redraws. */
     public void setLabelScale(float f) {
         if (f < 0.8f) {
             f = 0.8f;
@@ -51,6 +55,7 @@ public class FftView extends View {
         invalidate();
     }
 
+    /** Caption is 11 sp times the label scale. A density under 0.75 is treated as 1. */
     private void syncPaint() {
         DisplayMetrics m = getResources().getDisplayMetrics();
         den = m.density < 0.75f ? 1f : m.density;
@@ -58,6 +63,7 @@ public class FftView extends View {
         lab.setTextSize(11f * labelMul * sd);
     }
 
+    /** While paused, keeps the last bins and still requests a redraw. Otherwise copies up to 64 bins, the effective notch in Hz, and measured SPS, using 125 when SPS is at most 1. */
     public void pull() {
         frozen = ExgNative.paused();
         if (!frozen) {
@@ -69,6 +75,7 @@ public class FftView extends View {
         postInvalidateOnAnimation();
     }
 
+    /** Returns if either side is under 8 px. Bar height is magnitude over the peak, and the notch marker is omitted when the effective notch is 1 Hz or less. */
     @Override
     protected void onDraw(Canvas c) {
         super.onDraw(c);

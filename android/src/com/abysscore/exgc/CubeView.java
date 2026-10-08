@@ -88,16 +88,19 @@ public class CubeView extends View {
     private final Paint stroke = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint ink = new Paint(Paint.ANTI_ALIAS_FLAG);
 
+    /** Context-only view. init() sets the void background, the stroke, and a 13 sp label. */
     public CubeView(Context c) {
         super(c);
         init();
     }
 
+    /** Layout inflater constructor. init() sets the void background, the stroke, and a 13 sp label. */
     public CubeView(Context c, AttributeSet a) {
         super(c, a);
         init();
     }
 
+    /** Void background, stroke paint, spike-colored ink, density, a 1.2 dp stroke, and 13 sp text. */
     private void init() {
         setBackgroundColor(VOID);
         stroke.setStyle(Paint.Style.STROKE);
@@ -107,6 +110,7 @@ public class CubeView extends View {
         ink.setTextSize(spx(13f));
     }
 
+    /** Caches display density and scaled density. Below 0.75, density becomes 1 and text scale falls back to that density. */
     private void readMetrics() {
         android.util.DisplayMetrics m = getResources().getDisplayMetrics();
         den = m.density < 0.75f ? 1f : m.density;
@@ -118,10 +122,12 @@ public class CubeView extends View {
         return sp * sd * labelMul;
     }
 
+    /** Device pixels for one dp, using the cached density. */
     private float px(float dp) {
         return dp * den;
     }
 
+    /** Clamps the label multiplier to 0.8–2.2, rereads density, and redraws. */
     public void setLabelScale(float f) {
         if (f < 0.8f) {
             f = 0.8f;
@@ -134,6 +140,7 @@ public class CubeView extends View {
         invalidate();
     }
 
+    /** Camera yaw π rad, pitch 0.25 rad, zoom 1. Clears the idle yaw and redraws. */
     public void resetCam() {
         /* Same pose as np_host_cube_front. */
         yaw = (float) Math.PI;
@@ -143,6 +150,7 @@ public class CubeView extends View {
         invalidate();
     }
 
+    /** Camera zoom, clamped to 0.70–2.80. No redraw when the change is under 0.001. */
     public void setZoom(float z) {
         if (z < 0.70f) {
             z = 0.70f;
@@ -157,6 +165,7 @@ public class CubeView extends View {
         invalidate();
     }
 
+    /** Steps camera zoom by 0.20, in when dir > 0 and out otherwise, then clamps to 0.70–2.80. */
     public void nudgeZoom(int dir) {
         zoom += dir > 0 ? 0.20f : -0.20f;
         if (zoom < 0.70f) {
@@ -168,6 +177,7 @@ public class CubeView extends View {
         invalidate();
     }
 
+    /** True when NEG RAIL is on and a channel's − site equals this index. False if the rail is off or site < 0. */
     private boolean siteIsNeg(int site) {
         if (!negRail || site < 0) {
             return false;
@@ -180,6 +190,7 @@ public class CubeView extends View {
         return false;
     }
 
+    /** Copies native viz state (cells, bits, cook, pairs, made cubes, sites, NEG RAIL) and posts a redraw. A rising bit sets impulse to 1; later copies scale it by 0.88 and clear it under 0.02. */
     public void pull() {
         mode = ExgNative.cubeView();
         ncell = ExgNative.vizCells(cellXyz, cellS, cellRgba);
@@ -270,6 +281,7 @@ public class CubeView extends View {
         postInvalidateOnAnimation();
     }
 
+    /** Steps the clock in seconds, using 16 ms on the first frame or when the gap exceeds 80 ms. While floating and not dragging, camera yaw gains 0.148 rad/s. */
     private void tickViz() {
         long now = SystemClock.uptimeMillis();
         float dt = lastMs == 0 ? 0.016f : (now - lastMs) / 1000f;
@@ -283,6 +295,7 @@ public class CubeView extends View {
         }
     }
 
+    /** Camera yaw and pitch into out as screen x, y, depth, and scale. Viz adds idle yaw, a 0.06 bob, and a 3.6 focal length; map mode is orthographic with scale 1. */
     private void project(float x, float y, float z, float cx, float cy, float k, float[] out) {
         float yawUse = yaw + (mode == 0 && floating ? autoYaw : 0f);
         float yy = y;
@@ -310,6 +323,7 @@ public class CubeView extends View {
     }
 
     @Override
+    /** Pinch steps camera zoom by 0.20 when the finger span is over 8 px and changes by more than 6%. One finger assigns a map-mode site or an electrode; otherwise a drag spins yaw and pitch at 0.010 rad per pixel. */
     public boolean onTouchEvent(MotionEvent e) {
         float x = e.getX(), y = e.getY();
         int act = e.getActionMasked();
@@ -367,6 +381,7 @@ public class CubeView extends View {
         return super.onTouchEvent(e);
     }
 
+    /** Inside the scalp rect, assigns the nearest site within 22 dp (at least 8 px). A miss inside the rect still returns true; outside returns false. */
     private boolean hitMap(int mx, int my) {
         if (mx < mapL || my < mapT || mx >= mapR || my >= mapB) {
             return false;
@@ -387,6 +402,7 @@ public class CubeView extends View {
         return true;
     }
 
+    /** Nearest live electrode within 28 dp (at least 8 px). Selects it and returns true; a miss returns false. */
     private boolean hitElec(int mx, int my) {
         int hit = Math.max(8, Math.round(px(28)));
         int best = -1, bd = hit * hit;
@@ -407,6 +423,7 @@ public class CubeView extends View {
         return false;
     }
 
+    /** Nearest site within 24 dp (at least 8 px) and assigns it. Returns false when none is that close. */
     private boolean hitSite(int mx, int my) {
         int hit = Math.max(8, Math.round(px(24)));
         int best = -1, bd = hit * hit;
@@ -425,6 +442,7 @@ public class CubeView extends View {
     }
 
     @Override
+    /** Returns when width or height is under 8 px. Forces viz mode, draws the hive and the + to − montage plus a 132 dp pair strip unless that strip would leave under half the height, then posts another frame. */
     protected void onDraw(Canvas c) {
         super.onDraw(c);
         int w = getWidth(), h = getHeight();
@@ -554,6 +572,7 @@ public class CubeView extends View {
         stroke.setStrokeWidth(px(1.2f));
     }
 
+    /** Lays out each made cube, with a title of the count, algo name, and drag, plus the rule when it is non-empty. With no cubes, draws the add-a-cube line and returns. */
     private void drawHive(Canvas c, int w, int h) {
         float cx = w * 0.5f;
         float cy = h * 0.52f;
@@ -583,6 +602,7 @@ public class CubeView extends View {
         }
     }
 
+    /** One 2×2×2 cube, painter-sorted back to front. A madeFold bit turns its cell on; the label is the electrode name with a leading index stripped, the corner number if the channel is unset, or corner·chN otherwise. */
     private void drawHiveOne(Canvas c, float cx, float cy, int w, int h, int mi, float ox) {
         float scale = Math.min(w, h) * (madeN > 1 ? 0.85f : 1.15f) * zoom;
         int rgb = madeRgb[mi] & 0x00FFFFFF;
@@ -628,6 +648,7 @@ public class CubeView extends View {
         }
     }
 
+    /** Projects eight corners and draws six faces far to near. On uses the given rgb; off fill is one third of it, with a thinner stroke. */
     private void drawVoxel(Canvas c, float x, float y, float z, boolean on,
             int cr, int cg, int cb, float cx, float cy, float sc, float s) {
         float[][] corn = new float[8][4];
@@ -684,6 +705,7 @@ public class CubeView extends View {
         }
     }
 
+    /** Crimson radial over the view from the on-count. Returns while 0.15 + onCount/28 stays under 0.2. */
     private void drawGlow(Canvas c, int w, int h) {
         float g = 0.15f + Math.min(0.85f, onCount / 28f);
         if (g < 0.2f) {
@@ -699,6 +721,7 @@ public class CubeView extends View {
         fill.setShader(null);
     }
 
+    /** Twelve edges of the cube from −1 to 1. Viz thickens the stroke with the on-count; map mode uses a flat 2 dp line. */
     private void drawWire(Canvas c, float cx, float cy, float k) {
         float[][] p = {{-1, -1, -1}, {1, -1, -1}, {-1, 1, -1}, {1, 1, -1},
                 {-1, -1, 1}, {1, -1, 1}, {-1, 1, 1}, {1, 1, 1}};
@@ -720,6 +743,7 @@ public class CubeView extends View {
         }
     }
 
+    /** 8³ shell plus on-bits and impulses, far to near, in crimson. Skips an interior point that is off and whose impulse is under 0.08. */
     private void drawLattice(Canvas c, float cx, float cy, float k) {
         /* 8³ shell + live ON voxels. Crimson only — electrode color is one site. */
         int max = 296 + NCELL;
@@ -827,6 +851,7 @@ public class CubeView extends View {
         }
     }
 
+    /** Crimson segment between a pair's two electrodes; scaleUv under 25 µV counts as 25. Skips an off channel or a magnitude under 0.03 of scale, and caps the ratio at 2. */
     private void drawPairs(Canvas c, float cx, float cy, float k) {
         float[] a = new float[4], b = new float[4];
         float sc = ExgNative.scaleUv();
@@ -854,6 +879,7 @@ public class CubeView extends View {
         }
     }
 
+    /** Disc on each live electrode from cook/scaleUv, skipping a ratio under 0.02 (including a negative cook) and capping at 2. scaleUv under 25 µV counts as 25. */
     private void drawElecResonance(Canvas c, float cx, float cy, float k) {
         float[] p = new float[4];
         float sc = ExgNative.scaleUv();
@@ -881,6 +907,7 @@ public class CubeView extends View {
         }
     }
 
+    /** Native cells far to near. Alpha of 160 or more is on, with a white stroke; dimmer cells use a fixed translucent crimson. */
     private void drawCells(Canvas c, float cx, float cy, float k) {
         float[] p = new float[4];
         int[] order = new int[ncell];
@@ -916,6 +943,7 @@ public class CubeView extends View {
         }
     }
 
+    /** Mark at the origin. Viz is a circle of radius 0.10·k·perspective; map mode is a square of half-side 0.14·k. */
     private void drawCore(Canvas c, float cx, float cy, float k) {
         float[] p = new float[4];
         project(0, 0, 0, cx, cy, k, p);
@@ -928,6 +956,7 @@ public class CubeView extends View {
         }
     }
 
+    /** Gold square, half-side 0.16·k, on the focused site. Returns when the focus index is outside the site list. */
     private void drawFocusCell(Canvas c, float cx, float cy, float k) {
         if (siteFocus < 0 || siteFocus >= nsite) {
             return;
@@ -939,6 +968,7 @@ public class CubeView extends View {
         c.drawRect(p[0] - r, p[1] - r, p[0] + r, p[1] + r, fill);
     }
 
+    /** Projects each site into siteSx/siteSy. Names the focus, a taken channel, a core, or a NEG RAIL − site, unless depth is below −0.25. */
     private void drawSiteLabels(Canvas c, float cx, float cy, float k) {
         float[] p = new float[4];
         ink.setTextSize(spx(12f));
@@ -958,6 +988,7 @@ public class CubeView extends View {
         }
     }
 
+    /** Projects live electrodes into elecSx/elecSy and draws the name, with a dark plate on the selected channel. Off channels are stored at −9999 and skipped. */
     private void drawElecLabels(Canvas c, float cx, float cy, float k) {
         float[] p = new float[4];
         ink.setTextSize(spx(13f));
@@ -981,6 +1012,7 @@ public class CubeView extends View {
         }
     }
 
+    /** Nose-up 10-10 band and the hit coordinates in mapSx/mapSy. Focus, taken, core, and NEG RAIL − sites are drawn larger and named. */
     private void drawScalp(Canvas c, int w, int h, int mapH) {
         mapL = Math.round(px(8));
         mapT = h - mapH + Math.round(px(4));
@@ -1014,6 +1046,7 @@ public class CubeView extends View {
         }
     }
 
+    /** Bottom row of live channels for this second; algoFold bits paint those squares crimson, and clear bits stay dark. Returns when no channel is on. */
     private void drawSot(Canvas c, int w, int h) {
         int nOn = 0;
         for (int ch = 0; ch < 8; ch++) {

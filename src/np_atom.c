@@ -69,6 +69,8 @@ static uint8_t pack_ch8(const float *w, int n, float scale)
     return b;
 }
 
+/* Pack up to eight channels of µV into one uint64, eight feature bits each. stride must be at least n_samp.
+ * n_ch above 8 is clipped. scale below 1e-6 µV becomes 50. A bad pointer or length returns 0. */
 uint64_t np_atom_pack(const float *planar, int n_ch, int n_samp, int stride, float scale_uv)
 {
     uint64_t a = 0;
@@ -89,6 +91,7 @@ uint64_t np_atom_pack(const float *planar, int n_ch, int n_samp, int stride, flo
     return a;
 }
 
+/* Floor a baseline at 25 µV. */
 static float rel_scale(float base)
 {
     if (base < 25.f) {
@@ -97,6 +100,7 @@ static float rel_scale(float base)
     return base;
 }
 
+/* Same pack, with each channel scaled by its baseline floored at 25 µV. A null base_uv uses 50 µV on every channel. */
 uint64_t np_atom_pack_rel(const float *planar, int n_ch, int n_samp, int stride,
                           const float base_uv[8])
 {
@@ -116,6 +120,7 @@ uint64_t np_atom_pack_rel(const float *planar, int n_ch, int n_samp, int stride,
     return a;
 }
 
+/* Pack one 8-wide sample, stride 1, against base_uv. A null uv returns 0. */
 uint64_t np_atom_from_uv8(const float uv[8], const float base_uv[8])
 {
     float planar[8];
@@ -129,6 +134,7 @@ uint64_t np_atom_from_uv8(const float uv[8], const float base_uv[8])
     return np_atom_pack_rel(planar, 8, 1, 1, base_uv);
 }
 
+/* Write 64 bytes. Channel c, bit b, lands at cube[c + 8*b]. A null cube returns. */
 void np_atom_faces8(uint64_t atom, uint8_t cube[64])
 {
     int c, b;
@@ -144,6 +150,7 @@ void np_atom_faces8(uint64_t atom, uint8_t cube[64])
     }
 }
 
+/* Count the bits that are set. */
 int np_atom_popcount(uint64_t a)
 {
     int n = 0;
@@ -154,16 +161,19 @@ int np_atom_popcount(uint64_t a)
     return n;
 }
 
+/* Count the bits that differ. */
 int np_atom_hamming(uint64_t a, uint64_t b)
 {
     return np_atom_popcount(a ^ b);
 }
 
+/* 1 minus the Hamming distance over 64. Two zero atoms score 1. */
 float np_atom_unity(uint64_t a, uint64_t b)
 {
     return 1.f - (float)np_atom_hamming(a, b) / (float)NP_ATOM_BITS;
 }
 
+/* RMS of each channel, in the same units as the window. A bad argument zeros rms and returns. n_ch above 8 is clipped. */
 void np_atom_rms8(const float *planar, int n_ch, int n_samp, int stride, float rms[8])
 {
     int c, i;
@@ -187,6 +197,8 @@ void np_atom_rms8(const float *planar, int n_ch, int n_samp, int stride, float r
     }
 }
 
+/* Mean cosine of the newest overlapping seconds, eight floats each. A near-zero second is skipped and still counts in the divisor.
+ * A null pointer or a count below 1 returns 0. */
 float np_atom_rms_cos(const float *live, int nlive, const float *ref, int nref)
 {
     int k, t, c;
@@ -212,6 +224,8 @@ float np_atom_rms_cos(const float *live, int nlive, const float *ref, int nref)
     return (float)(acc / (double)k);
 }
 
+/* exp(-mean |ln(a+1) - ln(b+1)|) over the newest overlapping seconds. Identical vectors score 1.
+ * A null pointer or a count below 1 returns 0. */
 float np_atom_rms_close(const float *live, int nlive, const float *ref, int nref)
 {
     int k, t, c, n = 0;
@@ -239,6 +253,7 @@ float np_atom_rms_close(const float *live, int nlive, const float *ref, int nref
     return (float)exp(-acc / (double)n);
 }
 
+/* Closeness of the newest live second to the mean of the reference seconds. Bad arguments return 0. */
 float np_atom_rms_close_to_mean(const float *live, int nlive, const float *ref, int nref)
 {
     float mean[8], last[8];
@@ -262,6 +277,8 @@ float np_atom_rms_close_to_mean(const float *live, int nlive, const float *ref, 
 #define NP_PAT_FAR 0.85f
 #define NP_PAT_SAME 0.90f
 
+/* No baseline copies the loudest second and returns 1; a take at least 0.90 close to the baseline mean copies that mean and returns nref.
+ * Otherwise the mean of seconds whose closeness to baseline is under 0.85 is written, and that count is returned, or 0 when none. */
 int np_atom_rms_pattern(const float *ref, int nref, const float *base, int nbase, float out[8])
 {
     float tmean[8], bmean[8];
@@ -330,6 +347,7 @@ int np_atom_rms_pattern(const float *ref, int nref, const float *base, int nbase
     return nfar;
 }
 
+/* Closeness of the newest live second to the pattern. Returns 0 when live is missing or the pattern is empty. */
 float np_atom_rms_close_to_pattern(const float *live, int nlive, const float *ref, int nref,
                                    const float *base, int nbase)
 {
@@ -349,6 +367,8 @@ float np_atom_rms_close_to_pattern(const float *live, int nlive, const float *re
     return np_atom_rms_close(last, 1, pat, 1);
 }
 
+/* Log-RMS closeness of two NPAT files. Differing montage bits return -1.
+ * A null path, a short file, or a version-1 file (no RMS) returns 0. */
 float np_atom_file_close(const char *pa, const char *pb)
 {
     uint64_t aa[NP_ATOM_RING], bb[NP_ATOM_RING];
@@ -375,6 +395,7 @@ float np_atom_file_close(const char *pa, const char *pb)
     return 0.f;
 }
 
+/* Mean bit-unity of the newest overlapping atoms. Bad arguments return 0. */
 float np_atom_ring_unity(const uint64_t *live, int nlive, const uint64_t *ref, int nref)
 {
     int k, i;
@@ -389,12 +410,14 @@ float np_atom_ring_unity(const uint64_t *live, int nlive, const uint64_t *ref, i
     return (float)(s / (double)k);
 }
 
+/* Store an unsigned value as little-endian 16 bits. */
 static void wr_u16(unsigned char *p, unsigned v)
 {
     p[0] = (unsigned char)(v & 255u);
     p[1] = (unsigned char)((v >> 8) & 255u);
 }
 
+/* Store an unsigned value as little-endian 32 bits. */
 static void wr_u32(unsigned char *p, unsigned v)
 {
     p[0] = (unsigned char)(v & 255u);
@@ -403,6 +426,7 @@ static void wr_u32(unsigned char *p, unsigned v)
     p[3] = (unsigned char)((v >> 24) & 255u);
 }
 
+/* Store a value as little-endian 64 bits. */
 static void wr_u64(unsigned char *p, uint64_t v)
 {
     int i;
@@ -411,17 +435,20 @@ static void wr_u64(unsigned char *p, uint64_t v)
     }
 }
 
+/* Read a little-endian uint16. */
 static unsigned rd_u16(const unsigned char *p)
 {
     return (unsigned)p[0] | ((unsigned)p[1] << 8);
 }
 
+/* Read a little-endian uint32. */
 static unsigned rd_u32(const unsigned char *p)
 {
     return (unsigned)p[0] | ((unsigned)p[1] << 8) | ((unsigned)p[2] << 16) |
            ((unsigned)p[3] << 24);
 }
 
+/* Read a little-endian uint64. */
 static uint64_t rd_u64(const unsigned char *p)
 {
     uint64_t v = 0;
@@ -432,16 +459,20 @@ static uint64_t rd_u64(const unsigned char *p)
     return v;
 }
 
+/* Write NPAT version 1, atoms only. win below 1 becomes 125 inside the writer. */
 int np_atom_save(const char *path, const uint64_t *a, int n, int win)
 {
     return np_atom_save2(path, a, NULL, n, win);
 }
 
+/* Write NPAT version 2 when rms is non-null, otherwise version 1. The montage pair bit stays clear. */
 int np_atom_save2(const char *path, const uint64_t *a, const float *rms, int n, int win)
 {
     return np_atom_save_m(path, a, rms, n, win, 0);
 }
 
+/* 1 when an NPAT v1 or v2 header has bit 7 set on the channel byte, 0 when that bit is clear.
+ * Returns -1 when the file is missing or the 12-byte header is not NPAT v1 or v2. The body is not read. */
 int np_atom_montage(const char *path)
 {
     FILE *f;
@@ -464,6 +495,8 @@ int np_atom_montage(const char *path)
     return (hdr[5] & 0x80) ? 1 : 0;
 }
 
+/* Write a 12-byte NPAT header, then one atom per second and eight floats when rms is non-null. The channel byte is 8, with bit 7 set when pair is non-zero.
+ * win below 1 becomes 125. A bad path, a null list, n below 1, or a short write returns -1. */
 int np_atom_save_m(const char *path, const uint64_t *a, const float *rms, int n, int win, int pair)
 {
     FILE *f;
@@ -506,11 +539,14 @@ int np_atom_save_m(const char *path, const uint64_t *a, const float *rms, int n,
     return 0;
 }
 
+/* Load atoms only. Version-2 RMS floats are read and discarded. */
 int np_atom_load(const char *path, uint64_t *a, int cap, int *win)
 {
     return np_atom_load2(path, a, NULL, cap, win, NULL);
 }
 
+/* Load at most cap atoms. A longer file is clipped and still returns the count stored. *have_rms is 1 for version 2 even when rms is null.
+ * A short read returns -1 after a prefix has already been written. win may be null. */
 int np_atom_load2(const char *path, uint64_t *a, float *rms, int cap, int *win, int *have_rms)
 {
     FILE *f;
@@ -571,6 +607,8 @@ int np_atom_load2(const char *path, uint64_t *a, float *rms, int cap, int *win, 
     return (int)n;
 }
 
+/* Write NPRW version 1: channel count, sample count, sps as raw float bits, then channel-major floats. n_ch above 8 is clipped.
+ * A bad argument or a short write returns -1. */
 int np_raw_save(const char *path, const float *planar, int n_ch, int n_samp, float sps)
 {
     FILE *f;
@@ -606,6 +644,8 @@ int np_raw_save(const char *path, const float *planar, int n_ch, int n_samp, flo
     return 0;
 }
 
+/* Read NPRW and return how many floats were stored, the lesser of the file and cap. n_samp stays the file's full count.
+ * sps is copied as raw float bits. A short read returns -1. */
 int np_raw_load(const char *path, float *planar, int cap, int *n_ch, int *n_samp, float *sps)
 {
     FILE *f;
