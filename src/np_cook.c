@@ -1,5 +1,6 @@
 #include "np_local.h"
 #include "np_mods.h"
+#include "np_mindstorm.h"
 
 /* Display cook and the live IIR. The reader holds live_mu and steps
  * one sample at a time. The UI tick copies that window and drains
@@ -948,6 +949,8 @@ void live_sync_u(void)
         }
         api_emit(v, (uint32_t)(live_seen + i + 1),
                  have_grid ? grid.start_us + (uint64_t)i * grid.step_us : 0);
+        /* Share may be off. 200 SPS is refused in the wind client, not here. */
+        np_mindstorm_on_sample(v, NP_NCHAN, design_sps());
     }
     live_wr += need;
     live_seen = tot;

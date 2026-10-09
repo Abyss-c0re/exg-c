@@ -66,6 +66,9 @@ else
 fi
 "$BT/aapt" package -f -m -J "$BUILD/gen" -M "$ROOT/AndroidManifest.xml" -S "$ROOT/res" \
   "${AAPT_A[@]}" -I "$PLATFORM/android.jar" -F "$BUILD/resources.ap_"
+echo "== aidl =="
+"$BT/aidl" -I"$ROOT/src" -o"$BUILD/gen" \
+  "$ROOT/src/com/abysscore/mindstorm/IMindStormBridge.aidl"
 "$JAVAC" --release 17 -encoding UTF-8 \
   -cp "$PLATFORM/android.jar" \
   -d "$BUILD/obj" \

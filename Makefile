@@ -1,6 +1,7 @@
 CC = gcc
+MINDSTORM_ROOT ?= ../Arduino/MindStorm
 CFLAGS = -std=c11 -D_DEFAULT_SOURCE -DNPL_POSIX -O2 -Wall -Wextra -pthread \
-	-Iinclude -Isrc -Inplearn/include
+	-Iinclude -Isrc -Inplearn/include -I$(MINDSTORM_ROOT)/core/include
 LDFLAGS = -pthread -lm
 SDL ?= $(shell pkg-config --libs sdl2 2>/dev/null)
 ifeq ($(SDL),)
@@ -13,7 +14,17 @@ CORE = src/np_state.c src/np_paths.c src/np_cfg.c src/np_learn.c src/np_take.c \
 	src/np_flash.c src/np_montage.c src/np_plot.c src/np_session.c src/np_share.c
 HOST = $(CORE) src/np_ui.c src/np_serial.c src/np_knight.c src/np_rate.c src/np_stk500.c src/np_fw.c \
 	src/np_ring.c src/np_dsp.c src/np_font.c \
-	src/np_smx.c src/np_algo.c src/np_sot.c src/np_atom.c src/np_api.c src/np_link.c src/np_peer.c
+	src/np_smx.c src/np_algo.c src/np_sot.c src/np_atom.c src/np_api.c src/np_link.c src/np_peer.c \
+	src/np_mindstorm.c \
+	$(MINDSTORM_ROOT)/core/src/ms_util.c \
+	$(MINDSTORM_ROOT)/core/src/ms_crc16.c \
+	$(MINDSTORM_ROOT)/core/src/ms_sha256.c \
+	$(MINDSTORM_ROOT)/core/src/ms_hmac.c \
+	$(MINDSTORM_ROOT)/core/src/ms_frame.c \
+	$(MINDSTORM_ROOT)/core/src/ms_sched.c \
+	$(MINDSTORM_ROOT)/core/src/ms_wind.c \
+	$(MINDSTORM_ROOT)/core/src/ms_decim.c \
+	$(MINDSTORM_ROOT)/core/src/ms_link.c
 NPL = nplearn/src/nplearn.c nplearn/src/nplearn_filt.c nplearn/src/nplearn_posix.c
 LIB = libnplearn.a
 BIN = np-exg
@@ -25,7 +36,7 @@ TEST_SRC = src/np_serial.c src/np_knight.c src/np_rate.c src/np_stk500.c src/np_
 	src/np_sot.c src/np_atom.c src/np_api.c src/np_link.c src/np_peer.c
 TEST_NPL = nplearn/src/nplearn.c nplearn/src/nplearn_filt.c nplearn/src/nplearn_posix.c
 
-.PHONY: all lib clean cli test test-live deliver android recv
+.PHONY: all lib clean cli test test-live deliver android recv mindstorm-rate
 
 all: $(BIN) $(RECV)
 
@@ -49,7 +60,7 @@ $(RECV): tools/exg-recv.c src/np_api.c include/np_api.h
 recv: $(RECV)
 
 clean:
-	rm -f $(BIN) $(LIB) nplearn/src/*.o $(TEST_CORE) $(LIVE) $(RECV)
+	rm -f $(BIN) $(LIB) nplearn/src/*.o $(TEST_CORE) $(LIVE) $(RECV) tests/mindstorm_rate
 
 cli: $(BIN)
 	./$(BIN) --cli --seconds 4
@@ -62,6 +73,30 @@ $(LIVE): tests/live_collect.c $(TEST_SRC)
 
 test: $(TEST_CORE)
 	./$(TEST_CORE)
+
+tests/mindstorm_rate: tests/mindstorm_rate.c src/np_mindstorm.c \
+	$(MINDSTORM_ROOT)/core/src/ms_util.c \
+	$(MINDSTORM_ROOT)/core/src/ms_crc16.c \
+	$(MINDSTORM_ROOT)/core/src/ms_sha256.c \
+	$(MINDSTORM_ROOT)/core/src/ms_hmac.c \
+	$(MINDSTORM_ROOT)/core/src/ms_frame.c \
+	$(MINDSTORM_ROOT)/core/src/ms_sched.c \
+	$(MINDSTORM_ROOT)/core/src/ms_wind.c \
+	$(MINDSTORM_ROOT)/core/src/ms_decim.c \
+	$(MINDSTORM_ROOT)/core/src/ms_link.c
+	$(CC) $(CFLAGS) -Werror -o $@ tests/mindstorm_rate.c src/np_mindstorm.c \
+		$(MINDSTORM_ROOT)/core/src/ms_util.c \
+		$(MINDSTORM_ROOT)/core/src/ms_crc16.c \
+		$(MINDSTORM_ROOT)/core/src/ms_sha256.c \
+		$(MINDSTORM_ROOT)/core/src/ms_hmac.c \
+		$(MINDSTORM_ROOT)/core/src/ms_frame.c \
+		$(MINDSTORM_ROOT)/core/src/ms_sched.c \
+		$(MINDSTORM_ROOT)/core/src/ms_wind.c \
+		$(MINDSTORM_ROOT)/core/src/ms_decim.c \
+		$(MINDSTORM_ROOT)/core/src/ms_link.c $(LDFLAGS)
+
+mindstorm-rate: tests/mindstorm_rate
+	./tests/mindstorm_rate
 
 test-live: $(LIVE)
 	@if [ -r /dev/ttyUSB1 ]; then \

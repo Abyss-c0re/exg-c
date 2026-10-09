@@ -577,4 +577,23 @@ public final class ExgNative {
     public static native void flashPreset(int mode, boolean confirmed);
     /** EEPROM byte only. Refuses while the image version is behind, and confirmed true skips the second tap. */
     public static native void flashModeOnly(int mode, boolean confirmed);
+
+    /** Copies the 16-byte client id and the 32-byte token, and arms wind forwarding. Returns -1 if either array is null or the wrong length. Does not log the token. */
+    public static native int mindstormSetIdentity(byte[] id16, byte[] token32);
+    /** Ball bytes, including the auth challenge. A null array returns. */
+    public static native void mindstormRx(byte[] bytes);
+    /** Next frame to write, or a zero-length array when the queue is empty. */
+    public static native byte[] mindstormTx();
+    /** Drops auth, keeps the identity, and queues HELLO. Returns 0, or -1 if the identity is missing or the queue is full. */
+    public static native int mindstormHello();
+    /** True after AUTH_OK until AUTH_NO, HELLO, or a new identity. */
+    public static native boolean mindstormAuthed();
+    /** True when a closed window may be sent. Defaults on. A new identity turns it on. */
+    public static native boolean mindstormWindEnabled();
+    /** Wind frames on or off. The traces stay as they are. */
+    public static native void mindstormSetWind(boolean on);
+    /** True when the last cooked rate rounded to 125, 250, or 500. */
+    public static native boolean mindstormRateOk();
+    /** rate not supported, authed, or disconnected. A refused rate is shown ahead of auth. Empty rather than null. */
+    public static native String mindstormStatus();
 }

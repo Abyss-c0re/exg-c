@@ -1,5 +1,6 @@
 /np-exg
 /libnplearn.a
+/tests/mindstorm_rate
 /android/build/
 /android/third_party/
 /android/*.apk

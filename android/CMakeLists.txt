@@ -2,6 +2,10 @@ cmake_minimum_required(VERSION 3.18)
 project(exg-c-android C)
 
 set(EXG_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/..")
+if(NOT DEFINED MINDSTORM_ROOT)
+    set(MINDSTORM_ROOT "${EXG_ROOT}/../Arduino/MindStorm")
+endif()
+set(MS_CORE "${MINDSTORM_ROOT}/core")
 
 add_library(exg SHARED
     ${EXG_ROOT}/src/np_state.c
@@ -36,6 +40,17 @@ add_library(exg SHARED
     ${EXG_ROOT}/src/np_api.c
     ${EXG_ROOT}/src/np_link.c
     ${EXG_ROOT}/src/np_peer.c
+    ${EXG_ROOT}/src/np_mindstorm.c
+    ${EXG_ROOT}/src/np_mindstorm_jni.c
+    ${MS_CORE}/src/ms_util.c
+    ${MS_CORE}/src/ms_crc16.c
+    ${MS_CORE}/src/ms_sha256.c
+    ${MS_CORE}/src/ms_hmac.c
+    ${MS_CORE}/src/ms_frame.c
+    ${MS_CORE}/src/ms_sched.c
+    ${MS_CORE}/src/ms_wind.c
+    ${MS_CORE}/src/ms_decim.c
+    ${MS_CORE}/src/ms_link.c
     ${EXG_ROOT}/nplearn/src/nplearn.c
     ${EXG_ROOT}/nplearn/src/nplearn_filt.c
     ${EXG_ROOT}/nplearn/src/nplearn_posix.c
@@ -45,6 +60,7 @@ target_include_directories(exg PRIVATE
     ${EXG_ROOT}/include
     ${EXG_ROOT}/src
     ${EXG_ROOT}/nplearn/include
+    ${MS_CORE}/include
 )
 
 target_compile_definitions(exg PRIVATE

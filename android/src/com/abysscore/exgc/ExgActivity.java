@@ -53,6 +53,8 @@ public class ExgActivity extends Activity {
     private View settings;
     private View learnBar;
     private TextView status;
+    private TextView ballStatus;
+    private Button ballLink;
     private View pairBar;
     private TextView pairWho;
     private Button pairYes, pairNo;
@@ -241,6 +243,10 @@ public class ExgActivity extends Activity {
         settings = findViewById(R.id.settings);
         learnBar = findViewById(R.id.learnBar);
         status = findViewById(R.id.status);
+        ballStatus = findViewById(R.id.ballStatus);
+        ballLink = findViewById(R.id.ballLink);
+        // Asks the MindStorm app for a token, then opens the ball over BLE or Wi-Fi.
+        ballLink.setOnClickListener(v -> MindStormLink.connect(this));
         pairBar = findViewById(R.id.pairBar);
         pairWho = findViewById(R.id.pairWho);
         pairYes = findViewById(R.id.pairYes);
@@ -969,10 +975,11 @@ public class ExgActivity extends Activity {
     }
 
     @Override
-    // Stops the 33 ms tick. Shuts the native core down and closes USB only when sharing is off and the board is not connected.
+    // Stops the 33 ms tick and the MindStorm ball link. Shuts the native core down and closes USB only when sharing is off and the board is not connected.
     protected void onDestroy() {
         running = false;
         h.removeCallbacks(tick);
+        MindStormLink.stop();
         if (!ExgNative.apiOn() && !ExgNative.connected()) {
             ExgNative.shutdown();
             UsbSerial.close();
@@ -991,6 +998,7 @@ public class ExgActivity extends Activity {
         hint(port, "Knight port. On USB this is the serial device. On LAN this is host:port.");
         hint(link, "USB talks to a cable. LAN talks to another exg-c that is sharing.");
         hint(connect, "Open or close the Knight. LAN asks for a destination first.");
+        hint(ballLink, "MindStorm ball. A token from the MindStorm app. 125, 250, and 500 only.");
         hint(pairYes, "Allow this follower to receive the live EXG.");
         hint(pairNo, "Refuse this follower.");
         hint(calibrate, "Capture the desk noise plate, then a still worn plate. ID uses both.");
@@ -1447,6 +1455,30 @@ public class ExgActivity extends Activity {
         } else {
             status.setText(st);
             status.setTextColor(ExgNative.statusOk() ? 0xFF3CB46E : 0xFFF0A040);
+        }
+        if (ballStatus != null) {
+            String ms = ExgNative.mindstormStatus();
+            String extra = MindStormLink.note();
+            if (ms == null || ms.length() == 0) {
+                ms = "disconnected";
+            }
+            if (extra == null) {
+                extra = "";
+            }
+            if ("rate not supported".equals(ms)) {
+                ballStatus.setText(extra.length() > 0 ? ms + " — " + extra : ms);
+                ballStatus.setTextColor(0xFFF0A040);
+            } else if (extra.length() > 0) {
+                ballStatus.setText(extra);
+                ballStatus.setTextColor(0xFFF0A040);
+            } else {
+                ballStatus.setText(ms);
+                ballStatus.setTextColor(ExgNative.mindstormAuthed() ? 0xFF3CB46E : 0xFFF0A040);
+            }
+        }
+        if (ballLink != null) {
+            ballLink.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
+                    ExgNative.mindstormAuthed() ? 0xFF2E8A58 : 0xFF2A3038));
         }
         {
             String cl = ExgNative.calLine();
