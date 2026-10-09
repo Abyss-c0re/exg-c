@@ -68,6 +68,25 @@ public final class MindStormLink {
     /** Exists so the class is not instantiated. */
     private MindStormLink() {}
 
+    /** True when the MindStorm package is installed and visible to this app. */
+    public static boolean installed(Context context) {
+        if (context == null) {
+            return false;
+        }
+        try {
+            if (Build.VERSION.SDK_INT >= 33) {
+                context.getPackageManager().getPackageInfo(
+                        "com.abysscore.mindstorm",
+                        PackageManager.PackageInfoFlags.of(0));
+            } else {
+                context.getPackageManager().getPackageInfo("com.abysscore.mindstorm", 0);
+            }
+            return true;
+        } catch (PackageManager.NameNotFoundException e) {
+            return false;
+        }
+    }
+
     /** Binds the MindStorm client bridge, then BLE or TCP port 8744. A null activity returns. */
     public static void connect(Activity activity) {
         if (activity == null) {
@@ -95,6 +114,10 @@ public final class MindStormLink {
 
     /** Asks for Bluetooth permission when needed, then binds the bridge. */
     private static void open(Activity activity) {
+        if (!installed(activity)) {
+            fault = "";
+            return;
+        }
         halt();
         dropSession();
         mtuRejected = false;
@@ -153,7 +176,7 @@ public final class MindStormLink {
             return;
         }
         if (!ok) {
-            fault = "MindStorm app is not installed";
+            fault = "ball link failed";
             conn = null;
             return;
         }
@@ -207,8 +230,11 @@ public final class MindStormLink {
         }
         try {
             int st = b.requestAccess("exg-c");
+            if (st == 0) {
+                fault = "asking MindStorm";
+            }
             long t0 = SystemClock.uptimeMillis();
-            while (ep == epoch && st == 0 && SystemClock.uptimeMillis() - t0 < 30000L) {
+            while (ep == epoch && st == 0 && SystemClock.uptimeMillis() - t0 < 120000L) {
                 try {
                     Thread.sleep(250);
                 } catch (InterruptedException e) {
@@ -584,6 +610,7 @@ public final class MindStormLink {
     /** LE callbacks for one bind generation. A stale epoch ignores the event. */
     private static final class BallGatt extends BluetoothGattCallback {
         private final int ep;
+        private boolean notifyQueued;
 
         /** Remembers which connect() this callback belongs to. */
         BallGatt(int ep) {
@@ -664,8 +691,38 @@ public final class MindStormLink {
                 fault = "ball notify failed";
                 return;
             }
-            desc.setValue(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE);
-            if (!g.writeDescriptor(desc)) {
+            /* The one-argument write drops its callback on this phone. */
+            final BluetoothGattDescriptor cccd = desc;
+            bleHandler().postDelayed(() -> writeNotify(g, cccd, true), 400L);
+        }
+
+        /** Enables notify. Retries once when the stack is still settling. */
+        private void writeNotify(BluetoothGatt g, BluetoothGattDescriptor desc, boolean retry) {
+            if (ep != epoch || bleReady) {
+                return;
+            }
+            boolean wrote;
+            if (Build.VERSION.SDK_INT >= 33) {
+                wrote = g.writeDescriptor(desc, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)
+                        == BluetoothGatt.GATT_SUCCESS;
+            } else {
+                desc.setValue(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE);
+                wrote = g.writeDescriptor(desc);
+            }
+            if (wrote) {
+                notifyQueued = true;
+                if (retry) {
+                    bleHandler().postDelayed(() -> {
+                        if (ep == epoch && !bleReady) {
+                            writeNotify(g, desc, false);
+                        }
+                    }, 700L);
+                }
+                return;
+            }
+            if (retry) {
+                bleHandler().postDelayed(() -> writeNotify(g, desc, false), 500L);
+            } else if (ep == epoch && !notifyQueued) {
                 fault = "ball notify failed";
             }
         }
@@ -673,13 +730,14 @@ public final class MindStormLink {
         /** Notify is on. Queue HELLO. The pump sends it. */
         @Override
         public void onDescriptorWrite(BluetoothGatt g, BluetoothGattDescriptor descriptor, int status) {
-            if (ep != epoch) {
+            if (ep != epoch || bleReady) {
                 return;
             }
             if (status != BluetoothGatt.GATT_SUCCESS) {
                 fault = "ball notify failed";
                 return;
             }
+            bleReady = true;
             if (ExgNative.mindstormHello() != 0) {
                 fault = "ball identity refused";
                 return;

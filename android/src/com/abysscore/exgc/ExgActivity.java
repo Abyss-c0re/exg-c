@@ -55,6 +55,10 @@ public class ExgActivity extends Activity {
     private TextView status;
     private TextView ballStatus;
     private Button ballLink;
+    private View ballBar;
+    private boolean ballAppKnown;
+    private boolean ballApp;
+    private boolean ballAsked;
     private View pairBar;
     private TextView pairWho;
     private Button pairYes, pairNo;
@@ -245,8 +249,10 @@ public class ExgActivity extends Activity {
         status = findViewById(R.id.status);
         ballStatus = findViewById(R.id.ballStatus);
         ballLink = findViewById(R.id.ballLink);
+        ballBar = findViewById(R.id.ballBar);
         // Asks the MindStorm app for a token, then opens the ball over BLE or Wi-Fi.
         ballLink.setOnClickListener(v -> MindStormLink.connect(this));
+        applyBallChrome();
         pairBar = findViewById(R.id.pairBar);
         pairWho = findViewById(R.id.pairWho);
         pairYes = findViewById(R.id.pairYes);
@@ -896,6 +902,7 @@ public class ExgActivity extends Activity {
     protected void onResume() {
         super.onResume();
         resumed = true;
+        ballAppKnown = false;
         try {
             StreamService.ensure(this, ExgNative.apiOn() || ExgNative.connected());
         } catch (RuntimeException ignored) {
@@ -1456,7 +1463,8 @@ public class ExgActivity extends Activity {
             status.setText(st);
             status.setTextColor(ExgNative.statusOk() ? 0xFF3CB46E : 0xFFF0A040);
         }
-        if (ballStatus != null) {
+        applyBallChrome();
+        if (ballBar != null && ballBar.getVisibility() == View.VISIBLE && ballStatus != null) {
             String ms = ExgNative.mindstormStatus();
             String extra = MindStormLink.note();
             if (ms == null || ms.length() == 0) {
@@ -1476,9 +1484,15 @@ public class ExgActivity extends Activity {
                 ballStatus.setTextColor(ExgNative.mindstormAuthed() ? 0xFF3CB46E : 0xFFF0A040);
             }
         }
-        if (ballLink != null) {
+        if (ballApp && ballLink != null) {
             ballLink.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
                     ExgNative.mindstormAuthed() ? 0xFF2E8A58 : 0xFF2A3038));
+            int rate = (int) sps;
+            if (on && !ballAsked && !ExgNative.mindstormAuthed()
+                    && (rate == 125 || rate == 250 || rate == 500)) {
+                ballAsked = true;
+                MindStormLink.connect(this);
+            }
         }
         {
             String cl = ExgNative.calLine();
@@ -2299,6 +2313,29 @@ public class ExgActivity extends Activity {
                 })
                 .setNegativeButton("Cancel", null)
                 .show();
+    }
+
+    /** Hides the ball row when this phone has no MindStorm app. */
+    private void applyBallChrome() {
+        if (!ballAppKnown) {
+            ballApp = MindStormLink.installed(this);
+            ballAppKnown = true;
+        }
+        if (ballBar != null) {
+            ballBar.setVisibility(ballApp ? View.VISIBLE : View.GONE);
+        }
+        if (!ballApp) {
+            ballAsked = false;
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == 84 && grantResults.length > 0
+                && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+            MindStormLink.connect(this);
+        }
     }
 
     // On API 33 and newer, requests POST_NOTIFICATIONS when it is not already granted. Older releases return without a request.

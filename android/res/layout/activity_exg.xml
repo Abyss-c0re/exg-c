@@ -67,6 +67,7 @@
         android:textSize="13sp" />
 
     <LinearLayout
+        android:id="@+id/ballBar"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:background="@color/panel"
