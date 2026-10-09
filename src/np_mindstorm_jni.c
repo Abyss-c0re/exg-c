@@ -134,6 +134,37 @@ Java_com_abysscore_exgc_ExgNative_mindstormRateOk(JNIEnv *env, jclass cls)
     return np_mindstorm_rate_ok() ? JNI_TRUE : JNI_FALSE;
 }
 
+/* ExgNative.mindstormWindow. Null when there is no new window. Otherwise
+ * sps as a little-endian u16, then little-endian int16 channels. */
+JNIEXPORT jbyteArray JNICALL
+Java_com_abysscore_exgc_ExgNative_mindstormWindow(JNIEnv *env, jclass cls)
+{
+    int16_t ch[8];
+    uint8_t raw[2 + 16];
+    int sps = 0;
+    int n;
+    int i;
+    jbyteArray out;
+
+    (void)cls;
+    n = np_mindstorm_copy_window(ch, 8, &sps);
+    if (n < 1) {
+        return NULL;
+    }
+    raw[0] = (uint8_t)(sps & 0xff);
+    raw[1] = (uint8_t)((sps >> 8) & 0xff);
+    for (i = 0; i < n; i++) {
+        uint16_t u = (uint16_t)ch[i];
+        raw[2 + i * 2] = (uint8_t)(u & 0xff);
+        raw[2 + i * 2 + 1] = (uint8_t)((u >> 8) & 0xff);
+    }
+    out = (*env)->NewByteArray(env, 2 + n * 2);
+    if (out) {
+        (*env)->SetByteArrayRegion(env, out, 0, 2 + n * 2, (const jbyte *)raw);
+    }
+    return out;
+}
+
 /* ExgNative.mindstormStatus. Empty rather than null. ASCII status text. */
 JNIEXPORT jstring JNICALL
 Java_com_abysscore_exgc_ExgNative_mindstormStatus(JNIEnv *env, jclass cls)

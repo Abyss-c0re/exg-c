@@ -20,6 +20,18 @@ static int wind_on = 1;
 static int rate_ok;
 static int rate_bad;
 static char st[48] = "disconnected";
+static int16_t held[MS_DECIM_CH];
+static int held_n;
+static int held_sps;
+static unsigned held_seq;
+static unsigned held_taken;
+
+/* Caller holds the MindStorm mutex. Drops a window that was not copied. */
+static void drop_held(void)
+{
+    held_n = 0;
+    held_sps = 0;
+}
 
 /* Caller holds the MindStorm mutex. The first call clears the session. */
 static void ensure(void)
@@ -59,7 +71,8 @@ static int round_sps(float sps)
  * UI thread, which already holds live_mu. A null v, or n outside 1..8, returns
  * without touching the ball. Any other rate than 125, 250, or 500, including
  * 200, sets "rate not supported" and does not decimate. A closed 10 ms window
- * is queued as WIND only when forwarding is on and the session is authed. */
+ * is kept for copy_window. It is also queued as WIND when forwarding is on
+ * and this process's own session is authed. */
 void np_mindstorm_on_sample(const float *v, int n, float sps)
 {
     int rate;
@@ -76,6 +89,7 @@ void np_mindstorm_on_sample(const float *v, int n, float sps)
     if (!ms_sps_ok(rate)) {
         rate_ok = 0;
         rate_bad = 1;
+        drop_held();
         refresh_status();
         pthread_mutex_unlock(&mu);
         return;
@@ -83,11 +97,44 @@ void np_mindstorm_on_sample(const float *v, int n, float sps)
     rate_ok = 1;
     rate_bad = 0;
     closed = ms_decim_push(&decim, v, n, rate, out, &out_n);
-    if (closed == 1 && wind_on && out_n > 0 && ms_link_authed(&link)) {
-        ms_link_wind(&link, rate, out, out_n);
+    if (closed == 1 && out_n > 0) {
+        memcpy(held, out, (size_t)out_n * sizeof held[0]);
+        held_n = out_n;
+        held_sps = rate;
+        held_seq++;
+        if (wind_on && ms_link_authed(&link)) {
+            ms_link_wind(&link, rate, out, out_n);
+        }
     }
     refresh_status();
     pthread_mutex_unlock(&mu);
+}
+
+/* Newest closed window, any thread. Returns the channel count copied into out.
+ * Returns 0 when out is null, cap is smaller than the window, or this window
+ * was already taken. A short cap does not consume it. sps receives 125, 250,
+ * or 500 when sps is non-null and a window is copied. Auth is not required. */
+int np_mindstorm_copy_window(int16_t *out, int cap, int *sps)
+{
+    int n;
+
+    if (!out || cap < 1) {
+        return 0;
+    }
+    pthread_mutex_lock(&mu);
+    ensure();
+    if (held_n < 1 || held_seq == held_taken || cap < held_n) {
+        pthread_mutex_unlock(&mu);
+        return 0;
+    }
+    n = held_n;
+    memcpy(out, held, (size_t)n * sizeof out[0]);
+    if (sps) {
+        *sps = held_sps;
+    }
+    held_taken = held_seq;
+    pthread_mutex_unlock(&mu);
+    return n;
 }
 
 /* 16-byte id and 32-byte token, any thread. A null pointer or a wrong length
@@ -103,6 +150,7 @@ int np_mindstorm_set_identity(const uint8_t *id, int id_n,
     ensure();
     ms_link_init(&link);
     ms_decim_init(&decim);
+    drop_held();
     ms_link_set_identity(&link, id, token);
     wind_on = 1;
     refresh_status();
@@ -156,6 +204,7 @@ int np_mindstorm_hello(void)
     }
     ms_link_init(&link);
     ms_decim_init(&decim);
+    drop_held();
     if (!have) {
         refresh_status();
         pthread_mutex_unlock(&mu);

@@ -57,6 +57,7 @@ public final class MindStormLink {
     private static byte[] held;
     private static volatile boolean expectClose;
     private static volatile boolean mtuRejected;
+    private static volatile boolean riding;
     private static volatile String pendingHost = "";
     private static Activity host;
     private static ServiceConnection conn;
@@ -112,6 +113,11 @@ public final class MindStormLink {
         return s == null ? "" : s;
     }
 
+    /** True while windows are pushed into MindStorm's own link. */
+    public static boolean riding() {
+        return riding;
+    }
+
     /** Asks for Bluetooth permission when needed, then binds the bridge. */
     private static void open(Activity activity) {
         if (!installed(activity)) {
@@ -135,7 +141,7 @@ public final class MindStormLink {
                 return;
             }
         }
-        fault = "";
+        fault = "asking MindStorm";
         final int ep = epoch;
         host = activity;
         Intent intent = new Intent();
@@ -187,6 +193,7 @@ public final class MindStormLink {
     private static void halt() {
         Handler h;
         epoch++;
+        riding = false;
         bleReady = false;
         synchronized (gate) {
             h = bleHandler;
@@ -269,33 +276,131 @@ public final class MindStormLink {
             byte[] id = Arrays.copyOfRange(blob, 0, 16);
             byte[] key = Arrays.copyOfRange(blob, 16, 48);
             wipe(blob);
-            int rc = ExgNative.mindstormSetIdentity(id, key);
-            wipe(id);
-            wipe(key);
-            if (ep != epoch) {
-                return;
-            }
-            if (rc != 0) {
-                fault = "ball identity refused";
-                return;
-            }
-            ExgNative.mindstormSetWind(true);
-            String ble = b.bleAddress();
-            String hostName = b.deviceHost();
-            pendingHost = hostName == null ? "" : hostName;
-            if (ep != epoch) {
-                return;
-            }
-            if (ble != null && ble.trim().length() > 0) {
-                openBle(ep, ble.trim());
-            } else if (hostOnly(pendingHost).length() > 0) {
-                openTcp(ep, pendingHost);
-            } else {
-                fault = "no ball address";
+            try {
+                /* The ball accepts one Bluetooth central. When MindStorm already
+                 * holds it, push windows through that link. A second radio
+                 * drops both. Wait through a reconnect before opening our own. */
+                int up = 0;
+                long until = SystemClock.uptimeMillis() + 8000L;
+                while (ep == epoch) {
+                    up = b.ownerUp();
+                    if (up == 1 || SystemClock.uptimeMillis() >= until) {
+                        break;
+                    }
+                    fault = "asking MindStorm";
+                    if (!sleepMs(200)) {
+                        return;
+                    }
+                }
+                if (ep != epoch) {
+                    return;
+                }
+                if (up == 1) {
+                    /* A ride that is already pushing windows must not be forced
+                     * back to EEG. That is what blocked the other drive keys. */
+                    if (riding) {
+                        fault = "EEG";
+                        return;
+                    }
+                    int modeRc = b.eegOn();
+                    if (ep != epoch) {
+                        return;
+                    }
+                    if (modeRc != 0) {
+                        fault = "EEG NOT SENT";
+                        return;
+                    }
+                    startRide(ep);
+                    return;
+                }
+                int rc = ExgNative.mindstormSetIdentity(id, key);
+                if (ep != epoch) {
+                    return;
+                }
+                if (rc != 0) {
+                    fault = "ball identity refused";
+                    return;
+                }
+                ExgNative.mindstormSetWind(true);
+                String ble = b.bleAddress();
+                String hostName = b.deviceHost();
+                pendingHost = hostName == null ? "" : hostName;
+                if (ep != epoch) {
+                    return;
+                }
+                fault = "";
+                if (ble != null && ble.trim().length() > 0) {
+                    openBle(ep, ble.trim());
+                } else if (hostOnly(pendingHost).length() > 0) {
+                    openTcp(ep, pendingHost);
+                } else {
+                    fault = "no ball address";
+                }
+            } finally {
+                wipe(id);
+                wipe(key);
             }
         } catch (android.os.RemoteException e) {
             if (ep == epoch) {
                 fault = "MindStorm bridge dropped";
+            }
+        }
+    }
+
+    /** Shows EEG and pushes each new window into the owner link until halt. */
+    private static void startRide(int ep) {
+        if (ep != epoch) {
+            return;
+        }
+        riding = true;
+        fault = "EEG";
+        Thread t = new Thread(() -> ride(ep), "mindstorm-eeg");
+        t.setDaemon(true);
+        t.start();
+    }
+
+    /** Sends the newest window. A dead owner is waited out for eight seconds. */
+    private static void ride(int ep) {
+        long badSince = 0;
+        while (ep == epoch) {
+            boolean sent = false;
+            IMindStormBridge b = bridge;
+            if (b != null) {
+                try {
+                    if (b.ownerUp() == 1) {
+                        byte[] win = ExgNative.mindstormWindow();
+                        if (win != null && win.length >= 4 && ((win.length - 2) & 1) == 0) {
+                            int sps = (win[0] & 0xff) | ((win[1] & 0xff) << 8);
+                            byte[] samples = Arrays.copyOfRange(win, 2, win.length);
+                            b.wind(sps, samples);
+                        }
+                        sent = true;
+                    }
+                } catch (android.os.RemoteException e) {
+                    sent = false;
+                } catch (RuntimeException e) {
+                    sent = false;
+                }
+            }
+            if (ep != epoch) {
+                return;
+            }
+            if (sent) {
+                badSince = 0;
+            } else if (badSince == 0) {
+                badSince = SystemClock.uptimeMillis();
+            } else if (SystemClock.uptimeMillis() - badSince >= 8000L) {
+                riding = false;
+                fault = b == null ? "MindStorm bridge dropped" : "ball link down";
+                Activity again = host;
+                if (b == null && again != null && !again.isDestroyed() && ep == epoch) {
+                    again.runOnUiThread(() -> open(again));
+                }
+                return;
+            }
+            /* The owner averages windows this loop skips. Eight milliseconds is the wait. */
+            if (!sleepMs(8)) {
+                return;
             }
         }
     }

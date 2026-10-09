@@ -596,4 +596,6 @@ public final class ExgNative {
     public static native boolean mindstormRateOk();
     /** rate not supported, authed, or disconnected. A refused rate is shown ahead of auth. Empty rather than null. */
     public static native String mindstormStatus();
+    /** Newest closed window, or null when there is nothing new. The first two bytes are samples per second, little-endian. The rest are little-endian int16 channels. Does not require a ball session. */
+    public static native byte[] mindstormWindow();
 }

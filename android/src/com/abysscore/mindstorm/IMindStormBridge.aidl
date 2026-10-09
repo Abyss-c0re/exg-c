@@ -10,4 +10,18 @@ interface IMindStormBridge {
     String deviceHost();
     String bleAddress();
     int status();
+
+    /* Queue one window on MindStorm's already-open link. samples are
+     * little-endian int16 values, 1 to 8 channels. Returns 0 when queued.
+     * Returns -1 when this UID is not granted, the link is down, or the
+     * size is wrong. Does not open a radio. */
+    int wind(int sps, in byte[] samples);
+
+    /* 1 when this UID is granted and MindStorm's ball link is already authed. */
+    int ownerUp();
+
+    /* Switch that same link into mode 4, which the drive screen calls EEG.
+     * A dark ball is raised to brightness 180 first. Returns 0, or -1 when
+     * this UID is not granted or the link is down. Does not open USB. */
+    int eegOn();
 }

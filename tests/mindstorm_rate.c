@@ -117,6 +117,24 @@ static void auth(void)
 int main(void)
 {
     char st[64];
+    int16_t win[8];
+    float sample[8];
+    int sps = 0;
+    int i;
+    int n;
+
+    expect(np_mindstorm_copy_window(0, 8, &sps) == 0, "null window");
+    expect(np_mindstorm_copy_window(win, 8, &sps) == 0, "empty window");
+    for (i = 0; i < 8; i++) {
+        sample[i] = 42.f;
+    }
+    for (i = 0; i < 4; i++) {
+        np_mindstorm_on_sample(sample, 8, 125.f);
+    }
+    n = np_mindstorm_copy_window(win, 8, &sps);
+    expect(n == 8 && sps == 125 && win[0] == 42, "window before auth");
+    expect(np_mindstorm_copy_window(win, 8, &sps) == 0, "window once");
+    expect(np_mindstorm_authed() == 0, "copy did not auth");
 
     auth();
     expect(count_wind(200.f, 400) == 0, "200 produced wind");

@@ -1005,7 +1005,7 @@ public class ExgActivity extends Activity {
         hint(port, "Knight port. On USB this is the serial device. On LAN this is host:port.");
         hint(link, "USB talks to a cable. LAN talks to another exg-c that is sharing.");
         hint(connect, "Open or close the Knight. LAN asks for a destination first.");
-        hint(ballLink, "MindStorm ball. A token from the MindStorm app. 125, 250, and 500 only.");
+        hint(ballLink, "MindStorm ball. Uses the link MindStorm already holds. 125, 250, and 500 only.");
         hint(pairYes, "Allow this follower to receive the live EXG.");
         hint(pairNo, "Refuse this follower.");
         hint(calibrate, "Capture the desk noise plate, then a still worn plate. ID uses both.");
@@ -1476,6 +1476,9 @@ public class ExgActivity extends Activity {
             if ("rate not supported".equals(ms)) {
                 ballStatus.setText(extra.length() > 0 ? ms + " — " + extra : ms);
                 ballStatus.setTextColor(0xFFF0A040);
+            } else if (MindStormLink.riding()) {
+                ballStatus.setText("EEG");
+                ballStatus.setTextColor(0xFF3CB46E);
             } else if (extra.length() > 0) {
                 ballStatus.setText(extra);
                 ballStatus.setTextColor(0xFFF0A040);
@@ -1485,11 +1488,10 @@ public class ExgActivity extends Activity {
             }
         }
         if (ballApp && ballLink != null) {
+            boolean liveBall = MindStormLink.riding() || ExgNative.mindstormAuthed();
             ballLink.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
-                    ExgNative.mindstormAuthed() ? 0xFF2E8A58 : 0xFF2A3038));
-            int rate = (int) sps;
-            if (on && !ballAsked && !ExgNative.mindstormAuthed()
-                    && (rate == 125 || rate == 250 || rate == 500)) {
+                    liveBall ? 0xFF2E8A58 : 0xFF2A3038));
+            if (on && !ballAsked && !liveBall && ExgNative.mindstormRateOk()) {
                 ballAsked = true;
                 MindStormLink.connect(this);
             }

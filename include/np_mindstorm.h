@@ -4,8 +4,15 @@
 #include <stdint.h>
 
 /* Cooked microvolts. sps is samples per second. Only a rate that rounds to
- * 125, 250, or 500 is decimated. 200 is refused. */
+ * 125, 250, or 500 is decimated. 200 is refused. A closed window is kept
+ * for np_mindstorm_copy_window even when this process has no ball session. */
 void np_mindstorm_on_sample(const float *v, int n, float sps);
+
+/* Copies the newest closed window that has not been taken. Returns the
+ * channel count, or 0 when there is nothing new, out is null, or cap is
+ * too small. sps, when non-null, receives 125, 250, or 500. Does not
+ * require auth. A short cap leaves the window for a later call. */
+int np_mindstorm_copy_window(int16_t *out, int cap, int *sps);
 
 /* 16-byte client id and 32-byte HMAC token. Returns 0, or -1 when a pointer
  * is null or a length is wrong. Success turns wind forwarding on. The token
