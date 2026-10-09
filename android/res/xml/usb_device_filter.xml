@@ -1,10 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Knight FTDI FT232R -->
+    <!-- Knight Nano FTDI FT232R, 0403:6001. Not the UNO R4 plasma ball. -->
     <usb-device vendor-id="1027" product-id="24577" />
     <usb-device vendor-id="1027" />
-    <!-- CH340 / CP210x / CDC -->
+    <!-- CH340 / CP210x. No CDC class match: that also selects 2341:1002. -->
     <usb-device vendor-id="6790" />
     <usb-device vendor-id="4292" />
-    <usb-device class="2" />
 </resources>

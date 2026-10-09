@@ -23,7 +23,8 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Knight board is FTDI FT232R (0403:6001). Also tries CDC ACM / CH340 / CP210x.
+ * Knight board is FTDI FT232R (0403:6001) on a Nano. Also tries CH340 / CP210x.
+ * The MindStorm UNO R4 plasma ball (2341:1002) is never opened.
  */
 public final class UsbSerial {
     private static final String TAG = "exg-c";
@@ -31,6 +32,9 @@ public final class UsbSerial {
     private static final int VID_FTDI = 0x0403;
     private static final int VID_CH340 = 0x1a86;
     private static final int VID_CP210 = 0x10c4;
+    /** UNO R4 WiFi plasma ball. MindStorm owns this id. */
+    private static final int VID_PLASMA = 0x2341;
+    private static final int PID_PLASMA = 0x1002;
 
     private static final int FTDI_RESET = 0;
     private static final int FTDI_MODEM = 1;
@@ -118,7 +122,7 @@ public final class UsbSerial {
                 return -1;
             }
             UsbDevice dev = find(path);
-            if (dev == null) {
+            if (dev == null || plasmaBall(dev)) {
                 Log.e(TAG, "no usb device for " + path);
                 return -1;
             }
@@ -539,8 +543,16 @@ public final class UsbSerial {
         return String.format(Locale.US, "usb:%04x:%04x", d.getVendorId(), d.getProductId());
     }
 
-    /** FTDI 0403, CH340 1a86, CP210x 10c4, or a device with a CDC data or comm interface. */
+    /** True for the MindStorm plasma ball, 2341:1002. */
+    private static boolean plasmaBall(UsbDevice d) {
+        return d != null && d.getVendorId() == VID_PLASMA && d.getProductId() == PID_PLASMA;
+    }
+
+    /** FTDI 0403, CH340 1a86, CP210x 10c4, or CDC, except the UNO R4 plasma ball. */
     private static boolean supported(UsbDevice d) {
+        if (d == null || plasmaBall(d)) {
+            return false;
+        }
         int vid = d.getVendorId();
         if (vid == VID_FTDI || vid == VID_CH340 || vid == VID_CP210) {
             return true;

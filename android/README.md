@@ -28,7 +28,7 @@ Or `make android`. Output is `android/exg-c.apk` (debug-signed).
 
 **Quest 3:** the Knight is USB-host on the headset, not on a PC.
 
-1. Plug the Knight (FTDI `0403:6001`) or CH340 / CP210x / CDC ACM.
+1. Plug the Knight (FTDI `0403:6001`) or a CH340 / CP210x. The UNO R4 plasma ball `2341:1002` is not opened.
 2. Grant USB. Open **exg-c**. Tap **Connect**.
 3. Warming is under 64% of the locked rate (80 sps at 125). ID and Record stay idle until then.
 4. **Flash** writes the one Knight image (firmware 4). Take the electrodes off first. DTR and RTS reset the board. After the line is quiet, and after the bootloader LED interval, the app sends one sync. If the sketch is still streaming, that attempt says the board did not reset. Tap Upload again. **Debug** shows the boot text. A finished upload does not ask again unless the board prints an older `EXG-FW`.
@@ -81,7 +81,7 @@ The package is not debuggable. `run-as` cannot read these files.
 
 ## USB IDs
 
-`res/xml/usb_device_filter.xml`: FTDI `0403:*` (Knight `0403:6001`), CH340 `1a86:*`, CP210x `10c4:*`, CDC ACM class 2.
+`res/xml/usb_device_filter.xml`: FTDI `0403:*` (Knight Nano `0403:6001`), CH340 `1a86:*`, CP210x `10c4:*`. The UNO R4 plasma ball `2341:1002` is refused and is not in the filter.
 
 ## Layout
 
