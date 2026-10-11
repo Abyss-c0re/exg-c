@@ -3,13 +3,14 @@
 #include <stdio.h>
 
 /* Path save and load around the template blob.
- * Core does not open files. The buffer is 8192 bytes. */
+ * Core does not open files. The buffer holds a full 16-pose blob
+ * (npl_bound is about 35KB). */
 
-/* Export into an 8192-byte buffer and write that many bytes.
+/* Export into a 48KB buffer and write that many bytes.
  * Returns -1 when path is null, export fails, or the write is short. */
 int npl_save(const struct npl *L, const char *path)
 {
-    unsigned char buf[8192];
+    unsigned char buf[48 * 1024];
     int n;
     FILE *f;
     if (!path) {
@@ -31,11 +32,11 @@ int npl_save(const struct npl *L, const char *path)
     return 0;
 }
 
-/* Read at most 8192 bytes and import them. A longer file is cut off.
+/* Read at most 48KB and import them. A longer file is cut off.
  * Returns 0 on a good blob, or -1 when path is null, the file is missing, or the blob is bad. */
 int npl_load(struct npl *L, const char *path)
 {
-    unsigned char buf[8192];
+    unsigned char buf[48 * 1024];
     size_t n;
     FILE *f;
     if (!path) {

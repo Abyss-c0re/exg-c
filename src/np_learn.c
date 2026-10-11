@@ -602,9 +602,10 @@ void id_label(char *out, int n)
 
 /* One second around the gesture, not the plot window. 0 when a channel
  * was prepared. -3 if any active channel clipped, and then no file is
- * written. -1 when no channel is on, -2 when none prepared. Writes the
- * raw file when g.namebuf is set. */
-static int learn_capture(float wave[NPL_NCHAN][NPL_LEN], float rms[NPL_NCHAN], uint8_t *mask)
+ * written. -1 when no channel is on, -2 when none prepared.
+ * store_raw writes the named raw file. A live compare passes 0. */
+static int learn_capture(float wave[NPL_NCHAN][NPL_LEN], float rms[NPL_NCHAN], uint8_t *mask,
+                         int store_raw)
 {
     int c, have = 0, clip = 0;
     float sps = g.sps > 1.f ? g.sps : (float)NP_DEFAULT_SPS;
@@ -635,10 +636,10 @@ static int learn_capture(float wave[NPL_NCHAN][NPL_LEN], float rms[NPL_NCHAN], u
     if (clip) {
         return -3;
     }
-    {
+    if (store_raw && g.namebuf[0]) {
         char rpath[NP_MAX_PATH];
         float *planar = (float *)malloc((size_t)NP_NCHAN * want * sizeof(float));
-        if (planar && g.namebuf[0]) {
+        if (planar) {
             int c2;
             memset(planar, 0, (size_t)NP_NCHAN * want * sizeof(float));
             for (c2 = 0; c2 < NPL_NCHAN; c2++) {
@@ -668,9 +669,9 @@ static int learn_capture(float wave[NPL_NCHAN][NPL_LEN], float rms[NPL_NCHAN], u
 
 static void learn_hold_tick(void);
 
-/* While MATCH is on, scores the last second against saved poses about ten times
- * a second. A cold stream, MATCH off, or a failed capture clears the winner and
- * returns. */
+/* While MATCH is on, scores the last second against saved poses about fifty
+ * times a second. A cold stream, MATCH off, or a failed capture clears the
+ * winner and returns. Comparing does not write the raw file. */
 void learn_tick(void)
 {
     static uint32_t last;
@@ -686,11 +687,11 @@ void learn_tick(void)
         g.learn.best = -1;
         return;
     }
-    if (last && now - last < 100) {
+    if (last && now - last < 20) {
         return;
     }
     last = now;
-    if (learn_capture(wave, rms, &mask) != 0) {
+    if (learn_capture(wave, rms, &mask, 0) != 0) {
         g.learn.best = -1;
         return;
     }
@@ -735,7 +736,7 @@ static void learn_save_named(void)
         set_status(0, "type a name, then Save");
         return;
     }
-    err = learn_capture(wave, rms, &mask);
+    err = learn_capture(wave, rms, &mask, 1);
     if (err == -1) {
         set_status(0, "no samples yet - wait for the stream");
         return;
@@ -1090,8 +1091,8 @@ void np_host_learn_name(int i, char *out, int n)
     snprintf(out, (size_t)n, "%s", g.learn.s[i].name);
 }
 
-/* Wave-and-RMS blend for pose i. 0 if i is out of range, or if no pose won by a
- * clear margin. Not a percent. */
+/* Agreement of the live second with the fitted tone or bump, scaled by RMS.
+ * 0 if i is out of range, or if no pose won by a clear margin. Not a percent. */
 float np_host_learn_score(int i)
 {
     if (i < 0 || i >= g.learn.n) {

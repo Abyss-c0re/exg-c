@@ -884,6 +884,38 @@ static void test_plate_destroy(void)
     }
 }
 
+/* One tone at hz, phase radians, packed the way a pose stores it. n is at most 512. */
+static int prep_tone(float dst[NPL_LEN], float *rms, float hz, float phase, float sps, int n)
+{
+    float src[512];
+    int i;
+    if (n < 16 || n > 512) {
+        return -1;
+    }
+    for (i = 0; i < n; i++) {
+        src[i] = sinf(2.f * (float)M_PI * hz * ((float)i / sps) + phase);
+    }
+    return npl_prep(dst, rms, src, n, sps, 50.f);
+}
+
+/* Scale w to unit energy. A near-zero wave is left as it is. */
+static void unit_wave(float *w)
+{
+    double e = 0;
+    int i;
+    float inv;
+    for (i = 0; i < NPL_LEN; i++) {
+        e += (double)w[i] * (double)w[i];
+    }
+    if (e < 1e-18) {
+        return;
+    }
+    inv = 1.f / sqrtf((float)e);
+    for (i = 0; i < NPL_LEN; i++) {
+        w[i] *= inv;
+    }
+}
+
 /* MATCH scores a pose against itself, ignores an empty cube, and does not name one of two twins. */
 static void test_nplearn(void)
 {
@@ -932,6 +964,156 @@ static void test_nplearn(void)
         npl_score(&L, wave, rms, mask);
         expect(L.best < 0, "two identical poses do not name a winner");
         expect(L.score[0] == 0.f && L.score[1] == 0.f, "no winner wipes cosine scores");
+    }
+    /* A fitted tone ignores phase. A different frequency does not win.
+     * A bump ignores where it sits in the second. An inverted bump does not. */
+    {
+        struct npl P;
+        float w[NPL_NCHAN][NPL_LEN], live[NPL_NCHAN][NPL_LEN];
+        float rms[NPL_NCHAN], lrms[NPL_NCHAN];
+        npl_init(&P);
+        memset(w, 0, sizeof(w));
+        memset(live, 0, sizeof(live));
+        memset(rms, 0, sizeof(rms));
+        memset(lrms, 0, sizeof(lrms));
+        expect(prep_tone(w[0], &rms[0], 10.f, 0.f, 125.f, 128) == 0, "10 Hz prep");
+        expect(npl_add(&P, "phase", w, rms, 1) == 0, "phase add");
+        expect(P.s[0].fit_kind[0] == 1, "short 10 Hz packs as one tone");
+        expect(prep_tone(live[0], &lrms[0], 10.f, 1.5707963f, 125.f, 128) == 0, "quad prep");
+        npl_score(&P, live, lrms, 1);
+        expect(P.best == 0 && P.score[0] > 0.7f, "quadrature still names the tone");
+        memset(live, 0, sizeof(live));
+        memset(lrms, 0, sizeof(lrms));
+        expect(prep_tone(live[0], &lrms[0], 22.f, 0.f, 125.f, 128) == 0, "22 Hz prep");
+        npl_score(&P, live, lrms, 1);
+        expect(P.best < 0, "22 Hz does not name a 10 Hz pose");
+
+        npl_init(&P);
+        memset(w, 0, sizeof(w));
+        memset(live, 0, sizeof(live));
+        memset(rms, 0, sizeof(rms));
+        memset(lrms, 0, sizeof(lrms));
+        expect(prep_tone(w[0], &rms[0], 10.f, 0.f, 125.f, 125) == 0, "1s 10 Hz prep");
+        expect(npl_add(&P, "sec", w, rms, 1) >= 0, "1s add");
+        expect(prep_tone(live[0], &lrms[0], 10.f, 1.3f, 125.f, 125) == 0, "1s phase prep");
+        npl_score(&P, live, lrms, 1);
+        expect(P.best == 0 && P.score[0] > 0.7f, "1s phase shift still matches");
+        memset(live, 0, sizeof(live));
+        memset(lrms, 0, sizeof(lrms));
+        expect(prep_tone(live[0], &lrms[0], 22.f, 0.2f, 125.f, 125) == 0, "1s 22 Hz prep");
+        npl_score(&P, live, lrms, 1);
+        expect(P.best < 0, "1s 22 Hz does not name 10 Hz");
+
+        npl_init(&P);
+        memset(w, 0, sizeof(w));
+        memset(live, 0, sizeof(live));
+        memset(rms, 0, sizeof(rms));
+        memset(lrms, 0, sizeof(lrms));
+        expect(prep_tone(w[0], &rms[0], 10.f, 0.f, 500.f, 500) == 0, "500 Hz prep");
+        expect(npl_add(&P, "fast", w, rms, 1) >= 0, "500 Hz add");
+        expect(prep_tone(live[0], &lrms[0], 10.f, 1.3f, 500.f, 500) == 0, "500 Hz phase prep");
+        npl_score(&P, live, lrms, 1);
+        expect(P.best == 0 && P.score[0] > 0.7f, "500 Hz phase shift still matches");
+        memset(live, 0, sizeof(live));
+        memset(lrms, 0, sizeof(lrms));
+        expect(prep_tone(live[0], &lrms[0], 22.f, 0.4f, 500.f, 500) == 0, "500 Hz 22 prep");
+        npl_score(&P, live, lrms, 1);
+        expect(P.best < 0, "22 Hz does not name a 500 Hz 10 Hz pose");
+    }
+    {
+        struct npl B;
+        float w[NPL_NCHAN][NPL_LEN], live[NPL_NCHAN][NPL_LEN];
+        float rms[NPL_NCHAN];
+        int i;
+        npl_init(&B);
+        memset(w, 0, sizeof(w));
+        memset(live, 0, sizeof(live));
+        memset(rms, 0, sizeof(rms));
+        rms[0] = 12.f;
+        for (i = 0; i < NPL_LEN; i++) {
+            float d = ((float)i - 20.f) / 4.f;
+            w[0][i] = expf(-0.5f * d * d);
+        }
+        unit_wave(w[0]);
+        expect(npl_add(&B, "bump", w, rms, 1) == 0, "bump add");
+        expect(B.s[0].fit_kind[0] == 3 && B.s[0].fit_k0[0] == 0, "narrow bump fits a gaussian");
+        for (i = 0; i < NPL_LEN; i++) {
+            float d = ((float)i - 34.f) / 4.f;
+            live[0][i] = expf(-0.5f * d * d);
+        }
+        unit_wave(live[0]);
+        npl_score(&B, live, rms, 1);
+        expect(B.best == 0 && B.score[0] > 0.7f, "shifted bump still matches");
+        for (i = 0; i < NPL_LEN; i++) {
+            live[0][i] = -live[0][i];
+        }
+        npl_score(&B, live, rms, 1);
+        expect(B.best < 0, "inverted bump does not match");
+        for (i = 0; i < NPL_LEN; i++) {
+            w[0][i] = -w[0][i];
+        }
+        expect(npl_add(&B, "down", w, rms, 1) == 1, "down bump add");
+        expect(B.s[1].fit_kind[0] == 3 && B.s[1].fit_k0[0] == 1, "downward bump keeps its sign");
+        npl_score(&B, live, rms, 1);
+        expect(B.best == 1 && B.score[1] > 0.7f, "shifted downward bump matches");
+    }
+    {
+        struct npl Z;
+        float w[NPL_NCHAN][NPL_LEN];
+        float rms[NPL_NCHAN];
+        int i, k;
+        npl_init(&Z);
+        memset(w, 0, sizeof(w));
+        memset(rms, 0, sizeof(rms));
+        rms[0] = 5.f;
+        for (i = 0; i < NPL_LEN; i++) {
+            for (k = 1; k <= 16; k++) {
+                w[0][i] += sinf(2.f * (float)M_PI * (float)k * (float)i / (float)NPL_LEN);
+            }
+        }
+        unit_wave(w[0]);
+        expect(npl_add(&Z, "noise", w, rms, 1) == 0, "noise add");
+        expect(Z.s[0].fit_kind[0] == 0, "broadband stays a waveform");
+        npl_score(&Z, w, rms, 1);
+        expect(Z.best == 0 && Z.score[0] > 0.7f, "waveform still matches itself");
+    }
+    {
+        struct npl L, M;
+        unsigned char buf[48 * 1024];
+        float w[NPL_NCHAN][NPL_LEN];
+        float rms[NPL_NCHAN];
+        int i, n;
+        char name[8];
+        const char *path = "/tmp/exg-c-npl-fit.learn";
+        npl_init(&L);
+        memset(w, 0, sizeof(w));
+        memset(rms, 0, sizeof(rms));
+        expect(prep_tone(w[0], &rms[0], 10.f, 0.f, 125.f, 128) == 0, "bank prep");
+        for (i = 0; i < 16; i++) {
+            snprintf(name, sizeof(name), "p%d", i);
+            npl_add(&L, name, w, rms, 1);
+        }
+        expect(L.n == 16, "pose bank holds 16");
+        expect(npl_bound() > 30000 && npl_bound() < (int)sizeof(buf), "16 poses fit in the save buffer");
+        L.s[0].fit_kind[0] = 9;
+        n = npl_export(&L, buf, (int)sizeof(buf));
+        expect(n > 0, "export 16 poses");
+        expect(npl_save(&L, path) == 0, "save 16 poses");
+        npl_init(&M);
+        expect(npl_load(&M, path) == 0, "load 16 poses");
+        expect(M.n == 16 && strcmp(M.s[15].name, "p15") == 0, "load keeps 16 poses");
+        expect(M.s[0].fit_kind[0] == 1, "load refits the tone");
+        npl_score(&M, w, rms, 1);
+        expect(M.best < 0, "sixteen copies do not name a winner");
+        while (M.n > 1) {
+            npl_del(&M, M.n - 1);
+        }
+        npl_score(&M, w, rms, 1);
+        expect(M.best == 0 && M.score[0] > 0.7f, "one loaded pose still self-scores");
+        npl_init(&M);
+        expect(npl_import(&M, buf, n) == 0, "import 16");
+        expect(M.n == 16 && M.s[0].fit_kind[0] == 1, "import refits and ignores a poisoned kind");
+        unlink(path);
     }
 }
 
@@ -2067,7 +2249,7 @@ static void test_stamp(void)
     np_api_stamp_reset();
 }
 
-/* EXG1 layout, loopback HTTP, UDP subscribe, TCP framing, and the 3.04 version string. */
+/* EXG1 layout, loopback HTTP, UDP subscribe, TCP framing, and the 3.05 version string. */
 static void test_api(void)
 {
     struct np_api_sample a, b;
@@ -2188,7 +2370,7 @@ static void test_api(void)
          strstr(body, "/stream") && strstr(body, "EXG1");
     expect(ok, "api GET / index lists stream");
     expect(strstr(body, "stream.json") == NULL, "api index has no NDJSON live path");
-    expect(strstr(body, "\"v\":\"3.04\"") != NULL, "api index version 3.04");
+    expect(strstr(body, "\"v\":\"3.05\"") != NULL, "api index version 3.05");
     expect(strstr(body, "/pair") != NULL, "api index lists /pair");
     expect(strstr(body, "\"ip\":\"127.0.0.1\"") != NULL, "api local ip is loopback");
     {

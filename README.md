@@ -4,7 +4,7 @@ A C host for a **[Knight](https://www.neuropawn.tech/)** ADS1299 board — or an
 
 Not a medical device. Not affiliated with NeuroPawn.
 
-Shipped app: **3.04** (`com.abysscore.exgc`, versionCode 112). The same C engine draws into a Linux SDL window (`src/np_ui.c`) or into the Android UI. Both call `include/np_host.h`. The LAN API (`src/np_api.c`) stays off until you turn it on.
+Shipped app: **3.05** (`com.abysscore.exgc`, versionCode 113). The same C engine draws into a Linux SDL window (`src/np_ui.c`) or into the Android UI. Both call `include/np_host.h`. The LAN API (`src/np_api.c`) stays off until you turn it on.
 
 How the screens behave: [docs/APP.md](docs/APP.md).
 The LAN frame: [docs/API.md](docs/API.md).

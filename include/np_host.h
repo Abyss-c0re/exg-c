@@ -127,7 +127,7 @@ int np_host_learn_n(void);
 int np_host_learn_best(void);
 /* Pose name at i. Out of range writes an empty string. */
 void np_host_learn_name(int i, char *out, int n);
-/* Wave-and-RMS blend for pose i. 0 if i is out of range, or if no pose won by a clear margin. Not a percent. */
+/* Agreement of the live second with the fitted tone or bump, scaled by RMS. 0 if i is out of range, or if no pose won by a clear margin. Not a percent. */
 float np_host_learn_score(int i);
 /* Jaccard of occupied cube cells, 0..1. 0 if i is out of range or that pose has no cube. Does not replace the wave score. */
 float np_host_learn_score_cube(int i);

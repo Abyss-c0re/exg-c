@@ -1,4 +1,4 @@
-# App (3.04)
+# App (3.05)
 
 What the host does. The LAN wire is [API.md](API.md).
 
@@ -109,7 +109,7 @@ Last ~0.5 s EXG vs a rolling quiet baseline (`id_base` EMA while still).
 - **Take** — bookmark a named stretch (`atoms/<name>.npat`, raw next to it).
 - Live take ID: **last 1 s** vs each take’s **pattern** of seconds unlike rest/CALM. Fail-closed: unique winner ≥ **70%** and ≥ **8 pt** gap, or no percent.
 - Compare two takes: `same head — not distinct`, `distinct`, or `no RMS`. No whole-file percent.
-- **Record** — 1 s pose in `exg-c.learn`. MATCH **names** a unique pose. Cosine is not printed as `%`.
+- **Record** — 1 s pose in `exg-c.learn`. MATCH fits a tone or a bump to each channel and names a unique pose when the live second agrees. The score is not printed as `%`.
 - Chips on Android are **takes**. Record poses are listed separately and can be deleted.
 
 ## Bias (RLD)

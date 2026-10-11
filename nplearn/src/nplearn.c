@@ -4,7 +4,18 @@
 #include <string.h>
 
 /* Eight-channel template matcher, no heap.
- * MATCH uses wave and RMS. Cube and SMX are stored beside that. */
+ * Each saved channel keeps a tone, a tone pair, or a bump.
+ * npl_score compares the live wave with that function.
+ * Cube and SMX are stored beside the pose and do not change the match. */
+
+/* Bins 1..16 of the 64-bin wave. A repeat of a kept tone scores this fraction
+ * or better, which is above the 0.55 gate. A weaker fit stays a lag cosine. */
+#define NPL_FIT_K 16
+#define NPL_FIT_KEEP 0.70f
+#define NPL_FIT_MORE 0.06f
+
+static const int bump_sig[6] = {2, 3, 4, 6, 8, 12};
+static float bump_kern[6][NPL_LEN];
 
 /* Zero the library, select nothing, and turn matching on. L must be non-null. */
 void npl_init(struct npl *L)
@@ -27,8 +38,338 @@ static void copy_name(char *dst, const char *src)
     }
 }
 
+/* Fills the six Gaussian widths once. Score and fit share them, so a live
+ * compare does not call expf. */
+static void warm_kern(void)
+{
+    static int ready;
+    int s, d;
+
+    if (ready) {
+        return;
+    }
+    for (s = 0; s < 6; s++) {
+        float sg = (float)bump_sig[s];
+        for (d = 0; d < NPL_LEN; d++) {
+            float x = (float)d / sg;
+            bump_kern[s][d] = expf(-0.5f * x * x);
+        }
+    }
+    ready = 1;
+}
+
+/* Index of sig in bump_sig, or -1. */
+static int sig_slot(int sig)
+{
+    int i;
+    for (i = 0; i < 6; i++) {
+        if (bump_sig[i] == sig) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+/* Energy of orthonormal bin k. k outside 1..31 returns 0.
+ * One cos/sin, then a rotation, so a compare is not a libm call per sample. */
+static float bin_energy(const float *w, int k)
+{
+    float scale, ang, cs, sn, c, s;
+    double A = 0, B = 0;
+    int n;
+
+    if (k <= 0 || k >= NPL_LEN / 2) {
+        return 0.f;
+    }
+    scale = sqrtf(2.f / (float)NPL_LEN);
+    ang = (2.f * (float)M_PI * (float)k) / (float)NPL_LEN;
+    cs = cosf(ang);
+    sn = sinf(ang);
+    c = scale;
+    s = 0.f;
+    for (n = 0; n < NPL_LEN; n++) {
+        float nc, ns;
+        A += (double)w[n] * (double)c;
+        B += (double)w[n] * (double)s;
+        nc = c * cs - s * sn;
+        ns = s * cs + c * sn;
+        c = nc;
+        s = ns;
+    }
+    return (float)(A * A + B * B);
+}
+
+/* Greatest-square correlation of w with a unit Gaussian of width sig, and the
+ * center that produced it. corr is signed. A missing width leaves both at 0. */
+static void bump_peak(const float *w, int sig, float *corr, int *mu)
+{
+    const float *kern;
+    double live_e = 0;
+    float best_sq = 0.f;
+    int si, c, t;
+
+    *corr = 0.f;
+    *mu = 0;
+    warm_kern();
+    si = sig_slot(sig);
+    if (si < 0) {
+        return;
+    }
+    kern = bump_kern[si];
+    for (t = 0; t < NPL_LEN; t++) {
+        live_e += (double)w[t] * (double)w[t];
+    }
+    if (live_e < 1e-18) {
+        return;
+    }
+    for (c = 0; c < NPL_LEN; c++) {
+        double dot = 0, e = 0;
+        float cr, sq;
+        for (t = 0; t < NPL_LEN; t++) {
+            int d = t - c;
+            float g;
+            if (d < 0) {
+                d = -d;
+            }
+            g = kern[d];
+            dot += (double)w[t] * (double)g;
+            e += (double)g * (double)g;
+        }
+        if (e < 1e-18) {
+            continue;
+        }
+        cr = (float)(dot / sqrt(e * live_e));
+        sq = cr * cr;
+        if (sq > best_sq) {
+            best_sq = sq;
+            *corr = cr;
+            *mu = c;
+        }
+    }
+}
+
+/* Max positive correlation against a unit Gaussian of width sig.
+ * neg flips the kernel, so a downward template matches a downward live wave.
+ * Every center in the 64-bin window is tried. sig outside the table returns 0. */
+static float bump_match(const float *live, int sig, int neg)
+{
+    const float *kern;
+    double live_e = 0;
+    float best = 0.f;
+    int si, c, t;
+
+    warm_kern();
+    si = sig_slot(sig);
+    if (si < 0) {
+        return 0.f;
+    }
+    kern = bump_kern[si];
+    for (t = 0; t < NPL_LEN; t++) {
+        live_e += (double)live[t] * (double)live[t];
+    }
+    if (live_e < 1e-18) {
+        return 0.f;
+    }
+    for (c = 0; c < NPL_LEN; c++) {
+        double dot = 0, e = 0;
+        float cr;
+        for (t = 0; t < NPL_LEN; t++) {
+            int d = t - c;
+            float g;
+            if (d < 0) {
+                d = -d;
+            }
+            g = kern[d];
+            dot += (double)live[t] * (double)g;
+            e += (double)g * (double)g;
+        }
+        if (e < 1e-18) {
+            continue;
+        }
+        cr = (float)(dot / sqrt(e * live_e));
+        if (neg) {
+            cr = -cr;
+        }
+        if (cr > best) {
+            best = cr;
+        }
+    }
+    return best;
+}
+
+/* Best positive overlap cosine for lags -32..32.
+ * Divides by the overlapping samples only. Overlap under 8 is skipped.
+ * A negative cosine is ignored. */
+static float slide_cosine(const float *live, const float *tmpl)
+{
+    int lag;
+    float best = 0.f;
+
+    for (lag = -32; lag <= 32; lag++) {
+        int ov = NPL_LEN - (lag < 0 ? -lag : lag);
+        int i;
+        double dot = 0, el = 0, et = 0;
+        float c;
+        if (ov < 8) {
+            continue;
+        }
+        for (i = 0; i < NPL_LEN; i++) {
+            int j = i - lag;
+            if (j < 0 || j >= NPL_LEN) {
+                continue;
+            }
+            dot += (double)live[i] * (double)tmpl[j];
+            el += (double)live[i] * (double)live[i];
+            et += (double)tmpl[j] * (double)tmpl[j];
+        }
+        if (el < 1e-18 || et < 1e-18) {
+            continue;
+        }
+        c = (float)(dot / sqrt(el * et));
+        if (c > best) {
+            best = c;
+        }
+    }
+    return best;
+}
+
+/* Pick the function for one masked channel.
+ * One tone first. A bump replaces it when the bump captures 0.06 more energy.
+ * A second tone replaces the winner only when that extra bin is above 0.06 and
+ * the pair beats the winner by 0.06, so a blink stays a bump.
+ * The model is kept only when a repeat of it would score at least 0.70.
+ * Below that, kind stays 0 and the lag cosine is used. A near-zero wave returns. */
+static void fit_channel(struct npl_sample *s, int ch)
+{
+    const float *w = s->wave[ch];
+    double energy = 0;
+    int i, k, bestk = 1, secondk = 0;
+    int bump_mu = 0, bump_sg = bump_sig[0];
+    float best = 0.f, sec = 0.f;
+    float bump_e = 0.f, bump_c = 0.f;
+    float captured, self;
+    int kind;
+
+    for (i = 0; i < NPL_LEN; i++) {
+        energy += (double)w[i] * (double)w[i];
+    }
+    if (energy < 1e-8) {
+        return;
+    }
+    for (k = 1; k <= NPL_FIT_K; k++) {
+        float ek = bin_energy(w, k);
+        if (ek > best) {
+            if (best > 0.f) {
+                sec = best;
+                secondk = bestk;
+            }
+            best = ek;
+            bestk = k;
+        } else if (ek > sec) {
+            sec = ek;
+            secondk = k;
+        }
+    }
+    for (i = 0; i < 6; i++) {
+        float cr;
+        int mu;
+        bump_peak(w, bump_sig[i], &cr, &mu);
+        if (cr * cr > bump_e) {
+            bump_e = cr * cr;
+            bump_c = cr;
+            bump_mu = mu;
+            bump_sg = bump_sig[i];
+        }
+    }
+    kind = 1;
+    captured = best;
+    if (bump_e > captured + NPL_FIT_MORE) {
+        kind = 3;
+        captured = bump_e;
+    }
+    if (sec > NPL_FIT_MORE && secondk > 0 && secondk != bestk &&
+        (best + sec) > captured + NPL_FIT_MORE) {
+        kind = 2;
+        captured = best + sec;
+    }
+    if (kind == 3) {
+        self = bump_c < 0.f ? -bump_c : bump_c;
+    } else {
+        self = captured;
+    }
+    if (self < NPL_FIT_KEEP) {
+        return;
+    }
+    s->fit_kind[ch] = (uint8_t)kind;
+    if (kind == 3) {
+        s->fit_k0[ch] = bump_c < 0.f ? 1 : 0;
+        s->fit_mu[ch] = (uint8_t)bump_mu;
+        s->fit_sig[ch] = (uint8_t)bump_sg;
+        return;
+    }
+    s->fit_k0[ch] = (uint8_t)bestk;
+    if (kind == 2) {
+        s->fit_k1[ch] = (uint8_t)secondk;
+    }
+}
+
+/* Rebuild every masked channel. Others stay kind 0. */
+static void fit_sample(struct npl_sample *s)
+{
+    int c;
+    if (!s) {
+        return;
+    }
+    for (c = 0; c < NPL_NCHAN; c++) {
+        s->fit_kind[c] = 0;
+        s->fit_k0[c] = 0;
+        s->fit_k1[c] = 0;
+        s->fit_mu[c] = 0;
+        s->fit_sig[c] = 0;
+        if (s->mask & (uint8_t)(1u << c)) {
+            fit_channel(s, c);
+        }
+    }
+}
+
+/* Tone fidelity, bump correlation, or a lag cosine. Result is 0..1.
+ * Tone score is the sum of sqrt(template-bin energy × live-bin energy).
+ * Phase cancels. Capped at 1. */
+static float shape_channel(const struct npl_sample *s, int ch, const float *live)
+{
+    uint8_t kind = s->fit_kind[ch];
+
+    if (kind == 1 || kind == 2) {
+        int ks[2];
+        int nbin = (int)kind;
+        int i;
+        float num = 0.f;
+        ks[0] = s->fit_k0[ch];
+        ks[1] = s->fit_k1[ch];
+        if (kind == 2 && ks[1] == 0) {
+            nbin = 1;
+        }
+        for (i = 0; i < nbin; i++) {
+            float et = bin_energy(s->wave[ch], ks[i]);
+            float el = bin_energy(live, ks[i]);
+            if (et < 1e-8f || el <= 0.f) {
+                continue;
+            }
+            num += sqrtf(et * el);
+        }
+        if (num > 1.f) {
+            num = 1.f;
+        }
+        return num;
+    }
+    if (kind == 3) {
+        return bump_match(live, s->fit_sig[ch], s->fit_k0[ch] ? 1 : 0);
+    }
+    return slide_cosine(live, s->wave[ch]);
+}
+
 /* Replace the sample with the same name, or append. Returns the slot, -1 for bad arguments including a zero mask, or -2 when 16 slots are full.
- * Cube and SMX on that slot are cleared. */
+ * Cube and SMX on that slot are cleared. The tone or bump is fit from the wave. */
 int npl_add(struct npl *L, const char *name, const float wave[NPL_NCHAN][NPL_LEN],
             const float rms[NPL_NCHAN], uint8_t mask)
 {
@@ -60,6 +401,7 @@ int npl_add(struct npl *L, const char *name, const float wave[NPL_NCHAN][NPL_LEN
     memcpy(L->s[slot].wave, wave, sizeof(L->s[slot].wave));
     L->s[slot].have_cube = 0;
     memset(L->s[slot].cube, 0, sizeof(L->s[slot].cube));
+    fit_sample(&L->s[slot]);
     L->sel = slot;
     return slot;
 }
@@ -153,8 +495,12 @@ static float cosine8(const float *a, const float *b, uint8_t mask)
     return (float)(dot / (sqrt(da) * sqrt(db)));
 }
 
-/* Score is 0.60 times the mean of positive per-channel dots, plus 0.40 times the RMS cosine. Negative dots are dropped.
- * best is set only when the top score is at least 0.55 and leads by 0.08. Otherwise every score is zeroed and best is -1. */
+/* Shape is the mean, over masked channels, of the fitted function: tone-bin
+ * fidelity, bump correlation, or a lag cosine when the fit is weak.
+ * The pose score is that mean times (0.55 + 0.45 times the RMS cosine).
+ * A wrong shape stays under the gate even when the RMS matches.
+ * best is set only when the top score is at least 0.55 and leads by 0.08.
+ * Otherwise every score is zeroed and best is -1. Never print the score as a percent. */
 void npl_score(struct npl *L, const float wave[NPL_NCHAN][NPL_LEN], const float rms[NPL_NCHAN],
                uint8_t mask)
 {
@@ -164,6 +510,9 @@ void npl_score(struct npl *L, const float wave[NPL_NCHAN][NPL_LEN], const float 
         return;
     }
     L->best = -1;
+    if (!wave || !rms) {
+        return;
+    }
     for (i = 0; i < L->n; i++) {
         uint8_t m = (uint8_t)(L->s[i].mask & mask);
         float sw = 0.f, sr, s;
@@ -173,17 +522,10 @@ void npl_score(struct npl *L, const float wave[NPL_NCHAN][NPL_LEN], const float 
             continue;
         }
         for (c = 0; c < NPL_NCHAN; c++) {
-            int k;
-            double dot = 0;
             if (!(m & (uint8_t)(1u << c))) {
                 continue;
             }
-            for (k = 0; k < NPL_LEN; k++) {
-                dot += (double)wave[c][k] * (double)L->s[i].wave[c][k];
-            }
-            if (dot > 0.0) {
-                sw += (float)dot;
-            }
+            sw += shape_channel(&L->s[i], c, wave[c]);
             nc++;
         }
         if (nc) {
@@ -193,8 +535,8 @@ void npl_score(struct npl *L, const float wave[NPL_NCHAN][NPL_LEN], const float 
         if (sr < 0.f) {
             sr = 0.f;
         }
-        /* RMS cosine is scale-blind. Never print this as a percent. */
-        s = 0.60f * sw + 0.40f * sr;
+        /* RMS cosine is scale-blind. It scales the shape. It does not replace it. */
+        s = sw * (0.55f + 0.45f * sr);
         L->score[i] = s;
         if (s > bests) {
             secs = bests;
@@ -262,7 +604,8 @@ static int put(unsigned char **p, int *left, const void *src, int n)
     return 0;
 }
 
-/* Write magic EXGL, version 3, and every template. Returns the byte count, or -1 when L or buf is null or cap runs out. */
+/* Write magic EXGL, version 3, and every template. Fit fields are not stored.
+ * Returns the byte count, or -1 when L or buf is null or cap runs out. */
 int npl_export(const struct npl *L, void *buf, int cap)
 {
     unsigned char *p = (unsigned char *)buf;
@@ -289,7 +632,7 @@ int npl_export(const struct npl *L, void *buf, int cap)
 }
 
 /* Accept EXGL version 1, 2, or 3. A short record re-inits L and returns -1.
- * Version 1 has no cube. Version 2 has no SMX. */
+ * Version 1 has no cube. Version 2 has no SMX. A good blob refits every channel. */
 int npl_import(struct npl *L, const void *buf, int n)
 {
     const unsigned char *p = (const unsigned char *)buf;
@@ -348,6 +691,9 @@ int npl_import(struct npl *L, const void *buf, int n)
         }
         n -= need;
         L->s[i].name[NPL_NAME - 1] = 0;
+    }
+    for (i = 0; i < L->n; i++) {
+        fit_sample(&L->s[i]);
     }
     return 0;
 }

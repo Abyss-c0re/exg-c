@@ -114,7 +114,7 @@ Desktop config is `~/.config/exg-c.ini`. Profiles are `~/.config/exg-c/profiles/
 
 **DC on** subtracts the still-plate mean. It is not a high-pass. **CLEAN** is a Wiener filter against the desk plate, and it stays idle until that plate exists and the window is at least 3 seconds.
 
-**MATCH** names a Record pose (one second, `exg-c.learn`). **Take ID** names a take (`atoms/<name>.npat`). They are different files. Neither one prints a cosine as a percent.
+**MATCH** names a Record pose (one second, `exg-c.learn`). The pose keeps the tone or the bump that fits each channel, and the live second is scored against that function. **Take ID** names a take (`atoms/<name>.npat`). They are different files. Neither one prints that score as a percent.
 
 **NEG RAIL** is eight private pairs. Bias is off, each channel has its own minus site, and the sample is already V(+) − V(−). Do not run CAR or the software pair view on top of that.
 

@@ -7,6 +7,11 @@
  * No heap, no FILE, no threads. Compile nplearn.c + nplearn_filt.c
  * for a microcontroller. Optional nplearn_posix.c adds path save/load.
  *
+ * A saved channel keeps the tone, tone pair, or bump that fits its wave.
+ * npl_score compares the live wave with that function. A weak fit stays a
+ * lag-aligned compare of the stored wave. The fit is rebuilt on add and load.
+ * It is not written into the EXGL blob.
+ *
  * Typical MCU loop:
  *   npl_prep(wave[ch], &rms[ch], adc_uv, n, sps, 50.f);
  *   npl_score(&L, wave, rms, mask);
@@ -33,6 +38,15 @@ struct npl_sample {
     uint8_t smx[NPL_SMX_SEC]; /* 8 channel bits per second */
     uint8_t smx_n;
     uint8_t fold; /* last-second 8-ch fold */
+    /* Rebuilt from wave on add and import. Not part of the EXGL blob.
+     * fit_kind: 0 waveform, 1 one tone, 2 two tones, 3 bump.
+     * fit_k0 and fit_k1 are DFT bins 1..16. On a bump, fit_k0 is 1 when the
+     * bump points down. fit_mu is that bump's center bin, fit_sig its width. */
+    uint8_t fit_kind[NPL_NCHAN];
+    uint8_t fit_k0[NPL_NCHAN];
+    uint8_t fit_k1[NPL_NCHAN];
+    uint8_t fit_mu[NPL_NCHAN];
+    uint8_t fit_sig[NPL_NCHAN];
 };
 
 struct npl {
@@ -41,7 +55,7 @@ struct npl {
     int match;
     int sel;
     int best;
-    float score[NPL_MAX];      /* wave+RMS cosine; best is fail-closed */
+    float score[NPL_MAX];      /* fit agreement scaled by RMS; best is fail-closed */
     float score_cube[NPL_MAX]; /* Jaccard — not ID, do not print as % */
 };
 

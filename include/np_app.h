@@ -250,7 +250,7 @@ void learn_path(char *out, size_t n);
 void learn_persist(void);
 /* Arms a 4 s pose record under the typed name. No name opens the keyboard and returns. No board returns without arming. */
 void learn_start_hold(void);
-/* While MATCH is on, scores the last second against saved poses about ten times a second. A cold stream, MATCH off, or a failed capture clears the winner and returns. */
+/* While MATCH is on, scores the last second against saved poses about fifty times a second. A cold stream, MATCH off, or a failed capture clears the winner and returns. Comparing does not write the raw file. */
 void learn_tick(void);
 /* files dir if set, else desktop ~/.config or Android HOME. The non-UI Android build tries SDL internal storage first. Does not create it. */
 void np_cfg_root(char *out, size_t n);
