@@ -266,6 +266,10 @@ public final class ExgNative {
     public static native int csvBeginFd(int fd, String name);
     /* Fills up to 64 bins (128-pt strip). Returns peak Hz. */
     public static native int copyFft(float[] dst);
+    /** Strip caption for the last second: "theta  6 Hz", "flat", "open", or "FFT". Never null. */
+    public static native String rhythmLabel();
+    /** 0 delta, 1 theta, 2 alpha, 3 beta, 4 gamma. -1 flat, -2 open, -3 nothing measured yet. */
+    public static native int rhythmBand();
     /** Starts the take timer, or stops it. Stopping does not save. */
     public static native void toggleAtom();
     /** Starts counting take seconds from 0. Does not write a file until a later save. */

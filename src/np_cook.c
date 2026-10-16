@@ -966,8 +966,8 @@ void live_sync(void)
 }
 
 /* Newest n cooked µV for ch, oldest first. Holds live_mu. Returns the count copied,
- * which may be less than n. ch is not bounds-checked. */
-static uint32_t live_copy(int ch, float *dst, uint32_t n)
+ * which may be less than n. ch is not bounds-checked. No Wiener step. */
+uint32_t cook_copy(int ch, float *dst, uint32_t n)
 {
     uint32_t have, i, start;
     pthread_mutex_lock(&live_mu);
@@ -1040,7 +1040,7 @@ uint32_t view_copy(int ch, float *dst, uint32_t n)
     uint64_t tot = 0;
     uint32_t now;
 
-    got = live_copy(ch, dst, n);
+    got = cook_copy(ch, dst, n);
     if (!(g.cal_cut && (g.noise_psd_ok || g.noise_psd_ch_ok) &&
           got >= (uint32_t)NP_FFT_N)) {
         if (g.cal_cut && g.calm.have && got > 0) {
@@ -1055,7 +1055,7 @@ uint32_t view_copy(int ch, float *dst, uint32_t n)
     now = SDL_GetTicks();
     if (clean_t == 0 || now - clean_t >= 80 || tot != clean_seen) {
         for (c = 0; c < NP_NCHAN; c++) {
-            uint32_t m = live_copy(c, clean_ch[c], n);
+            uint32_t m = cook_copy(c, clean_ch[c], n);
             if (m >= (uint32_t)NP_FFT_N) {
                 const float *psd = NULL;
                 if ((g.noise_psd_ch_ok & (1u << c)) != 0) {

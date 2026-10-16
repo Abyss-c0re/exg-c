@@ -695,6 +695,128 @@ void np_host_toggle_csv(void)
     toggle_record();
 }
 
+/* Last rhythm caption. rhythm_refresh writes these. The hold keeps a named band
+ * for half a second so a blink of noise does not blank it. */
+static struct np_rhythm rhythm_now;
+static int rhythm_kind = -3;
+static int rhythm_hold_band = -1;
+static int rhythm_hold_hz;
+static uint32_t rhythm_hold_until;
+static uint32_t rhythm_t;
+static char rhythm_text[24] = "FFT";
+
+/* Stores the caption for kind. 0..4 is a band, -1 flat, -2 open, anything else FFT. */
+static void rhythm_write(int kind)
+{
+    rhythm_kind = kind;
+    if (kind >= 0 && kind < NP_RHYTHM_N) {
+        snprintf(rhythm_text, sizeof(rhythm_text), "%s  %d Hz", np_rhythm_name(kind),
+                 rhythm_now.peak_hz);
+    } else if (kind == -2) {
+        snprintf(rhythm_text, sizeof(rhythm_text), "open");
+    } else if (kind == -1) {
+        snprintf(rhythm_text, sizeof(rhythm_text), "flat");
+    } else {
+        snprintf(rhythm_text, sizeof(rhythm_text), "FFT");
+    }
+}
+
+/* One second of cooked µV, summed across live channels. Skips an off-head
+ * channel and the muscle envelope. A named band is held for 500 ms. */
+static void rhythm_refresh(void)
+{
+    float score[NP_RHYTHM_FFT / 2];
+    float sps;
+    int nfft, c, used, open_n;
+    uint8_t lp, ln;
+    uint32_t now;
+    now = SDL_GetTicks();
+    if (rhythm_t && now - rhythm_t < 80) {
+        return;
+    }
+    rhythm_t = now ? now : 1;
+    if (g.envelope || g.sps <= 1.f) {
+        rhythm_hold_band = -1;
+        rhythm_now.band = -1;
+        rhythm_now.peak_hz = 0;
+        rhythm_write(g.envelope ? -1 : -3);
+        return;
+    }
+    sps = g.sps;
+    nfft = np_rhythm_length(sps);
+    if (nfft < 64) {
+        rhythm_write(-3);
+        return;
+    }
+    memset(score, 0, sizeof(score));
+    used = 0;
+    open_n = 0;
+    lp = 0;
+    ln = 0;
+    np_ring_loff(&g.ring, &lp, &ln);
+    for (c = 0; c < NP_NCHAN; c++) {
+        float buf[NP_RHYTHM_FFT];
+        uint32_t n;
+        int q;
+        float dc, rms, pk;
+        if (!g.active[c]) {
+            continue;
+        }
+        n = cook_copy(c, buf, (uint32_t)nfft);
+        if (n < (uint32_t)nfft) {
+            continue;
+        }
+        q = ch_quality(c, buf, n, lp, ln);
+        if (q != Q_LIVE) {
+            open_n++;
+            continue;
+        }
+        if (g.cal.have && g.cal_cut && g.cal.rms[c] > 1.f) {
+            ch_stats(buf, n, &dc, &rms, &pk);
+            if (rms / g.cal.rms[c] > 0.70f && rms / g.cal.rms[c] < 1.40f) {
+                open_n++;
+                continue;
+            }
+        }
+        if (np_rhythm_accum(buf, (int)n, sps, nfft, score, NP_RHYTHM_FFT / 2) == 0) {
+            used++;
+        }
+    }
+    if (used < 1) {
+        rhythm_hold_band = -1;
+        rhythm_now.band = -1;
+        rhythm_now.peak_hz = 0;
+        rhythm_write(open_n > 0 ? -2 : -3);
+        return;
+    }
+    np_rhythm_finish(score, nfft, sps, &rhythm_now);
+    if (rhythm_now.band >= 0) {
+        rhythm_hold_band = rhythm_now.band;
+        rhythm_hold_hz = rhythm_now.peak_hz;
+        rhythm_hold_until = now + 500;
+        rhythm_write(rhythm_now.band);
+        return;
+    }
+    if (rhythm_hold_band >= 0 && now < rhythm_hold_until) {
+        rhythm_now.band = rhythm_hold_band;
+        rhythm_now.peak_hz = rhythm_hold_hz;
+        rhythm_write(rhythm_hold_band);
+        return;
+    }
+    rhythm_hold_band = -1;
+    rhythm_write(-1);
+}
+
+/* Strip caption for the last second of the cooked trace. See np_host.h. */
+int np_host_rhythm_label(char *out, int n)
+{
+    rhythm_refresh();
+    if (out && n > 1) {
+        snprintf(out, (size_t)n, "%s", rhythm_text);
+    }
+    return rhythm_kind;
+}
+
 /* Copies up to max summed-magnitude bins. peak_hz, if not NULL, is the peak in Hz.
  * The strip may be up to 80 ms old. Returns the count copied. */
 int np_host_fft(float *dst, int max, int *peak_hz)

@@ -1309,6 +1309,25 @@ Java_com_abysscore_exgc_ExgNative_copyFft(JNIEnv *env, jclass cls, jfloatArray d
     return hz;
 }
 
+/* ExgNative.rhythmLabel. The strip caption: a band and its Hz, or flat, open, or FFT. */
+JNIEXPORT jstring JNICALL
+Java_com_abysscore_exgc_ExgNative_rhythmLabel(JNIEnv *env, jclass cls)
+{
+    char buf[32];
+    (void)cls;
+    np_host_rhythm_label(buf, (int)sizeof(buf));
+    return jstr_from(env, buf);
+}
+
+/* ExgNative.rhythmBand. 0..4 is delta through gamma. -1 flat, -2 open, -3 empty. */
+JNIEXPORT jint JNICALL
+Java_com_abysscore_exgc_ExgNative_rhythmBand(JNIEnv *env, jclass cls)
+{
+    (void)env;
+    (void)cls;
+    return np_host_rhythm_label(NULL, 0);
+}
+
 /* ExgNative.cubeView. Calls np_host_cube_view. */
 JNIEXPORT jint JNICALL
 Java_com_abysscore_exgc_ExgNative_cubeView(JNIEnv *env, jclass cls)

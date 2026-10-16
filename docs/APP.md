@@ -1,4 +1,4 @@
-# App (3.05)
+# App (3.06)
 
 What the host does. The LAN wire is [API.md](API.md).
 
@@ -125,7 +125,7 @@ Per-channel **bias ON** (teal) / **bias off** (dark). Connect sends `RLDADD` or 
 - Off channels are hidden on traces, map, and channel row.
 - The plot corner is a scale bar. Its height is a round µV step at the current amplitude. Its width is a round time step of the window. Settings → View drags amplitude (20 µV–8 mV), window (1–8 s), and UI scale. Cube zoom is a bar on the Cube tab (0.7×–2.8×). Pinch still zooms.
 - **Pause** freezes any channel that already has samples (not only ch 0).
-- FFT marks the **effective** notch only. AUTO with no plate → no 50 Hz sticker.
+- The FFT caption names the strongest rhythm in the last second of the cooked trace, when one tone stands at least twice above its neighbors within 6 Hz. The measured sample rate is used, so the same name is right at 125, 200, 250, and 500 SPS. Delta is 0.5–4 Hz, theta 4–8, alpha 8–13, beta 13–30, gamma 30–100. Gamma stops near half that rate, and at 100 Hz. **flat** means no tone stands out. **open** means the channels are off the head. Mains at 50 and 60 Hz is left out, including a hum the sample rate has folded into a lower bin. The red mark is still the **effective** notch only. AUTO with no plate → no 50 Hz sticker.
 - CLIP on the plot is `|v| > 4000 µV` after the view cook. CAR only skips **rails** (±250000 µV), not 4 mV.
 
 ## Bands

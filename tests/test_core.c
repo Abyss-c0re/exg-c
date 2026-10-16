@@ -758,6 +758,163 @@ static void test_auto_from_cal(void)
     expect(pout < 0.5f * pin, "60 Hz wide notch cuts");
 }
 
+/* A pure tone at sps lands in band, within 1 Hz. */
+static void expect_tone(float sps, float hz, int band, const char *what)
+{
+    float x[512];
+    struct np_rhythm r;
+    char msg[96];
+    synth(x, 512, sps, 0.f, 0.f, hz, 30.f);
+    snprintf(msg, sizeof(msg), "%s names", what);
+    expect(np_rhythm_of(x, 512, sps, &r) == 0, msg);
+    snprintf(msg, sizeof(msg), "%s is %s", what, np_rhythm_name(band));
+    expect(r.band == band && r.peak_hz >= (int)hz - 1 && r.peak_hz <= (int)hz + 1, msg);
+}
+
+/* Mains alone is not a rhythm. */
+static void expect_mains(float sps, float line, const char *what)
+{
+    float x[512];
+    struct np_rhythm r;
+    char msg[96];
+    synth(x, 512, sps, line, 80.f, 0.f, 0.f);
+    snprintf(msg, sizeof(msg), "%s is not a rhythm", what);
+    expect(np_rhythm_of(x, 512, sps, &r) != 0, msg);
+}
+
+/* 10 Hz under a louder mains line stays alpha. */
+static void expect_under(float sps, float line, const char *what)
+{
+    float x[512];
+    struct np_rhythm r;
+    char msg[96];
+    synth(x, 512, sps, line, 80.f, 10.f, 8.f);
+    snprintf(msg, sizeof(msg), "%s keeps alpha", what);
+    expect(np_rhythm_of(x, 512, sps, &r) == 0 && r.band == NP_RHYTHM_ALPHA && r.peak_hz >= 9 &&
+               r.peak_hz <= 11,
+           msg);
+}
+
+/* A pure tone lands in its band. Mains and silence do not. */
+static void test_rhythm(void)
+{
+    float x[512];
+    struct np_rhythm r;
+    int i, k;
+
+    synth(x, 256, 125.f, 0.f, 0.f, 10.f, 30.f);
+    expect(np_rhythm_of(x, 256, 125.f, &r) == 0, "10 Hz names a band");
+    expect(r.band == NP_RHYTHM_ALPHA && r.peak_hz >= 9 && r.peak_hz <= 11, "10 Hz is alpha");
+
+    synth(x, 256, 125.f, 0.f, 0.f, 6.f, 30.f);
+    expect(np_rhythm_of(x, 256, 125.f, &r) == 0, "6 Hz names a band");
+    expect(r.band == NP_RHYTHM_THETA && r.peak_hz >= 5 && r.peak_hz <= 7, "6 Hz is theta");
+
+    synth(x, 256, 125.f, 0.f, 0.f, 2.f, 30.f);
+    expect(np_rhythm_of(x, 256, 125.f, &r) == 0, "2 Hz names a band");
+    expect(r.band == NP_RHYTHM_DELTA && r.peak_hz >= 1 && r.peak_hz <= 3, "2 Hz is delta");
+
+    synth(x, 256, 125.f, 0.f, 0.f, 20.f, 30.f);
+    expect(np_rhythm_of(x, 256, 125.f, &r) == 0, "20 Hz names a band");
+    expect(r.band == NP_RHYTHM_BETA && r.peak_hz >= 18 && r.peak_hz <= 22, "20 Hz is beta");
+
+    synth(x, 256, 125.f, 0.f, 0.f, 40.f, 30.f);
+    expect(np_rhythm_of(x, 256, 125.f, &r) == 0, "40 Hz names a band");
+    expect(r.band == NP_RHYTHM_GAMMA && r.peak_hz >= 38 && r.peak_hz <= 42, "40 Hz is gamma");
+
+    synth(x, 256, 125.f, 50.f, 80.f, 10.f, 8.f);
+    expect(np_rhythm_of(x, 256, 125.f, &r) == 0, "mains does not hide 10 Hz");
+    expect(r.band == NP_RHYTHM_ALPHA, "10 Hz under mains is still alpha");
+
+    synth(x, 256, 125.f, 50.f, 40.f, 0.f, 0.f);
+    expect(np_rhythm_of(x, 256, 125.f, &r) != 0, "mains alone is not a rhythm");
+
+    memset(x, 0, sizeof(x));
+    expect(np_rhythm_of(x, 256, 125.f, &r) != 0, "silence is flat");
+
+    for (i = 0; i < 256; i++) {
+        float t = (float)i / 125.f;
+        float s = 0.f;
+        for (k = 1; k <= 40; k++) {
+            s += (1.f / (float)k) * sinf(2.f * (float)M_PI * (float)k * t);
+        }
+        x[i] = s;
+    }
+    expect(np_rhythm_of(x, 256, 125.f, &r) != 0, "smooth spectrum is flat");
+
+    synth(x, 512, 500.f, 0.f, 0.f, 10.f, 25.f);
+    expect(np_rhythm_of(x, 512, 500.f, &r) == 0, "500 SPS 10 Hz names a band");
+    expect(r.band == NP_RHYTHM_ALPHA && r.peak_hz >= 9 && r.peak_hz <= 11, "500 SPS 10 Hz is alpha");
+
+    synth(x, 512, 500.f, 0.f, 0.f, 6.f, 25.f);
+    expect(np_rhythm_of(x, 512, 500.f, &r) == 0, "500 SPS 6 Hz names a band");
+    expect(r.band == NP_RHYTHM_THETA && r.peak_hz >= 5 && r.peak_hz <= 7, "500 SPS 6 Hz is theta");
+
+    /* Measured rate, not the 125/200/250/500 snap. 160 SPS is still the 125 window. */
+    expect(np_rhythm_length(125.f) == 128, "length at 125");
+    expect(np_rhythm_length(200.f) == 256, "length at 200");
+    expect(np_rhythm_length(250.f) == 256, "length at 250");
+    expect(np_rhythm_length(500.f) == 512, "length at 500");
+    expect(np_rhythm_length(224.f) == 256, "length at 224");
+    expect(np_rhythm_length(225.f) == 256, "length at 225");
+    expect(np_rhythm_length(420.f) == 512, "length at 420");
+    {
+        static const float rates[] = {125.f, 160.f, 200.f, 224.f, 225.f, 250.f, 420.f, 500.f, 560.f};
+        static const float tones[] = {2.f, 6.f, 10.f, 20.f, 40.f};
+        static const int bands[] = {NP_RHYTHM_DELTA, NP_RHYTHM_THETA, NP_RHYTHM_ALPHA, NP_RHYTHM_BETA,
+                                    NP_RHYTHM_GAMMA};
+        int ri, ti;
+        for (ri = 0; ri < (int)(sizeof(rates) / sizeof(rates[0])); ri++) {
+            char msg[96];
+            float sps = rates[ri];
+            int nfft = np_rhythm_length(sps);
+            float dur = (float)nfft / sps;
+            /* 560 SPS stays on the 512-point cap, so that window is a little under a second. */
+            if (sps <= 500.f) {
+                snprintf(msg, sizeof(msg), "window near 1 s at %.0f", sps);
+                expect(dur >= 1.f && dur <= 1.61f, msg);
+            }
+            for (ti = 0; ti < 5; ti++) {
+                snprintf(msg, sizeof(msg), "%.0f SPS %.0f Hz", sps, tones[ti]);
+                expect_tone(sps, tones[ti], bands[ti], msg);
+            }
+            snprintf(msg, sizeof(msg), "%.0f SPS 50 Hz", sps);
+            expect_mains(sps, 50.f, msg);
+            snprintf(msg, sizeof(msg), "%.0f SPS 60 Hz", sps);
+            expect_mains(sps, 60.f, msg);
+            snprintf(msg, sizeof(msg), "%.0f SPS 10 under 50", sps);
+            expect_under(sps, 50.f, msg);
+            snprintf(msg, sizeof(msg), "%.0f SPS 10 under 60", sps);
+            expect_under(sps, 60.f, msg);
+        }
+        expect_tone(200.f, 90.f, NP_RHYTHM_GAMMA, "200 SPS 90 Hz");
+        expect_tone(250.f, 90.f, NP_RHYTHM_GAMMA, "250 SPS 90 Hz");
+        expect_tone(500.f, 90.f, NP_RHYTHM_GAMMA, "500 SPS 90 Hz");
+        expect_tone(204.8f, 10.f, NP_RHYTHM_ALPHA, "204.8 SPS 10 Hz");
+        expect_under(204.8f, 60.f, "204.8 SPS 10 under 60");
+        /* 60 Hz sampled at 100 SPS is 40 Hz in the data. That alias is still mains. */
+        expect_mains(100.f, 60.f, "100 SPS folded 60 Hz");
+        for (i = 0; i < 512; i++) {
+            float t = (float)i / 200.f;
+            float s = 0.f;
+            for (k = 1; k <= 40; k++) {
+                s += (1.f / (float)k) * sinf(2.f * (float)M_PI * (float)k * t);
+            }
+            x[i] = s;
+        }
+        expect(np_rhythm_of(x, 512, 200.f, &r) != 0, "smooth spectrum at 200 is flat");
+        for (i = 0; i < 512; i++) {
+            float t = (float)i / 500.f;
+            float s = 0.f;
+            for (k = 1; k <= 40; k++) {
+                s += (1.f / (float)k) * sinf(2.f * (float)M_PI * (float)k * t);
+            }
+            x[i] = s;
+        }
+        expect(np_rhythm_of(x, 512, 500.f, &r) != 0, "smooth spectrum at 500 is flat");
+    }
+}
+
 /* Root mean square. n of 0 returns 0. */
 static float rms_of(const float *x, int n)
 {
@@ -2249,7 +2406,7 @@ static void test_stamp(void)
     np_api_stamp_reset();
 }
 
-/* EXG1 layout, loopback HTTP, UDP subscribe, TCP framing, and the 3.05 version string. */
+/* EXG1 layout, loopback HTTP, UDP subscribe, TCP framing, and the 3.06 version string. */
 static void test_api(void)
 {
     struct np_api_sample a, b;
@@ -2370,7 +2527,7 @@ static void test_api(void)
          strstr(body, "/stream") && strstr(body, "EXG1");
     expect(ok, "api GET / index lists stream");
     expect(strstr(body, "stream.json") == NULL, "api index has no NDJSON live path");
-    expect(strstr(body, "\"v\":\"3.05\"") != NULL, "api index version 3.05");
+    expect(strstr(body, "\"v\":\"3.06\"") != NULL, "api index version 3.06");
     expect(strstr(body, "/pair") != NULL, "api index lists /pair");
     expect(strstr(body, "\"ip\":\"127.0.0.1\"") != NULL, "api local ip is loopback");
     {
@@ -2521,6 +2678,7 @@ int main(void)
     test_rate_and_flash();
     test_ring();
     test_auto_from_cal();
+    test_rhythm();
     test_ml_harness();
     test_plate_destroy();
     test_nplearn();

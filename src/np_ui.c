@@ -520,22 +520,48 @@ static void draw_waves(int x, int y, int w, int h)
 }
 
 
-/* Bars of fft_hold across FFT_STRIP_BINS; the caption is "FFT  open" when used equals open_n, and used 0 draws the caption only.
+/* Gray for flat, open, and FFT. A named band takes its own tint. */
+static void rhythm_rgb(int kind, int *r, int *g, int *b)
+{
+    *r = 160;
+    *g = 168;
+    *b = 180;
+    if (kind == NP_RHYTHM_DELTA) {
+        *r = 176;
+        *g = 150;
+        *b = 214;
+    } else if (kind == NP_RHYTHM_THETA) {
+        *r = 72;
+        *g = 196;
+        *b = 168;
+    } else if (kind == NP_RHYTHM_ALPHA) {
+        *r = 120;
+        *g = 196;
+        *b = 230;
+    } else if (kind == NP_RHYTHM_BETA) {
+        *r = 220;
+        *g = 186;
+        *b = 96;
+    } else if (kind == NP_RHYTHM_GAMMA) {
+        *r = 230;
+        *g = 230;
+        *b = 240;
+    }
+}
+
+/* Bars of fft_hold across FFT_STRIP_BINS. The caption is the dominant rhythm of the last second.
  * The mark is 60 Hz when notch_hz is 60, otherwise 50; the peak floor is 1e-12 and each bar is at least 1 px. */
 static void draw_fft(int x, int y, int w, int h)
 {
-    int i, used, open_n;
-    char cap[56];
+    int i, used;
+    int kind, rr, gg, bb;
+    char cap[32];
     fft_refresh();
     used = fft_used;
-    open_n = fft_open;
     fill(x, y, w, h, 10, 12, 16);
-    if (open_n && used == open_n) {
-        snprintf(cap, sizeof(cap), "FFT  open");
-    } else {
-        snprintf(cap, sizeof(cap), "FFT");
-    }
-    text(x + 6, y + 4, cap, 160, 168, 180, 1);
+    kind = np_host_rhythm_label(cap, (int)sizeof(cap));
+    rhythm_rgb(kind, &rr, &gg, &bb);
+    text(x + 6, y + 4, cap, rr, gg, bb, 1);
     if (used) {
         float peak = 1e-12f;
         int bins = FFT_STRIP_BINS;
@@ -578,8 +604,6 @@ static void draw_fft(int x, int y, int w, int h)
         {
             char hz[24];
             int mark_hz = g.notch_hz == 60 ? 60 : 50;
-            snprintf(hz, sizeof(hz), "%d Hz", fft_peak_hz);
-            text(x + w - 52, y + 4, hz, 180, 200, 210, 1);
             snprintf(hz, sizeof(hz), "%d Hz", mark_hz);
             text(x + w / 2 - 16, y + 4, hz, 224, 80, 80, 1);
         }
@@ -1600,6 +1624,7 @@ static const char *k_help[] = {
     "CSV  raw file. Stop CSV ends it.",
     "Take  longer recording. keep saves.",
     "PAUSED / live  hold the plot.",
+    "FFT  strongest rhythm this second, at any rate, or flat.",
     "# Filters",
     "band  raw, line-kill, EEG, EMG.",
     "detrend / raw DC  drift or offset.",

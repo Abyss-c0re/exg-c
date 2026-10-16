@@ -7,14 +7,15 @@ import android.util.AttributeSet;
 import android.util.DisplayMetrics;
 import android.view.View;
 
-/** Thin 128-pt strip FFT. Marker only at the effective notch. */
+/** Thin 128-pt strip. The caption names the dominant rhythm of the last second. The red mark is the effective notch. */
 public class FftView extends View {
     private static final int NBINS = 64;
     private final float[] mag = new float[NBINS];
     private final Paint bar = new Paint();
     private final Paint mark = new Paint();
     private final Paint lab = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private int peakHz;
+    private String rhythm = "FFT";
+    private int rhythmKind = -3;
     private int markHz;
     private float sps = 125f;
     private float labelMul = 1f;
@@ -63,16 +64,37 @@ public class FftView extends View {
         lab.setTextSize(11f * labelMul * sd);
     }
 
-    /** While paused, keeps the last bins and still requests a redraw. Otherwise copies up to 64 bins, the effective notch in Hz, and measured SPS, using 125 when SPS is at most 1. */
+    /** While paused, keeps the last bins and still requests a redraw. Otherwise copies up to 64 bins, the rhythm caption, the effective notch in Hz, and measured SPS, using 125 when SPS is at most 1. */
     public void pull() {
         frozen = ExgNative.paused();
         if (!frozen) {
-            peakHz = ExgNative.copyFft(mag);
+            ExgNative.copyFft(mag);
+            String s = ExgNative.rhythmLabel();
+            rhythm = (s == null || s.length() == 0) ? "FFT" : s;
+            rhythmKind = ExgNative.rhythmBand();
             markHz = ExgNative.notchEff();
-            float s = ExgNative.sps();
-            sps = s > 1f ? s : 125f;
+            float rate = ExgNative.sps();
+            sps = rate > 1f ? rate : 125f;
         }
         postInvalidateOnAnimation();
+    }
+
+    /** Caption tint. Flat, open, and FFT stay gray. */
+    private int rhythmColor(int kind) {
+        switch (kind) {
+            case 0:
+                return 0xFFB096D6;
+            case 1:
+                return 0xFF48C4A8;
+            case 2:
+                return 0xFF78C4E6;
+            case 3:
+                return 0xFFDCBA60;
+            case 4:
+                return 0xFFE6E6F0;
+            default:
+                return 0xFFB8C0CC;
+        }
     }
 
     /** Returns if either side is under 8 px. Bar height is magnitude over the peak, and the notch marker is omitted when the effective notch is 1 Hz or less. */
@@ -118,11 +140,11 @@ public class FftView extends View {
             bar.setColor(i == markBin ? 0xFFE05050 : 0xFF46AADC);
             c.drawRect(x, h - bh, x + barW, h, bar);
         }
-        String cap = peakHz > 0 ? ("FFT  " + peakHz + " Hz") : "FFT";
+        String cap = rhythm;
         if (frozen) {
             cap = cap + "  FROZEN";
         }
-        lab.setColor(0xFFB8C0CC);
+        lab.setColor(rhythmColor(rhythmKind));
         c.drawText(cap, pad, baseline, lab);
         if (markHz > 1) {
             lab.setColor(0xFFE05050);

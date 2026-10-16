@@ -114,6 +114,320 @@ void np_fft_mag(const float *in, int n, float *mag)
     }
 }
 
+/* 0.5–4 delta, 4–8 theta, 8–13 alpha, 13–30 beta, 30–100 gamma. Outside that is -1. */
+static int rhythm_band(float hz)
+{
+    if (hz < 0.5f || hz >= 100.f) {
+        return -1;
+    }
+    if (hz < 4.f) {
+        return NP_RHYTHM_DELTA;
+    }
+    if (hz < 8.f) {
+        return NP_RHYTHM_THETA;
+    }
+    if (hz < 13.f) {
+        return NP_RHYTHM_ALPHA;
+    }
+    if (hz < 30.f) {
+        return NP_RHYTHM_BETA;
+    }
+    return NP_RHYTHM_GAMMA;
+}
+
+/* Power-of-two length for about one second at sps, from 64 to 512. 0 if sps is below 8. */
+int np_rhythm_length(float sps)
+{
+    int want, n;
+    if (sps < 8.f) {
+        return 0;
+    }
+    want = (int)(sps + 0.5f);
+    if (want < 64) {
+        want = 64;
+    }
+    n = 64;
+    while (n < want && n < NP_RHYTHM_FFT) {
+        n <<= 1;
+    }
+    return n;
+}
+
+/* Adds the power spectrum of the newest nfft samples into score[0 .. nfft/2). nfft is np_rhythm_length. Returns 0, or -1 when the window is shorter than nfft or score_n is under nfft/2. */
+int np_rhythm_accum(const float *x, int n, float sps, int nfft, float *score, int score_n)
+{
+    float re[NP_RHYTHM_FFT], im[NP_RHYTHM_FFT], tmp[NP_RHYTHM_FFT];
+    int i;
+    (void)sps;
+    if (!x || !score || nfft < 64 || nfft > NP_RHYTHM_FFT || n < nfft || score_n < nfft / 2) {
+        return -1;
+    }
+    memcpy(tmp, x + (n - nfft), (size_t)nfft * sizeof(float));
+    np_detrend(tmp, nfft);
+    for (i = 0; i < nfft; i++) {
+        float w = 0.5f - 0.5f * cosf(2.f * (float)M_PI * (float)i / (float)(nfft - 1));
+        re[i] = tmp[i] * w;
+        im[i] = 0.f;
+    }
+    fft_inplace(re, im, nfft, 0);
+    for (i = 0; i < nfft / 2; i++) {
+        score[i] += re[i] * re[i] + im[i] * im[i];
+    }
+    return 0;
+}
+
+/* Fold hz into 0 .. sps/2. A 60 Hz hum sampled at 100 SPS lands at 40 Hz. */
+static float rhythm_fold(float hz, float sps)
+{
+    float f;
+    if (sps <= 1.f) {
+        return hz;
+    }
+    f = fmodf(hz, sps);
+    if (f < 0.f) {
+        f += sps;
+    }
+    if (f > sps * 0.5f) {
+        f = sps - f;
+    }
+    return f;
+}
+
+/* 1 when hz is within 4 Hz of 50 or of 60, or of that line after the sample rate folds it.
+ * The Hann lobe of a mains tone is wider than one bin. */
+static int rhythm_mains(float hz, float sps)
+{
+    float hole[4];
+    int i;
+    hole[0] = 50.f;
+    hole[1] = 60.f;
+    hole[2] = rhythm_fold(50.f, sps);
+    hole[3] = rhythm_fold(60.f, sps);
+    for (i = 0; i < 4; i++) {
+        float d = hz - hole[i];
+        if (d < 0.f) {
+            d = -d;
+        }
+        if (d <= 4.f) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* 1 when this bin shares a Hann lobe with its neighbor. The other half is at least
+ * 35% of this bin, and the bin past that has fallen under 5%. A smooth spectrum
+ * does not cliff between those two bins. */
+static int rhythm_split(const float *score, int i, int nbin)
+{
+    float peak, side, skirt;
+    peak = score[i];
+    side = 0.f;
+    skirt = 0.f;
+    if (peak <= 1e-20f) {
+        return 0;
+    }
+    if (i - 1 >= 1 && score[i - 1] > side) {
+        side = score[i - 1];
+    }
+    if (i + 1 < nbin && score[i + 1] > side) {
+        side = score[i + 1];
+    }
+    if (side < peak * 0.35f) {
+        return 0;
+    }
+    if (i - 2 >= 1 && score[i - 2] > skirt) {
+        skirt = score[i - 2];
+    }
+    if (i + 2 < nbin && score[i + 2] > skirt) {
+        skirt = score[i + 2];
+    }
+    return skirt < peak * 0.05f;
+}
+
+/* power / (the 1/f line fitted to the neighbor bins). 0 when fewer than 3 neighbors have power. */
+static float rhythm_prominence(float hz, float power, const float *nf, const float *npow, int nc)
+{
+    double sx = 0, sy = 0, sxx = 0, sxy = 0, den, a, b, pred;
+    int i, m = 0;
+    if (power <= 1e-20f) {
+        return 0.f;
+    }
+    for (i = 0; i < nc; i++) {
+        double x, y;
+        if (npow[i] <= 1e-20f || nf[i] <= 0.f) {
+            continue;
+        }
+        x = log((double)nf[i]);
+        y = log((double)npow[i]);
+        sx += x;
+        sy += y;
+        sxx += x * x;
+        sxy += x * y;
+        m++;
+    }
+    if (m < 3) {
+        return 0.f;
+    }
+    den = (double)m * sxx - sx * sx;
+    if (den < 1e-12 && den > -1e-12) {
+        pred = exp(sy / (double)m);
+    } else {
+        b = ((double)m * sxy - sx * sy) / den;
+        a = (sy - b * sx) / (double)m;
+        pred = exp(a + b * log((double)hz));
+    }
+    if (pred <= 1e-20) {
+        return 0.f;
+    }
+    return (float)((double)power / pred);
+}
+
+/* Names the tone that stands at least twice above a 1/f fit of the bins within 6 Hz.
+ * A lobe split across two bins still counts: at some rates 2 Hz falls between bins
+ * and each half loses the fit. 50 Hz and 60 Hz, ±4 Hz, are left out, including where
+ * the sample rate folds them. A null out returns. A flat window leaves band at -1
+ * and peak_hz at 0. */
+void np_rhythm_finish(const float *score, int nfft, float sps, struct np_rhythm *out)
+{
+    int i, nbin, best_i;
+    float ceiling, best_ratio, nyq, hz;
+    if (!out) {
+        return;
+    }
+    out->band = -1;
+    out->peak_hz = 0;
+    if (!score || nfft < 64 || sps < 8.f) {
+        return;
+    }
+    nbin = nfft / 2;
+    nyq = sps * 0.45f;
+    if (nyq > 100.f) {
+        nyq = 100.f;
+    }
+    ceiling = 0.f;
+    for (i = 1; i < nbin; i++) {
+        if (score[i] > ceiling) {
+            ceiling = score[i];
+        }
+    }
+    if (ceiling <= 1e-20f) {
+        return;
+    }
+    best_i = -1;
+    best_ratio = 0.f;
+    for (i = 1; i < nbin; i++) {
+        float f = (float)i * sps / (float)nfft;
+        float nf[32], npow[32];
+        float ratio, gate;
+        int k, nc;
+        if (f < 0.5f || f >= nyq || rhythm_mains(f, sps)) {
+            continue;
+        }
+        /* A Hann sidelobe stays under about 1% of the loudest tone. A real tone
+         * that falls between bins splits that power, so the gate uses the lobe. */
+        gate = score[i];
+        if (i - 1 >= 1) {
+            gate += score[i - 1];
+        }
+        if (i + 1 < nbin) {
+            gate += score[i + 1];
+        }
+        if (gate < ceiling * 0.008f) {
+            continue;
+        }
+        if (i > 1 && score[i] < score[i - 1]) {
+            continue;
+        }
+        if (i + 1 < nbin && score[i] < score[i + 1]) {
+            continue;
+        }
+        nc = 0;
+        for (k = 1; k < nbin && nc < 32; k++) {
+            float fk = (float)k * sps / (float)nfft;
+            int d = k - i;
+            if (d < 0) {
+                d = -d;
+            }
+            if (d < 2 || fk < 0.5f || fk >= nyq || rhythm_mains(fk, sps)) {
+                continue;
+            }
+            if (fk - f > 6.f || f - fk > 6.f) {
+                continue;
+            }
+            nf[nc] = fk;
+            npow[nc] = score[k];
+            nc++;
+        }
+        ratio = rhythm_prominence(f, score[i], nf, npow, nc);
+        /* The louder split lobe wins over a weaker one. A real fit above 2 still ranks higher. */
+        if (ratio < 2.f && rhythm_split(score, i, nbin)) {
+            ratio = 2.f + gate / ceiling;
+        }
+        if (ratio > best_ratio) {
+            best_ratio = ratio;
+            best_i = i;
+        }
+    }
+    if (best_i < 0 || best_ratio < 2.f) {
+        return;
+    }
+    hz = (float)best_i * sps / (float)nfft;
+    {
+        double sw = 0, sh = 0;
+        int k;
+        for (k = 1; k < nbin; k++) {
+            float fk = (float)k * sps / (float)nfft;
+            float ad = fk > hz ? fk - hz : hz - fk;
+            if (ad > 2.5f || score[k] < score[best_i] * 0.35f) {
+                continue;
+            }
+            sw += (double)score[k];
+            sh += (double)score[k] * (double)fk;
+        }
+        if (sw > 0.0) {
+            hz = (float)(sh / sw);
+        }
+    }
+    out->peak_hz = (int)(hz + 0.5f);
+    out->band = rhythm_band(hz);
+    if (out->band < 0) {
+        out->peak_hz = 0;
+    }
+}
+
+/* One channel, about one second. 0 when a band is named, -1 when the window is flat or short. A null out returns -1. */
+int np_rhythm_of(const float *x, int n, float sps, struct np_rhythm *out)
+{
+    float score[NP_RHYTHM_FFT / 2];
+    int nfft;
+    if (!out) {
+        return -1;
+    }
+    out->band = -1;
+    out->peak_hz = 0;
+    nfft = np_rhythm_length(sps);
+    if (nfft < 64) {
+        return -1;
+    }
+    memset(score, 0, sizeof(score));
+    if (np_rhythm_accum(x, n, sps, nfft, score, NP_RHYTHM_FFT / 2) != 0) {
+        return -1;
+    }
+    np_rhythm_finish(score, nfft, sps, out);
+    return out->band >= 0 ? 0 : -1;
+}
+
+/* delta, theta, alpha, beta, or gamma. Any other id returns "flat". */
+const char *np_rhythm_name(int band)
+{
+    static const char *names[NP_RHYTHM_N] = {"delta", "theta", "alpha", "beta", "gamma"};
+    if (band < 0 || band >= NP_RHYTHM_N) {
+        return "flat";
+    }
+    return names[band];
+}
+
 /* Hann PSD, hop 128, mean power into NP_PSD_BINS. A null x or n below 256 leaves zeros. */
 void np_welch_psd(const float *x, int n, float *psd)
 {

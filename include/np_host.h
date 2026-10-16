@@ -384,6 +384,8 @@ int np_host_csv_begin(const char *path);
 int np_host_csv_begin_fd(int fd, const char *name);
 /* 128-pt strip FFT, 64 bins. Fills dst[0..n), writes peak Hz. */
 int np_host_fft(float *dst, int max, int *peak_hz);
+/* Strip caption for the last second of the cooked trace. Writes "theta  6 Hz" when one tone stands out, "open" when every channel is off the head, "flat" when a live window has no tone, or "FFT" when there is nothing to measure yet. Returns the band 0..4, or -1 flat, -2 open, -3 empty. A null out only returns the code. */
+int np_host_rhythm_label(char *out, int n);
 
 /* Last IMU sample, ring units. 0 if this board sent no IMU. */
 int np_host_imu(float acc[3], float gyr[3], float mag[3]);

@@ -1121,6 +1121,7 @@ public class ExgActivity extends Activity {
                 + helpRow("ID / MATCH", "Names the live second when one saved pattern wins. With saved takes the button reads ID. With none it reads MATCH.")
                 + helpRow("CSV", "Raw file of the live channels. Stop CSV ends it.")
                 + helpRow("Pause", "Holds the plot. The board keeps running.")
+                + helpRow("FFT", "Names the strongest rhythm in the last second: delta 0.5–4 Hz, theta 4–8, alpha 8–13, beta 13–30, gamma 30–100. The same test follows the measured sample rate, and gamma stops near half that rate. Flat means no tone stands out. The red mark is the mains notch.")
                 + helpRow("Take", "Longer recording. Compare it on Takes. Stop ends the take.")
                 + helpRow("Compare line", "Scores the live take against the one you picked. A different montage (NEG RAIL versus bias RLD) refuses the score.")
                 + helpSec("Filters")

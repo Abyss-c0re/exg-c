@@ -28,6 +28,32 @@ struct np_lp {
 
 /* Magnitude of a forward FFT. n above 256 is clipped to 256, and n must be a power of two. mag[i] is |bin i| / n for the first n/2 bins. */
 void np_fft_mag(const float *in, int n, float *mag);
+
+/* One-second rhythm. Edges are half-open: 4 Hz is theta, 8 is alpha, 13 is beta, 30 is gamma. */
+#define NP_RHYTHM_FFT 512
+#define NP_RHYTHM_DELTA 0
+#define NP_RHYTHM_THETA 1
+#define NP_RHYTHM_ALPHA 2
+#define NP_RHYTHM_BETA 3
+#define NP_RHYTHM_GAMMA 4
+#define NP_RHYTHM_N 5
+
+/* band is -1 when no tone stands out. peak_hz is 0 in that case. */
+struct np_rhythm {
+    int band;
+    int peak_hz;
+};
+
+/* Power-of-two length for about one second at sps, from 64 to 512. 0 if sps is below 8. */
+int np_rhythm_length(float sps);
+/* Adds the power spectrum of the newest nfft samples into score[0 .. nfft/2). nfft is np_rhythm_length. Returns 0, or -1 when the window is shorter than nfft or score_n is under nfft/2. */
+int np_rhythm_accum(const float *x, int n, float sps, int nfft, float *score, int score_n);
+/* Names the tone that stands at least twice above a 1/f fit of the bins within 6 Hz. A lobe split across two bins still counts. 50 Hz and 60 Hz, ±4 Hz, are left out, including where the sample rate folds them. A null out returns. A flat window leaves band at -1 and peak_hz at 0. */
+void np_rhythm_finish(const float *score, int nfft, float sps, struct np_rhythm *out);
+/* One channel, about one second. 0 when a band is named, -1 when the window is flat or short. A null out returns -1. */
+int np_rhythm_of(const float *x, int n, float sps, struct np_rhythm *out);
+/* delta, theta, alpha, beta, or gamma. Any other id returns "flat". */
+const char *np_rhythm_name(int band);
 /* Hann PSD, hop 128, mean power into NP_PSD_BINS. A null x or n below 256 leaves zeros. */
 void np_welch_psd(const float *x, int n, float *psd);
 /* Median of bins 2..end — Wiener threshold, not the mean (DC tails lie). */

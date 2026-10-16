@@ -31,6 +31,8 @@ void peers_flush(void);
 int host_grant_ok(const char *grant);
 /* Snapshot path (learn / CAL). Own poles — must not smash the live IIR. */
 void apply_filt(int ch, float *buf, uint32_t n);
+/* Newest n cooked µV for ch, oldest first. Holds live_mu. No Wiener step. Returns the count, which may be less than n. ch is not bounds-checked. */
+uint32_t cook_copy(int ch, float *dst, uint32_t n);
 /* In-place cook of a copied window: HP, notch, CAR, LP, detrend, envelope. want is unused. Skips a channel under 16 samples. Does not touch the live IIR. */
 void cook_all(float buf[NP_NCHAN][NP_RING], uint32_t nn[NP_NCHAN], uint32_t want);
 /* ID cook: EXG after shared floor. Not the display envelope. */
